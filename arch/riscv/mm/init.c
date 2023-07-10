@@ -162,6 +162,7 @@ void __init mem_init(void)
 #ifdef CONFIG_FLATMEM
 	BUG_ON(!mem_map);
 #endif /* CONFIG_FLATMEM */
+    pr_notice("[guest] mem_init\n");
 
 	swiotlb_init(max_pfn > PFN_DOWN(dma32_phys_limit), SWIOTLB_VERBOSE);
 	memblock_free_all();
@@ -194,6 +195,8 @@ static void __init setup_bootmem(void)
 	phys_addr_t max_mapped_addr;
 	phys_addr_t phys_ram_end, vmlinux_start;
 
+    pr_notice("[guest] setup_bootmem\n");
+
 	if (IS_ENABLED(CONFIG_XIP_KERNEL))
 		vmlinux_start = __pa_symbol(&_sdata);
 	else
@@ -212,17 +215,20 @@ static void __init setup_bootmem(void)
 	 * Reserve from the start of the kernel to the end of the kernel
 	 */
 	memblock_reserve(vmlinux_start, vmlinux_end - vmlinux_start);
+    pr_notice("\t[setup_bootmem] vmlinux_start : 0x%llx, vmlinux_end : 0x%llx\n", vmlinux_start,  vmlinux_end);
 
 	phys_ram_end = memblock_end_of_DRAM();
 	if (!IS_ENABLED(CONFIG_XIP_KERNEL))
 		phys_ram_base = memblock_start_of_DRAM();
 
+    pr_notice("\t[setup_bootmem] phys_ram_base: 0x%llx, phys_ram_end : 0x%llx\n", phys_ram_base,  phys_ram_end);
 	/*
 	 * In 64-bit, any use of __va/__pa before this point is wrong as we
 	 * did not know the start of DRAM before.
 	 */
 	if (IS_ENABLED(CONFIG_64BIT))
 		kernel_map.va_pa_offset = PAGE_OFFSET - phys_ram_base;
+    pr_notice("\t[setup_bootmem] va_pa_offset : 0x%llx\n", kernel_map.va_pa_offset);
 
 	/*
 	 * memblock allocator is not aware of the fact that last 4K bytes of
@@ -242,6 +248,7 @@ static void __init setup_bootmem(void)
 	min_low_pfn = PFN_UP(phys_ram_base);
 	max_low_pfn = max_pfn = PFN_DOWN(phys_ram_end);
 	high_memory = (void *)(__va(PFN_PHYS(max_low_pfn)));
+    pr_notice("\t[setup_bootmem] min_low_pfn : 0x%llx, max_low_pfn : 0x%llx, high_memory : 0x%llx\n", min_low_pfn, max_low_pfn, high_memory);
 
 	dma32_phys_limit = min(4UL * SZ_1G, (unsigned long)PFN_PHYS(max_low_pfn));
 	set_max_mapnr(max_low_pfn - ARCH_PFN_OFFSET);
@@ -906,13 +913,20 @@ static void __init create_kernel_page_table(pgd_t *pgdir, bool early)
 {
 	uintptr_t va, end_va;
 
+    if(early == false)
+        pr_notice("[guest] create_kernel_page_table\n");
+
 	end_va = kernel_map.virt_addr + kernel_map.size;
-	for (va = kernel_map.virt_addr; va < end_va; va += PMD_SIZE)
+	for (va = kernel_map.virt_addr; va < end_va; va += PMD_SIZE) {
+        if(early == false)
+            pr_notice("\t[create_kernel_page_table] va : 0x%llx, pa : 0x%llx, size : 0x%llx\n", va, kernel_map.phys_addr + (va - kernel_map.virt_addr), PMD_SIZE);
 		create_pgd_mapping(pgdir, va,
 				   kernel_map.phys_addr + (va - kernel_map.virt_addr),
 				   PMD_SIZE,
 				   early ?
 					PAGE_KERNEL_EXEC : pgprot_from_va(va));
+
+    }
 }
 #endif
 
@@ -1019,6 +1033,7 @@ asmlinkage void __init setup_vm(uintptr_t dtb_pa)
 
 	kernel_map.virt_addr = KERNEL_LINK_ADDR;
 	kernel_map.page_offset = _AC(CONFIG_PAGE_OFFSET, UL);
+
 
 #ifdef CONFIG_XIP_KERNEL
 	kernel_map.xiprom = (uintptr_t)CONFIG_XIP_PHYS_ADDR;
@@ -1175,13 +1190,14 @@ static void __init create_linear_mapping_range(phys_addr_t start,
 	phys_addr_t pa;
 	uintptr_t va, map_size;
 
+    pr_notice("[guest] create_linear_mapping_range\n");
 	for (pa = start; pa < end; pa += map_size) {
 		va = (uintptr_t)__va(pa);
 		map_size = fixed_map_size ? fixed_map_size :
 					    best_map_size(pa, va, end - pa);
-
 		create_pgd_mapping(swapper_pg_dir, va, pa, map_size,
 				   pgprot_from_va(va));
+        pr_notice("\t[create_linear_mapping_range] va : 0x%llx, pa : 0x%llx, map_size : 0x%llx\n", va, pa, map_size);
 	}
 }
 
@@ -1190,6 +1206,8 @@ static void __init create_linear_mapping_page_table(void)
 	phys_addr_t start, end;
 	phys_addr_t kfence_pool __maybe_unused;
 	u64 i;
+
+    pr_notice("[guest] create_linear_mapping_page_table\n");
 
 #ifdef CONFIG_STRICT_KERNEL_RWX
 	phys_addr_t ktext_start = __pa_symbol(_start);
@@ -1200,6 +1218,9 @@ static void __init create_linear_mapping_page_table(void)
 	/* Isolate kernel text and rodata so they don't get mapped with a PUD */
 	memblock_mark_nomap(ktext_start,  ktext_size);
 	memblock_mark_nomap(krodata_start, krodata_size);
+
+    pr_notice("\t[create_linear_mapping_page_table] ktext_s : 0x%llx, ktext_e : 0x%llx, kro_s : 0x%llx, kro_e : 0x%llx\n",\
+            ktext_start, ktext_start+ktext_size, krodata_start, krodata_start + krodata_size);
 #endif
 
 #ifdef CONFIG_KFENCE
@@ -1259,9 +1280,11 @@ static void __init setup_vm_final(void)
 
 	set_pgd(&swapper_pg_dir[idx], early_pg_dir[idx]);
 #endif
+    pr_notice("[guest] setup_vm_final\n");
 	create_pgd_mapping(swapper_pg_dir, FIXADDR_START,
 			   __pa_symbol(fixmap_pgd_next),
 			   PGDIR_SIZE, PAGE_TABLE);
+    pr_notice("\t[setup_vm_final] pgd mapping created va : 0x%llx, pa : 0x%llx size : 0x%llx\n", FIXADDR_START, __pa_symbol(fixmap_pgd_next), PGDIR_SIZE);
 
 	/* Map the linear mapping */
 	create_linear_mapping_page_table();
@@ -1281,7 +1304,9 @@ static void __init setup_vm_final(void)
 	clear_fixmap(FIX_P4D);
 
 	/* Move to swapper page table */
+    pr_notice("[guest] satp : 0x%llx\n", csr_read(CSR_SATP));
 	csr_write(CSR_SATP, PFN_DOWN(__pa_symbol(swapper_pg_dir)) | satp_mode);
+    pr_notice("[guest] satp : 0x%llx\n", csr_read(CSR_SATP));
 	local_flush_tlb_all();
 
 	pt_ops_set_late();
@@ -1368,12 +1393,16 @@ static void __init reserve_crashkernel(void)
 
 void __init paging_init(void)
 {
+    pr_notice("[guest] paging_init\n");
 	setup_bootmem();
+    pr_notice("[guest] end setup_bootmem\n");
 	setup_vm_final();
+    pr_notice("[guest] end setup_vm_final\n");
 }
 
 void __init misc_mem_init(void)
 {
+    pr_notice("[guest] misc_mem_init\n");
 	early_memtest(min_low_pfn << PAGE_SHIFT, max_low_pfn << PAGE_SHIFT);
 	arch_numa_init();
 	sparse_init();

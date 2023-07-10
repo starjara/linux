@@ -1518,6 +1518,8 @@ static void * __init memblock_alloc_internal(
 {
 	phys_addr_t alloc;
 
+    pr_notice("[guest] memblock_alloc_internal\n");
+
 	/*
 	 * Detect any accidental use of these APIs after slab is ready, as at
 	 * this moment memblock may be deinitialized already and its
@@ -1539,6 +1541,8 @@ static void * __init memblock_alloc_internal(
 
 	if (!alloc)
 		return NULL;
+
+    pr_notice("\t[memblock_alloc_internal] phys : 0x%llx, virt : 0x%llx\n", alloc, phys_to_virt(alloc));
 
 	return phys_to_virt(alloc);
 }
@@ -2158,6 +2162,8 @@ void __init reset_all_zones_managed_pages(void)
 void __init memblock_free_all(void)
 {
 	unsigned long pages;
+
+    pr_notice("[guest] memblock_free_all\n");
 
 	free_unused_memmap();
 	reset_all_zones_managed_pages();

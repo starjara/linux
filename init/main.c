@@ -878,6 +878,8 @@ asmlinkage __visible void __init __no_sanitize_address __noreturn start_kernel(v
 	char *command_line;
 	char *after_dashes;
 
+    pr_notice("[guest] start_kernel\n");
+
 	set_task_stack_end_magic(&init_task);
 	smp_setup_processor_id();
 	debug_objects_early_init();
@@ -1440,6 +1442,7 @@ static int __ref kernel_init(void *unused)
 {
 	int ret;
 
+    pr_info("[guest] free_initmem\n");
 	/*
 	 * Wait until kthreadd is all set-up.
 	 */

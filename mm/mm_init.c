@@ -2718,6 +2718,7 @@ static void __init mem_init_print_info(void)
  */
 void __init mm_core_init(void)
 {
+    pr_info("[guest] mm_core_init\n");
 	/* Initializations relying on SMP setup */
 	build_all_zonelists(NULL);
 	page_alloc_init_cpuhp();

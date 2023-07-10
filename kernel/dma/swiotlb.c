@@ -293,6 +293,8 @@ void __init swiotlb_init_remap(bool addressing_limit, unsigned int flags,
 	size_t alloc_size;
 	void *tlb;
 
+    pr_notice("[guest] swiotlb_init_remap\n");
+
 	if (!addressing_limit && !swiotlb_force_bounce)
 		return;
 	if (swiotlb_force_disable)

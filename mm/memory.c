@@ -585,6 +585,9 @@ struct page *vm_normal_page(struct vm_area_struct *vma, unsigned long addr,
 {
 	unsigned long pfn = pte_pfn(pte);
 
+    //pr_notice("[guest] vm_normal_page\n");
+    //pr_notice("\t[vm_normal_page] addr : 0x%lx, pte : 0x%lx\n", addr, pte);
+
 	if (IS_ENABLED(CONFIG_ARCH_HAS_PTE_SPECIAL)) {
 		if (likely(!pte_special(pte)))
 			goto check_pfn;
@@ -926,6 +929,8 @@ copy_present_pte(struct vm_area_struct *dst_vma, struct vm_area_struct *src_vma,
 	struct page *page;
 	struct folio *folio;
 
+    //pr_notice("[guest] copy_present_pte\n");
+    //pr_notice("\t[copy_present_pte] addr : 0x%lx\n", addr);
 	page = vm_normal_page(src_vma, addr, pte);
 	if (page)
 		folio = page_folio(page);
@@ -1386,6 +1391,8 @@ static unsigned long zap_pte_range(struct mmu_gather *tlb,
 	pte_t *start_pte;
 	pte_t *pte;
 	swp_entry_t entry;
+
+    pr_notice("[guest] zap_pte_range\n");
 
 	tlb_change_page_size(tlb, PAGE_SIZE);
 again:
@@ -3328,6 +3335,8 @@ static vm_fault_t do_wp_page(struct vm_fault *vmf)
 	struct vm_area_struct *vma = vmf->vma;
 	struct folio *folio = NULL;
 
+    pr_notice("[guest] do_wp_page\n");
+
 	if (likely(!unshare)) {
 		if (userfaultfd_pte_wp(vma, *vmf->pte)) {
 			pte_unmap_unlock(vmf->pte, vmf->ptl);
@@ -4960,7 +4969,7 @@ static vm_fault_t handle_pte_fault(struct vm_fault *vmf)
 		goto unlock;
 	}
 	if (vmf->flags & (FAULT_FLAG_WRITE|FAULT_FLAG_UNSHARE)) {
-		if (!pte_write(entry))
+		if (!pte_write(entry)) 
 			return do_wp_page(vmf);
 		else if (likely(vmf->flags & FAULT_FLAG_WRITE))
 			entry = pte_mkdirty(entry);

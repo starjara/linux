@@ -1092,7 +1092,7 @@ static inline bool pte_is_pinned(struct vm_area_struct *vma, unsigned long addr,
 	if (!is_cow_mapping(vma->vm_flags))
 		return false;
 	if (likely(!test_bit(MMF_HAS_PINNED, &vma->vm_mm->flags)))
-		return false;
+		return false;   
 	page = vm_normal_page(vma, addr, pte);
 	if (!page)
 		return false;

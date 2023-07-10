@@ -4216,6 +4216,8 @@ static int __init hugetlb_init(void)
 {
 	int i;
 
+    pr_debug("[guest] hugetlb_init\n");
+
 	BUILD_BUG_ON(sizeof_field(struct page, private) * BITS_PER_BYTE <
 			__NR_HPAGEFLAGS);
 

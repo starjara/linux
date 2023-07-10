@@ -152,6 +152,8 @@ static void __init init_resources(void)
 	int num_resources = 0, res_idx = 0;
 	int ret = 0;
 
+    pr_notice("[guest] init_resources\n");
+
 	/* + 1 as memblock_alloc() might increase memblock.reserved.cnt */
 	num_resources = memblock.memory.cnt + memblock.reserved.cnt + 1;
 	res_idx = num_resources - 1;
@@ -265,6 +267,7 @@ static void __init parse_dtb(void)
 void __init setup_arch(char **cmdline_p)
 {
 	parse_dtb();
+    pr_info("[guest] setup_arch\n");
 	setup_initial_init_mm(_stext, _etext, _edata, _end);
 
 	*cmdline_p = boot_command_line;

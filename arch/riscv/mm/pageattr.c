@@ -114,6 +114,7 @@ static int __set_memory(unsigned long addr, int numpages, pgprot_t set_mask,
 		.set_mask = set_mask,
 		.clear_mask = clear_mask
 	};
+    pr_debug("[guest] __set_memory\n");
 
 	if (!numpages)
 		return 0;
