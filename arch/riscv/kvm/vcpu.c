@@ -169,6 +169,7 @@ int kvm_arch_vcpu_create(struct kvm_vcpu *vcpu)
 	struct kvm_vcpu_csr *reset_csr = &vcpu->arch.guest_reset_csr;
 	unsigned long host_isa, i;
 
+    kvm_info("[kvm] kvm_arch_vcpu_create\n");
 	/* Mark this VCPU never ran */
 	vcpu->arch.ran_atleast_once = false;
 	vcpu->arch.mmu_page_cache.gfp_zero = __GFP_ZERO;
@@ -983,6 +984,14 @@ void kvm_arch_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 {
 	struct kvm_vcpu_csr *csr = &vcpu->arch.guest_csr;
 
+    /*
+    kvm_info("[kvm] kvm_arch_vcpu_load\n");
+
+    kvm_info("\t[kvm] hgatp : 0x%x\n", csr_read(CSR_HGATP));
+    kvm_info("\t[kvm] vsatp : 0x%x\n", csr_read(CSR_VSATP));
+    kvm_info("\t[kvm] satp : 0x%x\n", csr_read(CSR_SATP));
+    */
+
 	csr_write(CSR_VSSTATUS, csr->vsstatus);
 	csr_write(CSR_VSIE, csr->vsie);
 	csr_write(CSR_VSTVEC, csr->vstvec);
@@ -1006,6 +1015,12 @@ void kvm_arch_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 	kvm_riscv_vcpu_aia_load(vcpu, cpu);
 
 	vcpu->cpu = cpu;
+
+    /*
+    kvm_info("\t[kvm] hgatp : 0x%x\n", csr_read(CSR_HGATP));
+    kvm_info("\t[kvm] vsatp : 0x%x\n", csr_read(CSR_VSATP));
+    kvm_info("\t[kvm] satp : 0x%x\n", csr_read(CSR_SATP));
+    */
 }
 
 void kvm_arch_vcpu_put(struct kvm_vcpu *vcpu)
@@ -1106,6 +1121,8 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu)
 	int ret;
 	struct kvm_cpu_trap trap;
 	struct kvm_run *run = vcpu->run;
+
+    //kvm_info("[kvm] kvm_arch_vcpu_ioctl_run\n");
 
 	/* Mark this VCPU ran at least once */
 	vcpu->arch.ran_atleast_once = true;

@@ -31,7 +31,10 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
 {
 	int r;
 
+    kvm_info("[kvm] kvm_arch_init_vm\n");
+
 	r = kvm_riscv_gstage_alloc_pgd(kvm);
+    kvm_info("\t[kvm_arhc_init_vm] r : 0x%lx\n", r);
 	if (r)
 		return r;
 

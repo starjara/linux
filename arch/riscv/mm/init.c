@@ -1179,9 +1179,9 @@ static void __init create_linear_mapping_range(phys_addr_t start,
 		va = (uintptr_t)__va(pa);
 		map_size = fixed_map_size ? fixed_map_size :
 					    best_map_size(pa, va, end - pa);
-
 		create_pgd_mapping(swapper_pg_dir, va, pa, map_size,
 				   pgprot_from_va(va));
+        pr_info("[host] va : 0x%lx, pa : 0x%lx, map_size : 0x%lx\n", va, pa, map_size);
 	}
 }
 

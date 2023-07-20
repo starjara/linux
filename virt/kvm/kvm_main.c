@@ -216,6 +216,7 @@ void vcpu_load(struct kvm_vcpu *vcpu)
 {
 	int cpu = get_cpu();
 
+    //kvm_info("[kvm] vcpu_load\n");
 	__this_cpu_write(kvm_running_vcpu, vcpu);
 	preempt_notifier_register(&vcpu->preempt_notifier);
 	kvm_arch_vcpu_load(vcpu, cpu);
@@ -463,6 +464,8 @@ void *kvm_mmu_memory_cache_alloc(struct kvm_mmu_memory_cache *mc)
 
 static void kvm_vcpu_init(struct kvm_vcpu *vcpu, struct kvm *kvm, unsigned id)
 {
+    pr_notice("[kvm] kvm_vcpu_init\n");
+
 	mutex_init(&vcpu->mutex);
 	vcpu->cpu = -1;
 	vcpu->kvm = kvm;
@@ -1149,6 +1152,8 @@ static struct kvm *kvm_create_vm(unsigned long type, const char *fdname)
 	if (!kvm)
 		return ERR_PTR(-ENOMEM);
 
+    kvm_info("[kvm] kvm_create_vm\n");
+
 	/* KVM is pinned via open("/dev/kvm"), the fd passed to this ioctl(). */
 	__module_get(kvm_chardev_ops.owner);
 
@@ -1616,6 +1621,8 @@ static int kvm_prepare_memory_region(struct kvm *kvm,
 {
 	int r;
 
+    kvm_info("[kvm] kvm_prepare_memory_region\n");
+
 	/*
 	 * If dirty logging is disabled, nullify the bitmap; the old bitmap
 	 * will be freed on "commit".  If logging is enabled in both old and
@@ -1654,6 +1661,7 @@ static void kvm_commit_memory_region(struct kvm *kvm,
 {
 	int old_flags = old ? old->flags : 0;
 	int new_flags = new ? new->flags : 0;
+    kvm_info("[kvm] kvm_commit_memory_region\n");
 	/*
 	 * Update the total number of memslot pages before calling the arch
 	 * hook so that architectures can consume the result directly.
@@ -1714,6 +1722,8 @@ static void kvm_activate_memslot(struct kvm *kvm,
 				 struct kvm_memory_slot *new)
 {
 	int as_id = kvm_memslots_get_as_id(old, new);
+
+    kvm_info("[kvm] kvm_activate_memslot\n");
 
 	kvm_swap_active_memslots(kvm, as_id);
 
@@ -1780,6 +1790,7 @@ static void kvm_create_memslot(struct kvm *kvm,
 			       struct kvm_memory_slot *new)
 {
 	/* Add the new memslot to the inactive set and activate. */
+    kvm_info("[kvm] kvm_create_memslot\n");
 	kvm_replace_memslot(kvm, NULL, new);
 	kvm_activate_memslot(kvm, NULL, new);
 }
@@ -1830,6 +1841,7 @@ static int kvm_set_memslot(struct kvm *kvm,
 	struct kvm_memory_slot *invalid_slot;
 	int r;
 
+    kvm_info("[kvm] kvm_set_memslot\n");
 	/*
 	 * Released in kvm_swap_active_memslots().
 	 *
@@ -1949,6 +1961,8 @@ int __kvm_set_memory_region(struct kvm *kvm,
 	int as_id, id;
 	int r;
 
+    kvm_info("[kvm] __kvm_set_memory_region\n");
+
 	r = check_memory_region_flags(mem);
 	if (r)
 		return r;
@@ -2035,6 +2049,10 @@ int __kvm_set_memory_region(struct kvm *kvm,
 	new->flags = mem->flags;
 	new->userspace_addr = mem->userspace_addr;
 
+    kvm_info("\t[__kvm_set_memory_region] base_gfn : 0x%lx", new->base_gfn);
+    kvm_info("\t[__kvm_set_memory_region] npages : 0x%lx", new->npages);
+    kvm_info("\t[__kvm_set_memory_region] user_space_addr : 0x%lx", new->userspace_addr);
+
 	r = kvm_set_memslot(kvm, old, new, change);
 	if (r)
 		kfree(new);
@@ -2046,6 +2064,8 @@ int kvm_set_memory_region(struct kvm *kvm,
 			  const struct kvm_userspace_memory_region *mem)
 {
 	int r;
+
+    kvm_info("[kvm] kvm_set_memory_region\n");
 
 	mutex_lock(&kvm->slots_lock);
 	r = __kvm_set_memory_region(kvm, mem);
@@ -3009,6 +3029,8 @@ static int __kvm_read_guest_page(struct kvm_memory_slot *slot, gfn_t gfn,
 	int r;
 	unsigned long addr;
 
+    kvm_info ("[kvm] __kvm_read_guest_page\n");
+
 	addr = gfn_to_hva_memslot_prot(slot, gfn, NULL);
 	if (kvm_is_error_hva(addr))
 		return -EFAULT;
@@ -3110,6 +3132,8 @@ static int __kvm_write_guest_page(struct kvm *kvm,
 {
 	int r;
 	unsigned long addr;
+
+    kvm_info ("[kvm] __kvm_write_guest_page\n");
 
 	addr = gfn_to_hva_memslot(memslot, gfn);
 	if (kvm_is_error_hva(addr))
@@ -3921,6 +3945,8 @@ static int kvm_vm_ioctl_create_vcpu(struct kvm *kvm, u32 id)
 	struct kvm_vcpu *vcpu;
 	struct page *page;
 
+    kvm_info("[kvm] kvm_vm_ioctl_create_vcpu\n");
+
 	if (id >= KVM_MAX_VCPU_IDS)
 		return -EINVAL;
 
@@ -4083,6 +4109,8 @@ static long kvm_vcpu_ioctl(struct file *filp,
 	int r;
 	struct kvm_fpu *fpu = NULL;
 	struct kvm_sregs *kvm_sregs = NULL;
+
+    //kvm_info("[kvm] kvm_vcpu_ioctl\n");
 
 	if (vcpu->kvm->mm != current->mm || vcpu->kvm->vm_dead)
 		return -EIO;
@@ -4443,6 +4471,8 @@ static int kvm_ioctl_create_device(struct kvm *kvm,
 	int type;
 	int ret;
 
+    kvm_info("[kvm] kvm_ioctl_create_device\n");
+
 	if (cd->type >= ARRAY_SIZE(kvm_device_ops_table))
 		return -ENODEV;
 
@@ -4745,6 +4775,8 @@ static long kvm_vm_ioctl(struct file *filp,
 	void __user *argp = (void __user *)arg;
 	int r;
 
+    kvm_info("[kvm] kvm_vm_ioctl\n");
+
 	if (kvm->mm != current->mm || kvm->vm_dead)
 		return -EIO;
 	switch (ioctl) {
@@ -5034,6 +5066,8 @@ static int kvm_dev_ioctl_create_vm(unsigned long type)
 	if (fd < 0)
 		return fd;
 
+    kvm_info("[kvm] kvm_dev_ioctl_create_vm %d \n", fd);
+
 	snprintf(fdname, sizeof(fdname), "%d", fd);
 
 	kvm = kvm_create_vm(type, fdname);
@@ -5071,8 +5105,11 @@ static long kvm_dev_ioctl(struct file *filp,
 {
 	int r = -EINVAL;
 
+    kvm_info("[kvm] kvm_dev_ioctl\n");
+
 	switch (ioctl) {
 	case KVM_GET_API_VERSION:
+        kvm_info("[kvm] KVM_GET_API_VERSION\n");
 		if (arg)
 			goto out;
 		r = KVM_API_VERSION;
@@ -5997,6 +6034,8 @@ int kvm_init(unsigned vcpu_size, unsigned vcpu_align, struct module *module)
 	int r;
 	int cpu;
 
+    kvm_info("[kvm] kvm_init\n");
+
 #ifdef CONFIG_KVM_GENERIC_HARDWARE_ENABLING
 	r = cpuhp_setup_state_nocalls(CPUHP_AP_KVM_ONLINE, "kvm/cpu:online",
 				      kvm_online_cpu, kvm_offline_cpu);
@@ -6057,6 +6096,8 @@ int kvm_init(unsigned vcpu_size, unsigned vcpu_align, struct module *module)
 		pr_err("kvm: misc device register failed\n");
 		goto err_register;
 	}
+
+    struct kvm *kvm = kvm_arch_alloc_vm();
 
 	return 0;
 
