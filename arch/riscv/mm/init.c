@@ -1281,11 +1281,13 @@ static void __init setup_vm_final(void)
 	set_pgd(&swapper_pg_dir[idx], early_pg_dir[idx]);
 #endif
     pr_notice("[guest] setup_vm_final\n");
+    pr_notice("\t[setup_vm_final] satp : 0x%lx\n", csr_read(CSR_SATP));
 	create_pgd_mapping(swapper_pg_dir, FIXADDR_START,
 			   __pa_symbol(fixmap_pgd_next),
 			   PGDIR_SIZE, PAGE_TABLE);
-    pr_notice("\t[setup_vm_final] pgd mapping created va : 0x%llx, pa : 0x%llx size : 0x%llx\n", FIXADDR_START, __pa_symbol(fixmap_pgd_next), PGDIR_SIZE);
-
+    pr_notice("\t[setup_vm_final] pgd mapping created va : 0x%llx\n", FIXADDR_START);
+    pr_notice("\t[setup_vm_final] pgd mapping created pa : 0x%llx\n", __pa_symbol(fixmap_pgd_next));
+    pr_notice("\t[setup_vm_final] pgd mapping created size : 0x%llx\n", PGDIR_SIZE);
 	/* Map the linear mapping */
 	create_linear_mapping_page_table();
 

@@ -1392,7 +1392,7 @@ static unsigned long zap_pte_range(struct mmu_gather *tlb,
 	pte_t *pte;
 	swp_entry_t entry;
 
-    pr_notice("[guest] zap_pte_range\n");
+    //pr_notice("[guest] zap_pte_range\n");
 
 	tlb_change_page_size(tlb, PAGE_SIZE);
 again:
@@ -3335,7 +3335,7 @@ static vm_fault_t do_wp_page(struct vm_fault *vmf)
 	struct vm_area_struct *vma = vmf->vma;
 	struct folio *folio = NULL;
 
-    pr_notice("[guest] do_wp_page\n");
+    //pr_notice("[guest] do_wp_page\n");
 
 	if (likely(!unshare)) {
 		if (userfaultfd_pte_wp(vma, *vmf->pte)) {
