@@ -4314,8 +4314,29 @@ out_free1:
         unsigned long hgatp = csr_read(CSR_HGATP); 
         // 0x80200000
         char data[10] = "abcd";
-        kvm_write_guest(kvm, 0x80200000, (void *)data, 10); 
-        kvm_info("[kvm] write end\n");
+        kvm_write_guest(kvm, 0x80000000, (void *)data, 10); 
+        kvm_info("[kvm] write end PAGE_SIZE : 0x%x\n", PAGE_SIZE);
+
+        bool writable;
+	    unsigned long vma_pagesize;
+        gpa_t gpa = 0x80000000;
+
+        while(gpa < 0x80400000) { 
+
+	    gfn_t gfn = gpa >> PAGE_SHIFT;
+	    kvm_pfn_t hfn = gfn_to_pfn_prot(kvm, gfn, true, &writable);
+        phys_addr_t hpa = hfn << PAGE_SHIFT;
+        struct kvm_memory_slot *memslot = gfn_to_memslot(kvm, gfn);
+	    unsigned long hva = gfn_to_hva_memslot_prot(memslot, gfn, &writable);
+
+        kvm_info("[kvm] gpa : 0x%x, gfn : 0x%x, hva : 0x%lx, hfn : 0x%x, hpa : 0x%x\n",
+                gpa, gfn, hva, hfn, hpa);
+
+        kvm_riscv_gstage_map(vcpu, memslot, gpa, hva, true); 
+
+        gpa += 0x100000;
+        } // while end
+        
         break;   
     }
     case KVM_WRITE_MINI: {
@@ -6126,8 +6147,6 @@ int kvm_init(unsigned vcpu_size, unsigned vcpu_align, struct module *module)
 		pr_err("kvm: misc device register failed\n");
 		goto err_register;
 	}
-
-    struct kvm *kvm = kvm_arch_alloc_vm();
 
 	return 0;
 
