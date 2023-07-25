@@ -147,11 +147,13 @@ static int gstage_set_pte(struct kvm *kvm, u32 level,
 	pte_t *ptep = &next_ptep[gstage_pte_index(addr, current_level)];
 
     //kvm_info("[kvm] gstage_set_pte\n");
+    //kvm_info("\t[kvm] addr : 0x%x\n", addr);
 
 	if (current_level < level)
 		return -EINVAL;
 
 	while (current_level != level) {
+        //kvm_info("\t[kvm] before ptep : %p : 0x%x\n", ptep, *ptep);
 		if (gstage_pte_leaf(ptep))
 			return -EEXIST;
 
@@ -170,6 +172,7 @@ static int gstage_set_pte(struct kvm *kvm, u32 level,
 		}
 
 		current_level--;
+        //kvm_info("\t[kvm] after ptep : %p : 0x%x\n", ptep, *ptep);
 		ptep = &next_ptep[gstage_pte_index(addr, current_level)];
 	}
 
@@ -531,6 +534,8 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
 		/* Take the intersection of this VMA with the memory region */
 		vm_start = max(hva, vma->vm_start);
 		vm_end = min(reg_end, vma->vm_end);
+        kvm_info("vm_start : 0x%lx\n", vm_start);
+        kvm_info("vm_end : 0x%lx\n", vm_end);
 
 		if (vma->vm_flags & VM_PFNMAP) {
 			gpa_t gpa = base_gpa + (vm_start - hva);
@@ -784,8 +789,13 @@ void kvm_riscv_gstage_update_hgatp(struct kvm_vcpu *vcpu)
 	unsigned long hgatp = gstage_mode;
 	struct kvm_arch *k = &vcpu->kvm->arch;
 
+    //kvm_info("[kvm] kvm_riscv_gstage_update_hgatp\n");
+    //kvm_info("hgatp : 0x%x\n", hgatp);
+
 	hgatp |= (READ_ONCE(k->vmid.vmid) << HGATP_VMID_SHIFT) & HGATP_VMID;
 	hgatp |= (k->pgd_phys >> PAGE_SHIFT) & HGATP_PPN;
+
+    //kvm_info("hgatp : 0x%x\n", hgatp);
 
 	csr_write(CSR_HGATP, hgatp);
 

@@ -179,8 +179,8 @@ _copy_to_user(void __user *, const void *, unsigned long);
 static __always_inline unsigned long __must_check
 copy_from_user(void *to, const void __user *from, unsigned long n)
 {
-    pr_debug("[host] copy_from_user\n");
-    pr_debug("\t[copy_from_user] to : %p, from : %p, length : %ld\n", to, from, n);
+    //pr_notice("[host] copy_from_user\n");
+    //pr_notice("\t[copy_from_user] to : %p, from : %p, length : %ld\n", to, from, n);
 	if (check_copy_size(to, n, false))
 		n = _copy_from_user(to, from, n);
 	return n;

@@ -19,6 +19,8 @@ static int gstage_page_fault(struct kvm_vcpu *vcpu, struct kvm_run *run,
 	gfn_t gfn;
 	int ret;
 
+    //kvm_info("[kvm] gstage_page_fault\n");
+
 	fault_addr = (trap->htval << 2) | (trap->stval & 0x3);
 	gfn = fault_addr >> PAGE_SHIFT;
 	memslot = gfn_to_memslot(vcpu->kvm, gfn);

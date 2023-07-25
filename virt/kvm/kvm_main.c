@@ -3142,6 +3142,8 @@ static int __kvm_write_guest_page(struct kvm *kvm,
 	if (r)
 		return -EFAULT;
 	mark_page_dirty_in_slot(kvm, memslot, gfn);
+    kvm_info("\t[kvm] gfn : 0x%x\toffset : 0x%x\n", gfn, offset);
+    kvm_info("\t[kvm] data : %s\n", data);
 	return 0;
 }
 
@@ -4304,6 +4306,34 @@ out_free1:
 		r = kvm_vcpu_ioctl_get_stats_fd(vcpu);
 		break;
 	}
+    // JARA
+    case KVM_INIT_MINI: {
+        struct kvm *kvm = vcpu->kvm;
+        kvm_info("[kvm] KVM_INIT_MINI\n");
+        kvm_riscv_gstage_update_hgatp(vcpu);
+        unsigned long hgatp = csr_read(CSR_HGATP); 
+        // 0x80200000
+        char data[10] = "abcd";
+        kvm_write_guest(kvm, 0x80200000, (void *)data, 10); 
+        kvm_info("[kvm] write end\n");
+        break;   
+    }
+    case KVM_WRITE_MINI: {
+        struct kvm *kvm = vcpu->kvm;
+        kvm_info("[kvm] KVM_WRITE_MINI\n");
+        char data[10] = "abcd";
+        kvm_write_guest(kvm, 0x80300000, (void *)data, 10); 
+        break;
+    }
+    case KVM_READ_MINI: {
+        struct kvm *kvm = vcpu->kvm;
+        kvm_info("[kvm] KVM_READ_MINI\n");
+        char data[10];
+        kvm_read_guest(kvm, 0x80300000, (void *)data, 10); 
+        kvm_info("\t[kvm] %s\n", data);
+        break;
+    }
+    // END JARA
 	default:
 		r = kvm_arch_vcpu_ioctl(filp, ioctl, arg);
 	}
