@@ -4341,17 +4341,35 @@ out_free1:
     }
     case KVM_WRITE_MINI: {
         struct kvm *kvm = vcpu->kvm;
+        struct mini_data data;
+        if(copy_from_user(&data, argp, sizeof(data))) {
+                    kvm_info("copy failed\n");
+                }
         kvm_info("[kvm] KVM_WRITE_MINI\n");
-        char data[10] = "abcd";
-        kvm_write_guest(kvm, 0x80300000, (void *)data, 10); 
+        //char data[10] = "efgh";
+        //kvm_write_guest(kvm, 0x80300000, (void *)data, 10); 
+        kvm_info("0x%llx, %s, %d\n", data.gpa, (char *)data.data, data.len);
+        kvm_write_guest(kvm, data.gpa, (void*)data.data, data.len); 
         break;
     }
     case KVM_READ_MINI: {
         struct kvm *kvm = vcpu->kvm;
+        struct mini_data data;
+
         kvm_info("[kvm] KVM_READ_MINI\n");
-        char data[10];
-        kvm_read_guest(kvm, 0x80300000, (void *)data, 10); 
-        kvm_info("\t[kvm] %s\n", data);
+
+        if(copy_from_user(&data, argp, sizeof(data))) {
+                    kvm_info("copy failed\n");
+                }
+
+        //char data[10];
+        //kvm_read_guest(kvm, 0x80200000, (void *)data, 10); 
+
+        kvm_read_guest(kvm, data.gpa, data.data, data.len); 
+        
+        copy_to_user(argp, &data, sizeof(data));
+
+        kvm_info("\t[kvm] %c\n", data.data[0]);
         break;
     }
     // END JARA
