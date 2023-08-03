@@ -1497,6 +1497,7 @@ static void kvm_replace_memslot(struct kvm *kvm,
 	struct kvm_memslots *slots = kvm_get_inactive_memslots(kvm, as_id);
 	int idx = slots->node_idx;
 
+    kvm_info("[kvm] kvm_replace_memslot\n");
 	if (old) {
 		hash_del(&old->id_node[idx]);
 		interval_tree_remove(&old->hva_node[idx], &slots->hva_tree);
@@ -1559,6 +1560,7 @@ static int check_memory_region_flags(const struct kvm_userspace_memory_region *m
 static void kvm_swap_active_memslots(struct kvm *kvm, int as_id)
 {
 	struct kvm_memslots *slots = kvm_get_inactive_memslots(kvm, as_id);
+    kvm_info("[kvm] kvm_swap_active_memslots\n");
 
 	/* Grab the generation from the activate memslots. */
 	u64 gen = __kvm_memslots(kvm, as_id)->generation;
@@ -1803,6 +1805,7 @@ static void kvm_delete_memslot(struct kvm *kvm,
 	 * Remove the old memslot (in the inactive memslots) by passing NULL as
 	 * the "new" slot, and for the invalid version in the active slots.
 	 */
+    kvm_info("[kvm] kvm_delete_memslot\n");
 	kvm_replace_memslot(kvm, old, NULL);
 	kvm_activate_memslot(kvm, invalid_slot, NULL);
 }
@@ -1816,6 +1819,7 @@ static void kvm_move_memslot(struct kvm *kvm,
 	 * Replace the old memslot in the inactive slots, and then swap slots
 	 * and replace the current INVALID with the new as well.
 	 */
+    kvm_info("[kvm] kvm_move_memslot\n");
 	kvm_replace_memslot(kvm, old, new);
 	kvm_activate_memslot(kvm, invalid_slot, new);
 }
@@ -1829,6 +1833,7 @@ static void kvm_update_flags_memslot(struct kvm *kvm,
 	 * an intermediate step. Instead, the old memslot is simply replaced
 	 * with a new, updated copy in both memslot sets.
 	 */
+    kvm_info("[kvm] kvm_update_flags_memslot\n");
 	kvm_replace_memslot(kvm, old, new);
 	kvm_activate_memslot(kvm, old, new);
 }
@@ -4112,6 +4117,9 @@ static long kvm_vcpu_ioctl(struct file *filp,
 	struct kvm_fpu *fpu = NULL;
 	struct kvm_sregs *kvm_sregs = NULL;
 
+
+    static int count = 0;
+
     //kvm_info("[kvm] kvm_vcpu_ioctl\n");
 
 	if (vcpu->kvm->mm != current->mm || vcpu->kvm->vm_dead)
@@ -4152,6 +4160,33 @@ static long kvm_vcpu_ioctl(struct file *filp,
 			put_pid(oldpid);
 		}
 		r = kvm_arch_vcpu_ioctl_run(vcpu);
+        
+
+        /*
+        // JARA
+        if(count > 52000) {
+            //vcpu_put(vcpu);
+            //unsigned long x = 0xffffffff0157a338;
+            //asm volatile("ld t5, 0(%0)\n" : :"r" (x) : );
+            //asm volatile(".word 0x6800CFF3\n");
+            //asm volatile(".word 0x6C0FC0F3\n");
+            //asm volatile(".word 0x6C014FF3\n");
+            
+            unsigned long val, guest_addr;
+            guest_addr = 0xfffffffffffb28;
+            kvm_info("val : 0x%lx\n", val);
+            asm volatile(HLV_W(%[val], %[addr]) :[val] "=&r" (val): [addr] "r" (guest_addr) );
+            kvm_info("val : 0x%lx\n", val);
+
+            kvm_info("hlv_w succed\n");
+        }
+
+        count ++;
+        // JARA END
+        */
+        
+
+        
 		trace_kvm_userspace_exit(vcpu->run->exit_reason, r);
 		break;
 	}
@@ -4310,33 +4345,116 @@ out_free1:
     case KVM_INIT_MINI: {
         struct kvm *kvm = vcpu->kvm;
         kvm_info("[kvm] KVM_INIT_MINI\n");
-        kvm_riscv_gstage_update_hgatp(vcpu);
-        unsigned long hgatp = csr_read(CSR_HGATP); 
-        // 0x80200000
+
+        // set SATPs
+        /*
+        kvm_riscv_gstage_update_hgatp(vcpu);    // HGATP setting
+        unsigned long vsatp = csr_read(CSR_VSATP);
+        kvm_info("[kvm] vsatp before : 0x%llx\n", vsatp);
+        csr_write(CSR_VSATP, csr_read(CSR_HGATP));  // VSATP setting
+        vsatp = csr_read(CSR_VSATP);
+        vcpu->arch.guest_csr.vsatp = vsatp;
+        kvm_info("[kvm] vsatp after: 0x%llx\n", vsatp);
+        */
+
+        //csr_write(CSR_SATP, csr_read(CSR_HGATP)); // infi wait
+        
+        // VM memory writing test
         char data[10] = "abcd";
         kvm_write_guest(kvm, 0x80000000, (void *)data, 10); 
-        kvm_info("[kvm] write end PAGE_SIZE : 0x%x\n", PAGE_SIZE);
+        kvm_info("[kvm] write end PAGE_SIZE : 0x%x VM_ID : %d\n", PAGE_SIZE, kvm->arch.vmid);
+        // writing test end
 
-        bool writable;
+        // GPA 2 HPA mapping setup
+        bool writable = true;
 	    unsigned long vma_pagesize;
         gpa_t gpa = 0x80000000;
-
-        while(gpa < 0x80400000) { 
-
-	    gfn_t gfn = gpa >> PAGE_SHIFT;
-	    kvm_pfn_t hfn = gfn_to_pfn_prot(kvm, gfn, true, &writable);
-        phys_addr_t hpa = hfn << PAGE_SHIFT;
+	    gfn_t gfn = gpa >> (PAGE_SHIFT);
         struct kvm_memory_slot *memslot = gfn_to_memslot(kvm, gfn);
-	    unsigned long hva = gfn_to_hva_memslot_prot(memslot, gfn, &writable);
+        int count = 0;
 
-        kvm_info("[kvm] gpa : 0x%x, gfn : 0x%x, hva : 0x%lx, hfn : 0x%x, hpa : 0x%x\n",
-                gpa, gfn, hva, hfn, hpa);
+        // GPA 2 HPA mapping 
+        while(count < memslot->npages) { 
+            kvm_pfn_t hfn = gfn_to_pfn_prot(kvm, gfn, true, &writable);
+            phys_addr_t hpa = hfn << PAGE_SHIFT;
+            gfn = gpa >> (PAGE_SHIFT);
+            unsigned long hva = gfn_to_hva_memslot_prot(memslot, gfn, &writable);
 
-        kvm_riscv_gstage_map(vcpu, memslot, gpa, hva, true); 
+            kvm_info("prog : %d / %d\n", count+1, memslot->npages);
+            kvm_info("[kvm] gpa : 0x%x, gfn : 0x%x, hva : 0x%lx, hfn : 0x%x, hpa : 0x%x\n",
+                    gpa, gfn, hva, hfn, hpa);
+            //kvm_info("[kvm] pages %d\taddr 0x%lx\t id %d\n", memslot->npages, memslot->userspace_addr, memslot->id);
 
-        gpa += 0x100000;
+            //uintptr_t end_va = kernel_map.virt_addr + 0x40000;
+
+            kvm_riscv_gstage_map(vcpu, memslot, gpa, hva, true); 
+
+            gpa += PAGE_SIZE;
+            count ++;
         } // while end
+          //
+        /*
+        //vcpu->arch.guest_context.pc
+        kvm_info("0x%lx\n", vcpu->arch.guest_context.sepc);
+        //vcpu->arch.guest_context.sepc = csr_read(CSR_SEPC);
+        vcpu->arch.guest_context.sepc = csr_read(CSR_SEPC);
+        kvm_info("0x%lx\n", vcpu->arch.guest_context.sepc);
+        */
+
+
+		//kvm_arch_vcpu_ioctl_run(vcpu);
+        vcpu_load(vcpu);
+        vcpu->mode = IN_GUEST_MODE;
+		//kvm_riscv_update_hvip(vcpu);
         
+	    struct kvm_vcpu_csr *csr = &vcpu->arch.guest_csr;
+	    csr_write(CSR_HVIP, csr->hvip);
+	    kvm_riscv_vcpu_aia_update_hvip(vcpu);
+
+		kvm_riscv_gstage_vmid_update(vcpu);
+		kvm_riscv_gstage_vmid_ver_changed(&vcpu->kvm->arch.vmid);
+		kvm_riscv_local_tlb_sanitize(vcpu);
+		//kvm_riscv_check_vcpu_requests(vcpu); //static can not call
+        
+        //kvm_riscv_vcpu_enter_exit(vcpu);
+	    __kvm_riscv_switch_to(&(vcpu->arch));
+    	vcpu->arch.last_exit_cpu = vcpu->cpu;
+
+        //pgd_t gva_pg_dir[PTRS_PER_PGD];
+        //for(int i=0; i<
+
+        /*
+        gpa = 0x80000000;
+        unsigned long *gva = linear_mapping_pa_to_va(gpa);
+        unsigned long *gkva = kernel_mapping_pa_to_va(gpa);
+        kvm_info("gpa : 0x%lx\tgva : 0x%lx\tgkva : 0x%lx\n", gpa, gva, gkva);
+        kvm_info("gva : 0x%lx\tdata : 0x%lx\n", gkva, *gkva);
+        */
+
+        //csr_write(CSR_HSTATUS, csr_read(CSR_HSTATUS) | 0x300);
+
+        // need GVA HLV.w
+        //asm volatile(".word 0x6800C0F3\n");
+        unsigned long val, guest_addr;
+        guest_addr = 0x80000000;
+        kvm_info("val : 0x%lx\n", val);
+        asm volatile(HLV_D(%[val], %[addr]) :[val] "=&r" (val): [addr] "r" (guest_addr) );
+        kvm_info("val : 0x%lx\n", val);
+
+        /*
+        unsigned long gva = gpa;
+        create_pgd_mapping((pgd_t *)kvm->arch.pgd, gva, gpa, PAGE_SIZE, (pgprot_t)0xf);
+        */
+
+        /*
+        kvm_info("[kvm] page_offset : 0x%lx\n", kernel_map.page_offset);
+        kvm_info("[kvm] virt_addr : 0x%lx\n", kernel_map.virt_addr);
+        kvm_info("[kvm] phys_addr : 0x%lx\n", kernel_map.phys_addr);
+        kvm_info("[kvm] size : 0x%lx\n", kernel_map.size);
+        kvm_info("[kvm] va_pa_offset : 0x%lx\n", kernel_map.va_pa_offset);
+        kvm_info("[kvm] va_kernel_pa_offset : 0x%lx\n", kernel_map.va_kernel_pa_offset);
+        */
+
         break;   
     }
     case KVM_WRITE_MINI: {
