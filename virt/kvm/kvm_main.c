@@ -4438,13 +4438,17 @@ out_free1:
         unsigned long val, guest_addr;
         guest_addr = 0x80000000;
         kvm_info("val : 0x%lx\n", val);
-        asm volatile(HLV_D(%[val], %[addr]) :[val] "=&r" (val): [addr] "r" (guest_addr) );
+        asm volatile(HLV_W(%[val], %[addr]) :[val] "=&r" (val): [addr] "r" (guest_addr) );
         kvm_info("val : 0x%lx\n", val);
+
+        csr_write(CSR_HSTATUS, csr_read(CSR_HSTATUS) | HSTATUS_HU);
 
         /*
         unsigned long gva = gpa;
         create_pgd_mapping((pgd_t *)kvm->arch.pgd, gva, gpa, PAGE_SIZE, (pgprot_t)0xf);
         */
+
+        vcpu_put(vcpu);
 
         /*
         kvm_info("[kvm] page_offset : 0x%lx\n", kernel_map.page_offset);
