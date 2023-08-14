@@ -4380,9 +4380,9 @@ out_free1:
             gfn = gpa >> (PAGE_SHIFT);
             unsigned long hva = gfn_to_hva_memslot_prot(memslot, gfn, &writable);
 
-            kvm_info("prog : %d / %d\n", count+1, memslot->npages);
-            kvm_info("[kvm] gpa : 0x%x, gfn : 0x%x, hva : 0x%lx, hfn : 0x%x, hpa : 0x%x\n",
-                    gpa, gfn, hva, hfn, hpa);
+            //kvm_info("prog : %d / %d\n", count+1, memslot->npages);
+            //kvm_info("[kvm] gpa : 0x%x, gfn : 0x%x, hva : 0x%lx, hfn : 0x%x, hpa : 0x%x\n",
+            //        gpa, gfn, hva, hfn, hpa);
             //kvm_info("[kvm] pages %d\taddr 0x%lx\t id %d\n", memslot->npages, memslot->userspace_addr, memslot->id);
 
             //uintptr_t end_va = kernel_map.virt_addr + 0x40000;
@@ -4440,6 +4440,12 @@ out_free1:
         kvm_info("val : 0x%lx\n", val);
         asm volatile(HLV_W(%[val], %[addr]) :[val] "=&r" (val): [addr] "r" (guest_addr) );
         kvm_info("val : 0x%lx\n", val);
+
+        // Mode bit check
+        /*
+        csr_write(CSR_VSATP, 0x2000000100000000);
+        asm volatile(HLV_W(%[val], %[addr]) :[val] "=&r" (val): [addr] "r" (guest_addr) );
+        */ 
 
         csr_write(CSR_HSTATUS, csr_read(CSR_HSTATUS) | HSTATUS_HU);
 
