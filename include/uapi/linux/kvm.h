@@ -1469,9 +1469,12 @@ struct mini_data {
     __u32 data[10];
     __u32 len;
 };
-#define KVM_INIT_MINI              _IO(KVMIO,    0x49)
+#define KVM_INIT_MINI               _IO(KVMIO,    0x49)
 #define KVM_WRITE_MINI              _IOW(KVMIO,    0x4a, struct mini_data)
-#define KVM_READ_MINI              _IOR(KVMIO,    0x4b, struct mini_data)
+#define KVM_READ_MINI               _IOR(KVMIO,    0x4b, struct mini_data)
+#define KVM_ENTER_MINI              _IO(KVMIO, 0x4c)
+#define KVM_EXIT_MINI               _IO(KVMIO, 0x4d)
+#define KVM_FIN_MINI                _IO(KVMIO, 0x4e)
 // END JARA
 
 /* enable ucontrol for s390 */

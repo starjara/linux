@@ -4392,7 +4392,7 @@ out_free1:
             gpa += PAGE_SIZE;
             count ++;
         } // while end
-          //
+
         /*
         //vcpu->arch.guest_context.pc
         kvm_info("0x%lx\n", vcpu->arch.guest_context.sepc);
@@ -4400,7 +4400,6 @@ out_free1:
         vcpu->arch.guest_context.sepc = csr_read(CSR_SEPC);
         kvm_info("0x%lx\n", vcpu->arch.guest_context.sepc);
         */
-
 
 		//kvm_arch_vcpu_ioctl_run(vcpu);
         vcpu_load(vcpu);
@@ -4419,9 +4418,6 @@ out_free1:
         //kvm_riscv_vcpu_enter_exit(vcpu);
 	    __kvm_riscv_switch_to(&(vcpu->arch));
     	vcpu->arch.last_exit_cpu = vcpu->cpu;
-
-        //pgd_t gva_pg_dir[PTRS_PER_PGD];
-        //for(int i=0; i<
 
         /*
         gpa = 0x80000000;
@@ -4499,6 +4495,24 @@ out_free1:
 
         kvm_info("\t[kvm] %c\n", data.data[0]);
         break;
+    }
+    case KVM_ENTER_MINI: {
+        kvm_info("[kvm] KVM_ENTER_MINI\n");
+        kvm_info("\t0x%x\n", csr_read(CSR_HSTATUS));
+        csr_write(CSR_HSTATUS, csr_read(CSR_HSTATUS) | HSTATUS_HU);
+        kvm_info("\t0x%x\n", csr_read(CSR_HSTATUS));
+        break; 
+    }
+    case KVM_EXIT_MINI: {
+        kvm_info("[kvm] KVM_EXIT_MINI\n");
+        kvm_info("\t0x%lx\n", csr_read(CSR_HSTATUS));
+        csr_write(CSR_HSTATUS, csr_read(CSR_HSTATUS) & !HSTATUS_HU);
+        kvm_info("\t0x%lx\n", csr_read(CSR_HSTATUS));
+        break;
+    }
+    case KVM_FIN_MINI: {
+        kvm_info("[kvm] KVM_FIN_MINI\n");
+        break ;
     }
     // END JARA
 	default:

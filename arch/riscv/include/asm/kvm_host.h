@@ -339,4 +339,7 @@ bool kvm_riscv_vcpu_has_interrupts(struct kvm_vcpu *vcpu, u64 mask);
 void kvm_riscv_vcpu_power_off(struct kvm_vcpu *vcpu);
 void kvm_riscv_vcpu_power_on(struct kvm_vcpu *vcpu);
 
+/* ========================================================= */
+void init_mini(void);
+
 #endif /* __RISCV_KVM_HOST_H__ */

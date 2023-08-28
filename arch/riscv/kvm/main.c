@@ -124,7 +124,6 @@ static int __init riscv_kvm_init(void)
 		return rc;
 	}
 
-
 	return 0;
 }
 module_init(riscv_kvm_init);
