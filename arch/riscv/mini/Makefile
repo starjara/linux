@@ -10,10 +10,10 @@ include $(srctree)/virt/mini/Makefile.mini
 obj-$(CONFIG_MINI) += mini.o
 
 mini-y += main.o
-#kvm-y += vm.o
-#kvm-y += vmid.o
+mini-y += vm.o
+mini-y += mmu.o
+mini-y += vmid.o
 #kvm-y += tlb.o
-#kvm-y += mmu.o
 #kvm-y += vcpu.o
 #kvm-y += vcpu_exit.o
 #kvm-y += vcpu_fp.o

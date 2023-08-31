@@ -3,7 +3,17 @@
 
 static int __init riscv_mini_init(void)
 {
+    int rc = 0;
+
     mini_info("hello mini!\n");
-    return 0;
+
+    rc = mini_init(0, 0, THIS_MODULE);
+    return rc; 
 }
 module_init(riscv_mini_init);
+
+static void __exit riscv_mini_exit(void)
+{
+    mini_exit();
+}
+module_exit(riscv_mini_exit);
