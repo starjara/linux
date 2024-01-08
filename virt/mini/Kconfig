@@ -4,3 +4,5 @@
 config HAVE_MINI
        bool
 
+config HAVE_MINI_DIRTY_RING
+       bool

@@ -1149,6 +1149,8 @@ static struct kvm *kvm_create_vm(unsigned long type, const char *fdname)
 	int r = -ENOMEM;
 	int i, j;
 
+    kvm_info("[kvm] kvm : 0x%x\n", *kvm);
+
 	if (!kvm)
 		return ERR_PTR(-ENOMEM);
 
@@ -1968,6 +1970,12 @@ int __kvm_set_memory_region(struct kvm *kvm,
 
     kvm_info("[kvm] __kvm_set_memory_region\n");
 
+    kvm_info("\t[kvm] mem->slot : 0x%x\n", mem->slot);
+    kvm_info("\t[kvm] mem->flags : 0x%x\n", mem->flags);
+    kvm_info("\t[kvm] mem->guest_phys_addr: 0x%x\n", mem->guest_phys_addr);
+    kvm_info("\t[kvm] mem->memory_size : 0x%x\n", mem->memory_size);
+    kvm_info("\t[kvm] mem->userspace_addr : 0x%x\n", mem->userspace_addr);
+
 	r = check_memory_region_flags(mem);
 	if (r)
 		return r;
@@ -1994,7 +2002,12 @@ int __kvm_set_memory_region(struct kvm *kvm,
 	if ((mem->memory_size >> PAGE_SHIFT) > KVM_MEM_MAX_NR_PAGES)
 		return -EINVAL;
 
+    kvm_info("[kvm] kvm : 0x%x\n", *kvm);
+    kvm_info("[kvm] as_id : 0x%x\n", as_id);
+    kvm_info("[kvm] id : 0x%x\n", id);
+
 	slots = __kvm_memslots(kvm, as_id);
+    kvm_info("[kvm] slots : 0x%x\n", *slots);
 
 	/*
 	 * Note, the old memslot (and the pointer itself!) may be invalidated
@@ -4436,6 +4449,7 @@ out_free1:
         kvm_info("val : 0x%lx\n", val);
         asm volatile(HLV_W(%[val], %[addr]) :[val] "=&r" (val): [addr] "r" (guest_addr) );
         kvm_info("val : 0x%lx\n", val);
+        //kvm_info("HLV_W : 0x%08x\n", HLV_W(%[val], %[add]));
 
         // Mode bit check
         /*

@@ -11,8 +11,11 @@ obj-$(CONFIG_MINI) += mini.o
 
 mini-y += main.o
 mini-y += vm.o
-mini-y += mmu.o
 mini-y += vmid.o
+mini-y += tlb.o
+mini-y += mmu.o
+mini-y += vcpu.o
+
 #kvm-y += tlb.o
 #kvm-y += vcpu.o
 #kvm-y += vcpu_exit.o

@@ -340,6 +340,6 @@ void kvm_riscv_vcpu_power_off(struct kvm_vcpu *vcpu);
 void kvm_riscv_vcpu_power_on(struct kvm_vcpu *vcpu);
 
 /* ========================================================= */
-void init_mini(void);
+//void init_mini(void);
 
 #endif /* __RISCV_KVM_HOST_H__ */
