@@ -7,7 +7,7 @@ static int __init riscv_mini_init(void)
 
     mini_info("hello mini!\n");
 
-    rc = mini_init(0, 0, THIS_MODULE);
+    rc = mini_init(sizeof(struct mini_vcpu), 0, THIS_MODULE);
     return rc; 
 }
 module_init(riscv_mini_init);

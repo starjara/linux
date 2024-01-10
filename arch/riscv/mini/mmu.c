@@ -344,7 +344,7 @@ next:
 static void gstage_wp_memory_region(struct mini *mini, int slot)
 {
 	struct mini_memslots *slots = mini_memslots(mini);
-	struct mini_memory_slot *memslot = id_to_memslot(slots, slot);
+	struct mini_memory_slot *memslot = mini_id_to_memslot(slots, slot);
 	phys_addr_t start = memslot->base_gfn << PAGE_SHIFT;
 	phys_addr_t end = (memslot->base_gfn + memslot->npages) << PAGE_SHIFT;
 
@@ -407,6 +407,7 @@ void mini_riscv_gstage_iounmap(struct mini *mini, gpa_t gpa, unsigned long size)
 void mini_arch_free_memslot(struct mini *mini, struct mini_memory_slot *free)
 {
 }
+
 void mini_arch_memslots_updated(struct mini *mini, u64 gen)
 {
 }
@@ -611,3 +612,110 @@ void mini_riscv_gstage_update_hgatp(struct mini *mini)
 	    asm volatile(HFENCE_GVMA(zero, zero) : : : "memory");
 }
 
+int mini_riscv_gstage_map(struct mini_vcpu *vcpu,
+			 struct mini_memory_slot *memslot,
+			 gpa_t gpa, unsigned long hva, bool is_write)
+{
+	int ret;
+	mini_pfn_t hfn;
+	bool writable;
+	short vma_pageshift;
+	gfn_t gfn = gpa >> PAGE_SHIFT;
+	struct vm_area_struct *vma;
+	struct mini *mini = vcpu->mini;
+	struct mini_mmu_memory_cache *pcache = &vcpu->arch.mmu_page_cache;
+	bool logging = (memslot->dirty_bitmap &&
+			!(memslot->flags & MINI_MEM_READONLY)) ? true : false;
+	unsigned long vma_pagesize, mmu_seq;
+
+    //mini_info("[mini] mini_riscv_gstage_map\n");
+    //mini_info("[mini] gpa : 0x%lx, hva : 0x%lx\n", gpa, hva);
+
+	/* We need minimum second+third level pages */
+	ret = mini_mmu_topup_memory_cache(pcache, gstage_pgd_levels);
+	if (ret) {
+		mini_err("Failed to topup G-stage cache\n");
+		return ret;
+	}
+
+	mmap_read_lock(current->mm);
+
+	vma = vma_lookup(current->mm, hva);
+	if (unlikely(!vma)) {
+		mini_err("Failed to find VMA for hva 0x%lx\n", hva);
+		mmap_read_unlock(current->mm);
+		return -EFAULT;
+	}
+
+	if (is_vm_hugetlb_page(vma))
+		vma_pageshift = huge_page_shift(hstate_vma(vma));
+	else
+		vma_pageshift = PAGE_SHIFT;
+	vma_pagesize = 1ULL << vma_pageshift;
+	if (logging || (vma->vm_flags & VM_PFNMAP))
+		vma_pagesize = PAGE_SIZE;
+
+	if (vma_pagesize == PMD_SIZE || vma_pagesize == PUD_SIZE)
+		gfn = (gpa & huge_page_mask(hstate_vma(vma))) >> PAGE_SHIFT;
+
+	/*
+	 * Read mmu_invalidate_seq so that MINI can detect if the results of
+	 * vma_lookup() or gfn_to_pfn_prot() become stale priort to acquiring
+	 * mini->mmu_lock.
+	 *
+	 * Rely on mmap_read_unlock() for an implicit smp_rmb(), which pairs
+	 * with the smp_wmb() in mini_mmu_invalidate_end().
+	 */
+	mmu_seq = mini->mmu_invalidate_seq;
+	mmap_read_unlock(current->mm);
+
+	if (vma_pagesize != PUD_SIZE &&
+	    vma_pagesize != PMD_SIZE &&
+	    vma_pagesize != PAGE_SIZE) {
+		mini_err("Invalid VMA page size 0x%lx\n", vma_pagesize);
+		return -EFAULT;
+	}
+
+	hfn = mini_gfn_to_pfn_prot(mini, gfn, is_write, &writable);
+	if (hfn == MINI_PFN_ERR_HWPOISON) {
+		send_sig_mceerr(BUS_MCEERR_AR, (void __user *)hva,
+				vma_pageshift, current);
+		return 0;
+	}
+	if (is_error_noslot_pfn(hfn))
+		return -EFAULT;
+
+	/*
+	 * If logging is active then we allow writable pages only
+	 * for write faults.
+	 */
+	if (logging && !is_write)
+		writable = false;
+
+	spin_lock(&mini->mmu_lock);
+
+	if (mmu_invalidate_retry(mini, mmu_seq))
+        return -EFAULT;
+		//goto out_unlock;
+
+	if (writable) {
+		//mini_set_pfn_dirty(hfn);
+		//mark_page_dirty(mini, gfn);
+		ret = gstage_map_page(mini, pcache, gpa, hfn << PAGE_SHIFT,
+				      vma_pagesize, false, true);
+	} else {
+		ret = gstage_map_page(mini, pcache, gpa, hfn << PAGE_SHIFT,
+				      vma_pagesize, true, true);
+	}
+
+	if (ret)
+		mini_err("Failed to map in G-stage\n");
+
+    /*
+out_unlock:
+	spin_unlock(&mini->mmu_lock);
+	mini_set_pfn_accessed(hfn);
+	mini_release_pfn_clean(hfn);
+    */
+	return ret;
+}

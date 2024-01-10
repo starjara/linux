@@ -9,11 +9,12 @@
 #include <linux/device.h>
 #include <linux/cdev.h>
 #include <linux/types.h>
-#include <linux/mini_types.h>
+//#include <linux/mini_types.h>
 #include <linux/fs.h>
 #include <linux/anon_inodes.h>
 #include <linux/mman.h>
 
+#include <asm/processor.h>
 #include <asm/ioctl.h>
 #include <linux/uaccess.h>
 
@@ -32,9 +33,35 @@ static int major;
 static struct class *cls;
 static struct file_operations mini_chardev_ops;
 
+static DEFINE_PER_CPU(struct mini_vcpu *, mini_running_vcpu);
 static DEFINE_PER_CPU(cpumask_var_t, cpu_kick_mask);
 
 static struct kmem_cache *mini_vcpu_cache;
+
+static long mini_vcpu_ioctl(struct file *file, unsigned int ioctl,
+			   unsigned long arg);
+#ifdef CONFIG_MINI_COMPAT
+static long mini_vcpu_compat_ioctl(struct file *file, unsigned int ioctl,
+				  unsigned long arg);
+#define MINI_COMPAT(c)	.compat_ioctl	= (c)
+#else
+/*
+ * For architectures that don't implement a compat infrastructure,
+ * adopt a double line of defense:
+ * - Prevent a compat task from opening /dev/kvm
+ * - If the open has been done by a 64bit task, and the MINI fd
+ *   passed to a compat task, let the ioctls fail.
+ */
+static long mini_no_compat_ioctl(struct file *file, unsigned int ioctl,
+				unsigned long arg) { return -EINVAL; }
+
+static int mini_no_compat_open(struct inode *inode, struct file *file)
+{
+	return is_compat_task() ? -ENODEV : 0;
+}
+#define MINI_COMPAT(c)	.compat_ioctl	= mini_no_compat_ioctl,	\
+			.open		= mini_no_compat_open
+#endif
 
 __weak void mini_arch_guest_memory_reclaimed(struct mini *mini)
 {
@@ -44,6 +71,45 @@ static void ack_kick(void *_completed)
 {
 }
 
+bool mini_is_zone_device_page(struct page *page)
+{
+	/*
+	 * The metadata used by is_zone_device_page() to determine whether or
+	 * not a page is ZONE_DEVICE is guaranteed to be valid if and only if
+	 * the device has been pinned, e.g. by get_user_pages().  WARN if the
+	 * page_count() is zero to help detect bad usage of this helper.
+	 */
+	if (WARN_ON_ONCE(!page_count(page)))
+		return false;
+
+	return is_zone_device_page(page);
+}
+
+struct page *mini_pfn_to_refcounted_page(mini_pfn_t pfn)
+{
+	struct page *page;
+
+	if (!pfn_valid(pfn))
+		return NULL;
+
+	page = pfn_to_page(pfn);
+	if (!PageReserved(page))
+		return page;
+
+	/* The ZERO_PAGE(s) is marked PG_reserved, but is refcounted. */
+	if (is_zero_pfn(pfn))
+		return page;
+
+	/*
+	 * ZONE_DEVICE pages currently set PG_reserved, but from a refcounting
+	 * perspective they are "normal" pages, albeit with slightly different
+	 * usage rules.
+	 */
+	if (mini_is_zone_device_page(page))
+		return page;
+
+	return NULL;
+}
 static inline bool mini_kick_many_cpus(struct cpumask *cpus, bool wait)
 {
 	if (cpumask_empty(cpus))
@@ -376,6 +442,8 @@ static struct mini *mini_create_vm(unsigned long type, const char *fdname)
 	rcuwait_init(&mini->mn_memslots_update_rcuwait);
 	xa_init(&mini->vcpu_array);
 
+	mini->max_vcpus = MINI_MAX_VCPUS;
+
 	snprintf(mini->stats_id, sizeof(mini->stats_id), "mini-%d",
 		 task_pid_nr(current));
 
@@ -410,26 +478,6 @@ static struct mini *mini_create_vm(unsigned long type, const char *fdname)
 
 
 
-int mini_init(unsigned size, unsigned align, struct module *module)
-{
-    mini_info("mini_init\n");
-
-    major = register_chrdev(0, DEVICE_NAME, &mini_chardev_ops);
-    if(major < 0) {
-        mini_info("Registering char device failed with %d\n", major);
-        return major;
-    }
-
-    mini_info("Assigned major number : %d\n", major);
-
-    cls = class_create(DEVICE_NAME);
-    device_create(cls, NULL, MKDEV(major, 0), NULL, DEVICE_NAME);
-
-    mini_info("Device created on /dev/%s\n", DEVICE_NAME);
-
-    return 0;
-}
-EXPORT_SYMBOL_GPL(mini_init);
 
 /*
  * Allocation size is twice as large as the actual dirty bitmap size.
@@ -996,7 +1044,7 @@ int __mini_set_memory_region(struct mini *mini,
 	 * and/or destroyed by mini_set_memslot().
 	 */
     mini_info("[mini] __mini_set_memory_region_before_id_to_memslot\n");
-	old = id_to_memslot(slots, id);
+	old = mini_id_to_memslot(slots, id);
     mini_info("[mini] __mini_set_memory_region_after_id_to_memslot\n");
 
 	if (!mem->memory_size) {
@@ -1076,6 +1124,47 @@ int mini_set_memory_region(struct mini *mini,
 }
 EXPORT_SYMBOL_GPL(mini_set_memory_region);
 
+static bool mini_page_in_dirty_ring(struct mini *mini, unsigned long pgoff)
+{
+#ifdef CONFIG_HAVE_MINI_DIRTY_RING
+	return (pgoff >= MINI_DIRTY_LOG_PAGE_OFFSET) &&
+	    (pgoff < MINI_DIRTY_LOG_PAGE_OFFSET +
+	     mini->dirty_ring_size / PAGE_SIZE);
+#else
+	return false;
+#endif
+}
+
+static vm_fault_t mini_vcpu_fault(struct vm_fault *vmf)
+{
+	struct mini_vcpu *vcpu = vmf->vma->vm_file->private_data;
+	struct page *page;
+
+	if (vmf->pgoff == 0)
+		page = virt_to_page(vcpu->run);
+#ifdef CONFIG_X86
+	else if (vmf->pgoff == MINI_PIO_PAGE_OFFSET)
+		page = virt_to_page(vcpu->arch.pio_data);
+#endif
+#ifdef CONFIG_MINI_MMIO
+	else if (vmf->pgoff == MINI_COALESCED_MMIO_PAGE_OFFSET)
+		page = virt_to_page(vcpu->mini->coalesced_mmio_ring);
+#endif
+	else if (mini_page_in_dirty_ring(vcpu->mini, vmf->pgoff))
+		page = mini_dirty_ring_get_page(
+		    &vcpu->dirty_ring,
+		    vmf->pgoff - MINI_DIRTY_LOG_PAGE_OFFSET);
+	else
+		return mini_arch_vcpu_fault(vcpu, vmf);
+	get_page(page);
+	vmf->page = page;
+	return 0;
+}
+
+static const struct vm_operations_struct mini_vcpu_vm_ops = {
+	.fault = mini_vcpu_fault,
+};
+
 static int mini_vm_ioctl_set_memory_region(struct mini *mini,
 					  struct mini_userspace_memory_region *mem)
 {
@@ -1083,6 +1172,46 @@ static int mini_vm_ioctl_set_memory_region(struct mini *mini,
 		return -EINVAL;
 
 	return mini_set_memory_region(mini, mem);
+}
+
+static int mini_vcpu_mmap(struct file *file, struct vm_area_struct *vma)
+{
+	struct mini_vcpu *vcpu = file->private_data;
+	unsigned long pages = vma_pages(vma);
+
+	if ((mini_page_in_dirty_ring(vcpu->mini, vma->vm_pgoff) ||
+	     mini_page_in_dirty_ring(vcpu->mini, vma->vm_pgoff + pages - 1)) &&
+	    ((vma->vm_flags & VM_EXEC) || !(vma->vm_flags & VM_SHARED)))
+		return -EINVAL;
+
+	vma->vm_ops = &mini_vcpu_vm_ops;
+	return 0;
+}
+
+static int mini_vcpu_release(struct inode *inode, struct file *filp)
+{
+	struct mini_vcpu *vcpu = filp->private_data;
+
+	//kvm_put_kvm(vcpu->kvm);
+	return 0;
+}
+
+static const struct file_operations mini_vcpu_fops = {
+	.release        = mini_vcpu_release,
+	.unlocked_ioctl = mini_vcpu_ioctl,
+	.mmap           = mini_vcpu_mmap,
+	.llseek		= noop_llseek,
+	MINI_COMPAT(mini_vcpu_compat_ioctl),
+};
+
+static int create_vcpu_fd(struct mini_vcpu *vcpu)
+{
+	char name[8 + 1 + ITOA_MAX_LEN + 1];
+
+    mini_info("[mini] create_vcpu_fd\n");
+
+	snprintf(name, sizeof(name), "mini-vcpu:%d", vcpu->vcpu_id);
+	return anon_inode_getfd(name, &mini_vcpu_fops, vcpu, O_RDWR | O_CLOEXEC);
 }
 
 static int mini_vm_ioctl_create_vcpu(struct mini *mini, u32 id)
@@ -1107,11 +1236,13 @@ static int mini_vm_ioctl_create_vcpu(struct mini *mini, u32 id)
     mini->created_vcpus++;
     mutex_unlock(&mini->lock);
 
+    mini_info("[mini] zalloc\n");
     vcpu = kmem_cache_zalloc(mini_vcpu_cache, GFP_KERNEL_ACCOUNT);
     if(!vcpu) {
         r = -ENOMEM;
         //goto vcpu_decrement;
     }
+    mini_info("[mini] cache_zalloc\n");
 
     //BUILD_BUG_ON(sizeof(struct mini_run) > PAGE_SIZE);
     page = alloc_page(GFP_KERNEL_ACCOUNT | __GFP_ZERO);
@@ -1119,13 +1250,20 @@ static int mini_vm_ioctl_create_vcpu(struct mini *mini, u32 id)
         r = -ENOMEM;
         //goto vcpu_free;
     }
+    mini_info("[mini] alloc_page\n");
     vcpu->run = page_address(page);
 
-    mini_arch_vcpu_create(vcpu);
-    if(r)
+    r = mini_arch_vcpu_create(vcpu);
+    if(r) {
         r = -ENOMEM;
         //goto vcpu_free_run_page;
+    }
 
+	r = create_vcpu_fd(vcpu);
+	if (r < 0) {
+        r = -EINVAL;
+        mini_info("[mini] ERROR fd\n");
+    }
     return r;
 }
 
@@ -1142,9 +1280,9 @@ static long mini_vm_ioctl(struct file *flip,
 	case MINI_CREATE_VCPU:
 		r = mini_vm_ioctl_create_vcpu(mini, arg);
 		break;
-    case MINI_ALLOC:
+    //case MINI_ALLOC:
 
-        break;
+    //    break;
 	case MINI_SET_USER_MEMORY_REGION: {
 		struct mini_userspace_memory_region mini_userspace_mem;
 
@@ -1195,7 +1333,7 @@ static long mini_vm_ioctl(struct file *flip,
         mini_info("MINI_EXIT 0x%x\n", csr_read(CSR_HSTATUS));
         break;
     }
-    return 0;
+    return r;
 
 out:
     return r;
@@ -1253,6 +1391,392 @@ int mini_write_guest(struct mini *mini, gpa_t gpa, const void *data,
 }
 EXPORT_SYMBOL_GPL(mini_write_guest);
 */
+
+static inline struct mini_memory_slot *
+try_get_memslot(struct mini_memory_slot *slot, gfn_t gfn)
+{
+	if (!slot)
+		return NULL;
+
+	if (gfn >= slot->base_gfn && gfn < slot->base_gfn + slot->npages)
+		return slot;
+	else
+		return NULL;
+}
+
+static inline struct mini_memory_slot *
+search_memslots(struct mini_memslots *slots, gfn_t gfn, bool approx)
+{
+	struct mini_memory_slot *slot;
+	struct rb_node *node;
+	int idx = slots->node_idx;
+
+	slot = NULL;
+	for (node = slots->gfn_tree.rb_node; node; ) {
+		slot = container_of(node, struct mini_memory_slot, gfn_node[idx]);
+		if (gfn >= slot->base_gfn) {
+			if (gfn < slot->base_gfn + slot->npages)
+				return slot;
+			node = node->rb_right;
+		} else
+			node = node->rb_left;
+	}
+
+	return approx ? slot : NULL;
+}
+
+static inline struct mini_memory_slot *
+____gfn_to_memslot(struct mini_memslots *slots, gfn_t gfn, bool approx)
+{
+	struct mini_memory_slot *slot;
+
+	slot = (struct mini_memory_slot *)atomic_long_read(&slots->last_used_slot);
+	slot = try_get_memslot(slot, gfn);
+	if (slot)
+		return slot;
+
+	slot = search_memslots(slots, gfn, approx);
+	if (slot) {
+		atomic_long_set(&slots->last_used_slot, (unsigned long)slot);
+		return slot;
+	}
+
+	return NULL;
+}
+
+/*
+ * __gfn_to_memslot() and its descendants are here to allow arch code to inline
+ * the lookups in hot paths.  gfn_to_memslot() itself isn't here as an inline
+ * because that would bloat other code too much.
+ */
+static inline struct mini_memory_slot *
+__gfn_to_memslot(struct mini_memslots *slots, gfn_t gfn)
+{
+	return ____gfn_to_memslot(slots, gfn, false);
+}
+
+static inline unsigned long
+__gfn_to_hva_memslot(const struct mini_memory_slot *slot, gfn_t gfn)
+{
+	/*
+	 * The index was checked originally in search_memslots.  To avoid
+	 * that a malicious guest builds a Spectre gadget out of e.g. page
+	 * table walks, do not let the processor speculate loads outside
+	 * the guest's registered memslots.
+	 */
+	unsigned long offset = gfn - slot->base_gfn;
+	offset = array_index_nospec(offset, slot->npages);
+	return slot->userspace_addr + offset * PAGE_SIZE;
+}
+
+static inline int memslot_id(struct mini *mini, gfn_t gfn)
+{
+	return mini_gfn_to_memslot(mini, gfn)->id;
+}
+
+struct mini_memory_slot *gfn_to_memslot(struct mini *mini, gfn_t gfn)
+{
+	return __gfn_to_memslot(mini_memslots(mini), gfn);
+}
+
+static bool memslot_is_readonly(const struct mini_memory_slot *slot)
+{
+	return slot->flags & MINI_MEM_READONLY;
+}
+
+static unsigned long __gfn_to_hva_many(const struct mini_memory_slot *slot, gfn_t gfn,
+				       gfn_t *nr_pages, bool write)
+{
+	if (!slot || slot->flags & MINI_MEMSLOT_INVALID)
+		return MINI_HVA_ERR_BAD;
+
+	if (memslot_is_readonly(slot) && write)
+		return MINI_HVA_ERR_RO_BAD;
+
+	if (nr_pages)
+		*nr_pages = slot->npages - (gfn - slot->base_gfn);
+
+	return __gfn_to_hva_memslot(slot, gfn);
+}
+
+static bool vma_is_valid(struct vm_area_struct *vma, bool write_fault)
+{
+	if (unlikely(!(vma->vm_flags & VM_READ)))
+		return false;
+
+	if (write_fault && (unlikely(!(vma->vm_flags & VM_WRITE))))
+		return false;
+
+	return true;
+}
+
+static int mini_try_get_pfn(mini_pfn_t pfn)
+{
+	struct page *page = mini_pfn_to_refcounted_page(pfn);
+
+	if (!page)
+		return 1;
+
+	return get_page_unless_zero(page);
+}
+
+unsigned long gfn_to_hva_memslot_prot(struct mini_memory_slot *slot,
+				      gfn_t gfn, bool *writable)
+{
+	unsigned long hva = __gfn_to_hva_many(slot, gfn, NULL, false);
+
+	if (!mini_is_error_hva(hva) && writable)
+		*writable = !memslot_is_readonly(slot);
+
+	return hva;
+}
+/*
+ * The fast path to get the writable pfn which will be stored in @pfn,
+ * true indicates success, otherwise false is returned.  It's also the
+ * only part that runs if we can in atomic context.
+ */
+static bool hva_to_pfn_fast(unsigned long addr, bool write_fault,
+			    bool *writable, mini_pfn_t *pfn)
+{
+	struct page *page[1];
+
+	/*
+	 * Fast pin a writable pfn only if it is a write fault request
+	 * or the caller allows to map a writable pfn for a read fault
+	 * request.
+	 */
+	if (!(write_fault || writable))
+		return false;
+
+	if (get_user_page_fast_only(addr, FOLL_WRITE, page)) {
+		*pfn = page_to_pfn(page[0]);
+
+		if (writable)
+			*writable = true;
+		return true;
+	}
+
+	return false;
+}
+
+static inline int check_user_page_hwpoison(unsigned long addr)
+{
+	int rc, flags = FOLL_HWPOISON | FOLL_WRITE;
+
+	rc = get_user_pages(addr, 1, flags, NULL, NULL);
+	return rc == -EHWPOISON;
+}
+
+/*
+ * The slow path to get the pfn of the specified host virtual address,
+ * 1 indicates success, -errno is returned if error is detected.
+ */
+static int hva_to_pfn_slow(unsigned long addr, bool *async, bool write_fault,
+			   bool interruptible, bool *writable, mini_pfn_t *pfn)
+{
+	unsigned int flags = FOLL_HWPOISON;
+	struct page *page;
+	int npages;
+
+	might_sleep();
+
+	if (writable)
+		*writable = write_fault;
+
+	if (write_fault)
+		flags |= FOLL_WRITE;
+	if (async)
+		flags |= FOLL_NOWAIT;
+	if (interruptible)
+		flags |= FOLL_INTERRUPTIBLE;
+
+	npages = get_user_pages_unlocked(addr, 1, &page, flags);
+	if (npages != 1)
+		return npages;
+
+	/* map read fault as writable if possible */
+	if (unlikely(!write_fault) && writable) {
+		struct page *wpage;
+
+		if (get_user_page_fast_only(addr, FOLL_WRITE, &wpage)) {
+			*writable = true;
+			put_page(page);
+			page = wpage;
+		}
+	}
+	*pfn = page_to_pfn(page);
+	return npages;
+}
+
+static int hva_to_pfn_remapped(struct vm_area_struct *vma,
+			       unsigned long addr, bool write_fault,
+			       bool *writable, mini_pfn_t *p_pfn)
+{
+	mini_pfn_t pfn;
+	pte_t *ptep;
+	spinlock_t *ptl;
+	int r;
+
+	r = follow_pte(vma->vm_mm, addr, &ptep, &ptl);
+	if (r) {
+		/*
+		 * get_user_pages fails for VM_IO and VM_PFNMAP vmas and does
+		 * not call the fault handler, so do it here.
+		 */
+		bool unlocked = false;
+		r = fixup_user_fault(current->mm, addr,
+				     (write_fault ? FAULT_FLAG_WRITE : 0),
+				     &unlocked);
+		if (unlocked)
+			return -EAGAIN;
+		if (r)
+			return r;
+
+		r = follow_pte(vma->vm_mm, addr, &ptep, &ptl);
+		if (r)
+			return r;
+	}
+
+	if (write_fault && !pte_write(*ptep)) {
+		pfn = MINI_PFN_ERR_RO_FAULT;
+		goto out;
+	}
+
+	if (writable)
+		*writable = pte_write(*ptep);
+	pfn = pte_pfn(*ptep);
+
+	/*
+	 * Get a reference here because callers of *hva_to_pfn* and
+	 * *gfn_to_pfn* ultimately call mini_release_pfn_clean on the
+	 * returned pfn.  This is only needed if the VMA has VM_MIXEDMAP
+	 * set, but the mini_try_get_pfn/mini_release_pfn_clean pair will
+	 * simply do nothing for reserved pfns.
+	 *
+	 * Whoever called remap_pfn_range is also going to call e.g.
+	 * unmap_mapping_range before the underlying pages are freed,
+	 * causing a call to our MMU notifier.
+	 *
+	 * Certain IO or PFNMAP mappings can be backed with valid
+	 * struct pages, but be allocated without refcounting e.g.,
+	 * tail pages of non-compound higher order allocations, which
+	 * would then underflow the refcount when the caller does the
+	 * required put_page. Don't allow those pages here.
+	 */ 
+	if (!mini_try_get_pfn(pfn))
+		r = -EFAULT;
+
+out:
+	pte_unmap_unlock(ptep, ptl);
+	*p_pfn = pfn;
+
+	return r;
+}
+/*
+ * Pin guest page in memory and return its pfn.
+ * @addr: host virtual address which maps memory to the guest
+ * @atomic: whether this function can sleep
+ * @interruptible: whether the process can be interrupted by non-fatal signals
+ * @async: whether this function need to wait IO complete if the
+ *         host page is not in the memory
+ * @write_fault: whether we should get a writable host page
+ * @writable: whether it allows to map a writable host page for !@write_fault
+ *
+ * The function will map a writable host page for these two cases:
+ * 1): @write_fault = true
+ * 2): @write_fault = false && @writable, @writable will tell the caller
+ *     whether the mapping is writable.
+ */
+mini_pfn_t hva_to_pfn(unsigned long addr, bool atomic, bool interruptible,
+		     bool *async, bool write_fault, bool *writable)
+{
+	struct vm_area_struct *vma;
+	mini_pfn_t pfn;
+	int npages, r;
+
+	/* we can do it either atomically or asynchronously, not both */
+	BUG_ON(atomic && async);
+
+	if (hva_to_pfn_fast(addr, write_fault, writable, &pfn))
+		return pfn;
+
+	if (atomic)
+		return MINI_PFN_ERR_FAULT;
+
+	npages = hva_to_pfn_slow(addr, async, write_fault, interruptible,
+				 writable, &pfn);
+	if (npages == 1)
+		return pfn;
+	if (npages == -EINTR)
+		return MINI_PFN_ERR_SIGPENDING;
+
+	mmap_read_lock(current->mm);
+	if (npages == -EHWPOISON ||
+	      (!async && check_user_page_hwpoison(addr))) {
+		pfn = MINI_PFN_ERR_HWPOISON;
+		goto exit;
+	}
+
+retry:
+	vma = vma_lookup(current->mm, addr);
+
+	if (vma == NULL)
+		pfn = MINI_PFN_ERR_FAULT;
+	else if (vma->vm_flags & (VM_IO | VM_PFNMAP)) {
+		r = hva_to_pfn_remapped(vma, addr, write_fault, writable, &pfn);
+		if (r == -EAGAIN)
+			goto retry;
+		if (r < 0)
+			pfn = MINI_PFN_ERR_FAULT;
+	} else {
+		if (async && vma_is_valid(vma, write_fault))
+			*async = true;
+		pfn = MINI_PFN_ERR_FAULT;
+	}
+exit:
+	mmap_read_unlock(current->mm);
+	return pfn;
+}
+
+mini_pfn_t mini__gfn_to_pfn_memslot(const struct mini_memory_slot *slot, gfn_t gfn,
+			       bool atomic, bool interruptible, bool *async,
+			       bool write_fault, bool *writable, hva_t *hva)
+{
+	unsigned long addr = __gfn_to_hva_many(slot, gfn, NULL, write_fault);
+
+	if (hva)
+		*hva = addr;
+
+	if (addr == MINI_HVA_ERR_RO_BAD) {
+		if (writable)
+			*writable = false;
+		return MINI_PFN_ERR_RO_FAULT;
+	}
+
+	if (mini_is_error_hva(addr)) {
+		if (writable)
+			*writable = false;
+		return MINI_PFN_NOSLOT;
+	}
+
+	/* Do not map writable pfn in the readonly memslot. */
+	if (writable && memslot_is_readonly(slot)) {
+		*writable = false;
+		writable = NULL;
+	}
+
+	return hva_to_pfn(addr, atomic, interruptible, async, write_fault,
+			  writable);
+}
+EXPORT_SYMBOL_GPL(mini__gfn_to_pfn_memslot);
+
+mini_pfn_t mini_gfn_to_pfn_prot(struct mini *mini, gfn_t gfn, bool write_fault,
+		      bool *writable)
+{
+	return mini__gfn_to_pfn_memslot(gfn_to_memslot(mini, gfn), gfn, false, false,
+				    NULL, write_fault, writable, NULL);
+}
+EXPORT_SYMBOL_GPL(mini_gfn_to_pfn_prot);
 
 static const struct file_operations mini_vm_fops = {
     .unlocked_ioctl = mini_vm_ioctl,
@@ -1347,45 +1871,95 @@ static const struct file_operations mini_vcpu_stats_fops = {
 static long mini_vcpu_ioctl(struct file *filp,
 			   unsigned int ioctl, unsigned long arg)
 {
-    struct mini_cpu *vcpu = filp->private_data;
+    struct mini_vcpu *vcpu = filp->private_data;
     void __user *argv = (void __user *)arg;
-    int r;
+    int r = 0;
 
     mini_info("[mini] mini_vcpu_ioctl\n");
 
 
-	if (vcpu->mini->mm != current->mm) // || vcpu->mini->vm_dead)
+	if (vcpu->mini->mm != current->mm || vcpu->mini->vm_dead)
 		return -EIO;
+    mini_info("[mini] mm\n");
 
-	if (unlikely(_IOC_TYPE(ioctl) != KVMIO))
+	if (unlikely(_IOC_TYPE(ioctl) != MINIIO))
 		return -EINVAL;
+    mini_info("[mini] MINIIO\n");
+
 	switch (ioctl) {
-        case MINI_ALLOC: {
-            struct mini *mini = vcpu->mini;
+        case MINI_ALLOC: 
             mini_info("[mini] MINI_ALLOC\n");
+            struct mini *mini = vcpu->mini;
+
+            // GPA 2 HPA mapping setup
+            bool writable = true;
+            unsigned long vma_pagesize;
+            gpa_t gpa = 0x80000000;
+            gfn_t gfn = gpa >> (PAGE_SHIFT);
+            struct mini_memory_slot *memslot = gfn_to_memslot(mini, gfn);
+            int count = 0;
+
+        // GPA 2 HPA mapping 
 
             // GPA 2 HPA mapping 
             while(count < memslot->npages) { 
-            mini_pfn_t hfn = gfn_to_pfn_prot(mini, gfn, true, &writable);
-            phys_addr_t hpa = hfn << PAGE_SHIFT;
-            gfn = gpa >> (PAGE_SHIFT);
-            unsigned long hva = gfn_to_hva_memslot_prot(memslot, gfn, &writable);
+                mini_pfn_t hfn = mini_gfn_to_pfn_prot(mini, gfn, true, &writable);
+                phys_addr_t hpa = hfn << PAGE_SHIFT;
+                gfn = gpa >> (PAGE_SHIFT);
+                unsigned long hva = gfn_to_hva_memslot_prot(memslot, gfn, &writable);
 
-            //mini_info("prog : %d / %d\n", count+1, memslot->npages);
-            //mini_info("[mini] gpa : 0x%x, gfn : 0x%x, hva : 0x%lx, hfn : 0x%x, hpa : 0x%x\n",
-            //        gpa, gfn, hva, hfn, hpa);
-            //mini_info("[mini] pages %d\taddr 0x%lx\t id %d\n", memslot->npages, memslot->userspace_addr, memslot->id);
+                //mini_info("prog : %d / %d\n", count+1, memslot->npages);
+                //mini_info("[mini] gpa : 0x%x, gfn : 0x%x, hva : 0x%lx, hfn : 0x%x, hpa : 0x%x\n",
+                //        gpa, gfn, hva, hfn, hpa);
+                //mini_info("[mini] pages %d\taddr 0x%lx\t id %d\n", memslot->npages, memslot->userspace_addr, memslot->id);
 
-            //uintptr_t end_va = kernel_map.virt_addr + 0x40000;
+                //uintptr_t end_va = kernel_map.virt_addr + 0x40000;
 
-            mini_riscv_gstage_map(vcpu, memslot, gpa, hva, true); 
+                mini_riscv_gstage_map(vcpu, memslot, gpa, hva, true); 
 
-            gpa += PAGE_SIZE;
-            count ++;
-        } // while end
-
+                gpa += PAGE_SIZE;
+                count ++;
+            } // while end
                             
             break;
-        }  
+        default:
+            mini_info("[mini] MINI_ALLOC\n");
+            break;
     }
+
+    return r;
 }
+int mini_init(unsigned vcpu_size, unsigned vcpu_align, struct module *module)
+{
+    mini_info("mini_init %x %x\n", vcpu_size, vcpu_align);
+
+    major = register_chrdev(0, DEVICE_NAME, &mini_chardev_ops);
+    if(major < 0) {
+        mini_info("Registering char device failed with %d\n", major);
+        return major;
+    }
+
+    mini_info("Assigned major number : %d\n", major);
+
+	if (!vcpu_align)
+		vcpu_align = __alignof__(struct mini_vcpu);
+	mini_vcpu_cache =
+		kmem_cache_create_usercopy("mini_vcpu", vcpu_size, vcpu_align,
+					   SLAB_ACCOUNT,
+					   offsetof(struct mini_vcpu, arch),
+					   offsetofend(struct mini_vcpu, stats_id)
+					   - offsetof(struct mini_vcpu, arch),
+					   NULL);
+	if (!mini_vcpu_cache) {
+        mini_info("ERROR!\n");   
+        return -1;
+    }
+
+    cls = class_create(DEVICE_NAME);
+    device_create(cls, NULL, MKDEV(major, 0), NULL, DEVICE_NAME);
+
+    mini_info("Device created on /dev/%s\n", DEVICE_NAME);
+
+    return 0;
+}
+EXPORT_SYMBOL_GPL(mini_init);

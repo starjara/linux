@@ -5,9 +5,9 @@
 
 MINI ?= ../../../virt/mini
 
-mini-y := $(MINI)/mini_main.o 
+mini-y := $(MINI)/mini_main.o $(MINI)/binary_stats.o
 mini-$(CONFIG_HAVE_KVM_DIRTY_RING) += $(MINI)/dirty_ring.o
-#$(KVM)/eventfd.o $(KVM)/binary_stats.o
+#$(KVM)/eventfd.o 
 #kvm-$(CONFIG_KVM_VFIO) += $(KVM)/vfio.o
 #kvm-$(CONFIG_KVM_MMIO) += $(KVM)/coalesced_mmio.o
 #kvm-$(CONFIG_KVM_ASYNC_PF) += $(KVM)/async_pf.o

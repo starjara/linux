@@ -6259,7 +6259,7 @@ int kvm_init(unsigned vcpu_size, unsigned vcpu_align, struct module *module)
 	int r;
 	int cpu;
 
-    kvm_info("[kvm] kvm_init\n");
+    kvm_info("[kvm] kvm_init %x %x\n", vcpu_size, vcpu_align);
 
 #ifdef CONFIG_KVM_GENERIC_HARDWARE_ENABLING
 	r = cpuhp_setup_state_nocalls(CPUHP_AP_KVM_ONLINE, "kvm/cpu:online",

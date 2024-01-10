@@ -1,13 +1,15 @@
 #ifndef __MINI_TYPES_H__
 #define __MINI_TYPES_H__
 
+struct mini;
+struct mini_memory_slot;
+struct mini_memslots;
+struct mini_vcpu;
 
 #include <linux/types.h>
 
 #include <asm/mini_types.h>
 
-struct mini;
-struct mini_memslots;
 
 typedef unsigned long  gva_t;
 typedef u64            gpa_t;

@@ -9,15 +9,22 @@
 
 #define MINI_REQ_SLEEP \
 	MINI_ARCH_REQ_FLAGS(0, MINI_REQUEST_WAIT | MINI_REQUEST_NO_WAKEUP)
+
 #define MINI_REQ_VCPU_RESET		MINI_ARCH_REQ(1)
+
 #define MINI_REQ_UPDATE_HGATP		MINI_ARCH_REQ(2)
+
 #define MINI_REQ_FENCE_I			\
 	MINI_ARCH_REQ_FLAGS(3, MINI_REQUEST_WAIT | MINI_REQUEST_NO_WAKEUP)
+
 #define MINI_REQ_HFENCE_GVMA_VMID_ALL	MINI_REQ_TLB_FLUSH
+
 #define MINI_REQ_HFENCE_VVMA_ALL		\
 	MINI_ARCH_REQ_FLAGS(4, MINI_REQUEST_WAIT | MINI_REQUEST_NO_WAKEUP)
+
 #define MINI_REQ_HFENCE			\
 	MINI_ARCH_REQ_FLAGS(5, MINI_REQUEST_WAIT | MINI_REQUEST_NO_WAKEUP)
+
 
 enum mini_riscv_hfence_type {
 	MINI_RISCV_HFENCE_UNKNOWN = 0,
@@ -214,27 +221,41 @@ struct mini_vcpu_arch {
 	//struct mini_pmu pmu_context;
 };
 
+#define MINI_ARCH_WANT_MMU_NOTIFIER
+
 unsigned long mini_riscv_gstage_vmid_bits(void);
+
 int mini_riscv_gstage_vmid_init(struct mini *mini);
 
+int mini_riscv_gstage_map(struct mini_vcpu *vcpu,
+			 struct mini_memory_slot *memslot,
+	         gpa_t gpa, unsigned long hva, bool is_write);
+
 int mini_riscv_gstage_alloc_pgd(struct mini *mini);
+
 void mini_riscv_gstage_free_pgd(struct mini *mini);
+
 void mini_riscv_gstage_update_hgatp(struct mini *mini);
 
 void mini_riscv_local_hfence_gvma_vmid_gpa(unsigned long vmid,
 					  gpa_t gpa, gpa_t gpsz,
 					  unsigned long order);
+
 void mini_riscv_local_hfence_gvma_vmid_all(unsigned long vmid);
+
 void mini_riscv_local_hfence_gvma_gpa(gpa_t gpa, gpa_t gpsz,
 				     unsigned long order);
+
 void mini_riscv_local_hfence_gvma_all(void);
 
 void mini_riscv_hfence_gvma_vmid_gpa(struct mini *mini,
 				    unsigned long hbase, unsigned long hmask,
 				    gpa_t gpa, gpa_t gpsz,
 				    unsigned long order);
+
 void mini_riscv_hfence_gvma_vmid_all(struct mini *mini,
 				    unsigned long hbase, unsigned long hmask);
 
 void init_mini(void);
+
 #endif

@@ -10,3 +10,9 @@ bool mini_use_dirty_bitmap(struct mini *mini)
 
 	return !mini->dirty_ring_size || mini->dirty_ring_with_bitmap;
 }
+
+struct page *mini_dirty_ring_get_page(struct mini_dirty_ring *ring, u32 offset)
+{
+	return vmalloc_to_page((void *)ring->dirty_gfns + offset * PAGE_SIZE);
+}
+

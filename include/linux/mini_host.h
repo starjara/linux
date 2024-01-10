@@ -6,6 +6,7 @@
 #include <linux/list.h>
 #include <linux/sched.h>
 #include <linux/rbtree.h>
+#include <linux/mmu_notifier.h>
 #include <linux/hashtable.h>
 #include <linux/interval_tree.h>
 #include <linux/nospec.h>
@@ -16,32 +17,43 @@
 #include <linux/mini_types.h>
 
 #include <asm/mini_host.h>
-//#include <linux/kvm_host.h>
+#include <linux/mini_dirty_ring.h>
+//#include <linux/mini_host.h>
 
 #ifndef MINI_MAX_VCPU_IDS
 #define MINI_MAX_VCPU_IDS MINI_MAX_VCPUS
-#endif
+#endif //MINI_MAX_VCPU_IDS
 
 #define MINI_MEMSLOT_INVALID	(1UL << 16)
 #define MINI_MEMSLOT_GEN_UPDATE_IN_PROGRESS	BIT_ULL(63)
 
 #ifndef MINI_ADDRESS_SPACE_NUM
 #define MINI_ADDRESS_SPACE_NUM  1
-#endif
+#endif //MINI_ADDRESS_SPACE_NUM
 
+#define MINI_PFN_ERR_MASK	(0x7ffULL << 52)
+#define MINI_PFN_ERR_NOSLOT_MASK	(0xfffULL << 52)
+#define MINI_PFN_NOSLOT		(0x1ULL << 63)
+
+#define MINI_PFN_ERR_FAULT	(MINI_PFN_ERR_MASK)
+#define MINI_PFN_ERR_HWPOISON	(MINI_PFN_ERR_MASK + 1)
+#define MINI_PFN_ERR_RO_FAULT	(MINI_PFN_ERR_MASK + 2)
+#define MINI_PFN_ERR_SIGPENDING	(MINI_PFN_ERR_MASK + 3)
 
 #define mini_err(fmt, ...) \
     pr_err("mini [%i]: " fmt, task_pid_nr(current), ## __VA_ARGS__)
 #define mini_info(fmt, ...) \
     pr_info("mini [%i]: " fmt, task_pid_nr(current), ## __VA_ARGS__)
 
+/*
 struct mvm {
     int vmid;
 };
+*/
 
 #ifndef MINI_INTERNAL_MEM_SLOTS
 #define MINI_INTERNAL_MEM_SLOTS 0
-#endif
+#endif // MINI_INTERNAL_MEM_SLOTS
 
 #define MINI_MEM_SLOTS_NUM SHRT_MAX
 #define MINI_USER_MEM_SLOTS (MINI_MEM_SLOTS_NUM - MINI_INTERNAL_MEM_SLOTS)
@@ -63,11 +75,30 @@ struct mvm {
 })
 #define MINI_ARCH_REQ(nr)           MINI_ARCH_REQ_FLAGS(nr, 0)
 
+static inline bool is_error_noslot_pfn(mini_pfn_t pfn)
+{
+	return !!(pfn & MINI_PFN_ERR_NOSLOT_MASK);
+}
+
+#ifndef MINI_HVA_ERR_BAD
+
+#define MINI_HVA_ERR_BAD		(PAGE_OFFSET)
+#define MINI_HVA_ERR_RO_BAD	    (PAGE_OFFSET + PAGE_SIZE)
+
+static inline bool mini_is_error_hva(unsigned long addr)
+{
+	return addr >= PAGE_OFFSET;
+}
+
+#endif //MINI_HVA_ERR_BAD
+
+#define MINI_ERR_PTR_BAD_PAGE	(ERR_PTR(-ENOENT))
+
 bool mini_make_vcpus_request_mask(struct mini *mini, unsigned int req,
 				 unsigned long *vcpu_bitmap);
 bool mini_make_all_cpus_request(struct mini *mini, unsigned int req);
-//bool mini_make_all_cpus_request_except(struct mini *mini, unsigned int req,
-//				      struct mini_vcpu *except);
+bool mini_make_all_cpus_request_except(struct mini *mini, unsigned int req,
+				      struct mini_vcpu *except);
 bool mini_make_cpus_request_mask(struct mini *mini, unsigned int req,
 				unsigned long *vcpu_bitmap);
 
@@ -89,14 +120,14 @@ struct mini_vcpu {
 	struct mini *mini;
 #ifdef CONFIG_PREEMPT_NOTIFIERS
 	struct preempt_notifier preempt_notifier;
-#endif
+#endif //CONFIG_PREEMPT_NOTIFIERS
 	int cpu;
 	int vcpu_id; /* id given by userspace at creation */
 	int vcpu_idx; /* index into mini->vcpu_array */
 	int ____srcu_idx; /* Don't use this directly.  You've been warned. */
 #ifdef CONFIG_PROVE_RCU
 	int srcu_depth;
-#endif
+#endif //CONFIG_PROVE_RCU
 	int mode;
 	u64 requests;
 	unsigned long guest_debug;
@@ -106,7 +137,7 @@ struct mini_vcpu {
 
 #ifndef __MINI_HAVE_ARCH_WQP
 	struct rcuwait wait;
-#endif
+#endif //__MINI_HVAE_ARCH_WQP
 	struct pid __rcu *pid;
 	int sigset_active;
 	sigset_t sigset;
@@ -144,13 +175,13 @@ struct mini_vcpu {
 		bool in_spin_loop;
 		bool dy_eligible;
 	} spin_loop;
-#endif
+#endif // CONFIG_HAVE_MINI_CPU_RELAX_INTERCEPT
 	bool preempted;
 	bool ready;
 	struct mini_vcpu_arch arch;
 	struct mini_vcpu_stat stat;
 	char stats_id[MINI_STATS_NAME_SIZE];
-	//struct mini_dirty_ring dirty_ring;
+	struct mini_dirty_ring dirty_ring;
 
 	/*
 	 * The most recently used memslot by this vCPU and the slots generation
@@ -161,6 +192,7 @@ struct mini_vcpu {
 	struct mini_memory_slot *last_used_slot;
 	u64 last_used_slot_gen;
 };
+
 static inline unsigned long mini_dirty_bitmap_bytes(struct mini_memory_slot *memslot)
 {
 	return ALIGN(memslot->npages, BITS_PER_LONG) / 8;
@@ -224,6 +256,16 @@ struct mini {
 
 	u64 manual_dirty_log_protect;
 
+#if defined(CONFIG_MMU_NOTIFIER) && defined(MINI_ARCH_WANT_MMU_NOTIFIER)
+	struct mmu_notifier mmu_notifier;
+	unsigned long mmu_invalidate_seq;
+	long mmu_invalidate_in_progress;
+	unsigned long mmu_invalidate_range_start;
+	unsigned long mmu_invalidate_range_end;
+#endif //define(CONFIG_MMU_NOTIFIER)
+
+	bool vm_dead;
+
     char stats_id[MINI_STATS_NAME_SIZE];
 };
 
@@ -232,7 +274,7 @@ static inline struct mini *mini_arch_alloc_vm(void)
 {
     return kzalloc(sizeof(struct mini), GFP_KERNEL_ACCOUNT);
 }
-#endif
+#endif //__MINI_HVAE_ARCH_VM_ALLOC
 
 static inline struct mini_memslots *__mini_memslots(struct mini *mini, int as_id)
 {
@@ -262,7 +304,7 @@ static inline struct mini_memslots *mini_memslots(struct mini *mini)
 			  (atomic_read(&mini->online_vcpus) - 1))
 
 static inline
-struct mini_memory_slot *id_to_memslot(struct mini_memslots *slots, int id)
+struct mini_memory_slot *mini_id_to_memslot(struct mini_memslots *slots, int id)
 {
 
     //mini_info("[mini] id_to_memslot\n");
@@ -396,6 +438,11 @@ static inline bool mini_memslot_iter_is_valid(struct mini_memslot_iter *iter, gf
 	     mini_memslot_iter_is_valid(iter, end);			\
 	     mini_memslot_iter_next(iter))
 
+struct _mini_stats_desc {
+	struct mini_stats_desc desc;
+	char name[MINI_STATS_NAME_SIZE];
+};
+
 enum mini_mr_change {
 	MINI_MR_CREATE,
 	MINI_MR_DELETE,
@@ -422,7 +469,7 @@ int mini_set_memory_region(struct mini *mini,
 			  const struct mini_userspace_memory_region *mem);
 int __mini_set_memory_region(struct mini *mini,
 			    const struct mini_userspace_memory_region *mem);
-int mini_init(unsigned size, unsigned align, struct module *module);
+int mini_init(unsigned vcpu_size, unsigned vcpu_align, struct module *module);
 void mini_exit(void);
 
 int mini_arch_init_vm(struct mini *mini, unsigned long type);
@@ -434,7 +481,7 @@ static inline int mini_arch_flush_remote_tlb(struct mini *mini)
 {
 	return -ENOTSUPP;
 }
-#endif
+#endif //__MINI_HAVE_ARCH_FLUSH_REMOTE_TLB
 
 void mini_arch_free_memslot(struct mini *mini, struct mini_memory_slot *slot);
 void mini_arch_memslots_updated(struct mini *mini, u64 gen);
@@ -453,6 +500,15 @@ void mini_arch_flush_shadow_memslot(struct mini *mini,
 				   struct mini_memory_slot *slot);
 void mini_arch_guest_memory_reclaimed(struct mini *mini);
 
+struct mini_memory_slot *mini_gfn_to_memslot(struct mini *mini, gfn_t gfn);
+mini_pfn_t mini_gfn_to_pfn_prot(struct mini *mini, gfn_t gfn, bool write_fault,
+		      bool *writable);
+unsigned long gfn_to_hva_memslot_prot(struct mini_memory_slot *slot, gfn_t gfn,
+				      bool *writable);
+mini_pfn_t mini__gfn_to_pfn_memslot(const struct mini_memory_slot *slot, gfn_t gfn,
+			       bool atomic, bool interruptible, bool *async,
+			       bool write_fault, bool *writable, hva_t *hva);
+
 int mini_write_guest_page(struct mini *mini, gfn_t gfn, const void *data,
 			 int offset, int len);
 int mini_write_guest(struct mini *mini, gpa_t gpa, const void *data,
@@ -468,7 +524,7 @@ static inline struct rcuwait *mini_arch_vcpu_get_wait(struct mini_vcpu *vcpu)
 	return vcpu->arch.waitp;
 #else
 	return &vcpu->wait;
-#endif
+#endif //__MINI_HVAE_ARCH_WQP
 }
 
 static inline bool __mini_vcpu_wake_up(struct mini_vcpu *vcpu)
@@ -476,13 +532,18 @@ static inline bool __mini_vcpu_wake_up(struct mini_vcpu *vcpu)
 	return !!rcuwait_wake_up(mini_arch_vcpu_get_wait(vcpu));
 }
 
+ssize_t mini_stats_read(char *id, const struct mini_stats_header *header,
+		       const struct _mini_stats_desc *desc,
+		       void *stats, size_t size_stats,
+		       char __user *user_buffer, size_t size, loff_t *offset);
+
 #ifdef MINI_ARCH_NR_OBJS_PER_MEMORY_CACHE
 int mini_mmu_topup_memory_cache(struct mini_mmu_memory_cache *mc, int min);
 int __mini_mmu_topup_memory_cache(struct mini_mmu_memory_cache *mc, int capacity, int min);
 int mini_mmu_memory_cache_nr_free_objects(struct mini_mmu_memory_cache *mc);
 void mini_mmu_free_memory_cache(struct mini_mmu_memory_cache *mc);
 void *mini_mmu_memory_cache_alloc(struct mini_mmu_memory_cache *mc);
-#endif
+#endif //MINI_ARCH_NR_OBJS_PER_MEMOY_CACH
 
 #ifdef CONFIG_MINI_GENERIC_DIRTYLOG_READ_PROTECT
 void mini_arch_flush_remote_tlbs_memslot(struct mini *mini,
@@ -491,7 +552,175 @@ void mini_arch_flush_remote_tlbs_memslot(struct mini *mini,
 int mini_vm_ioctl_get_dirty_log(struct mini *mini, struct mini_dirty_log *log);
 int mini_get_dirty_log(struct mini *mini, struct mini_dirty_log *log,
 		      int *is_dirty, struct mini_memory_slot **memslot);
-#endif
+#endif //CONFIG_MINI_GENERIC_DIRTYLOG_READ_PROTECT
 
+vm_fault_t mini_arch_vcpu_fault(struct mini_vcpu *vcpu, struct vm_fault *vmf);
 int mini_arch_vcpu_create(struct mini_vcpu *vcpu);
-#endif
+
+
+#define STATS_DESC_COMMON(type, unit, base, exp, sz, bsz)		       \
+	.flags = type | unit | base |					       \
+		 BUILD_BUG_ON_ZERO(type & ~MINI_STATS_TYPE_MASK) |	       \
+		 BUILD_BUG_ON_ZERO(unit & ~MINI_STATS_UNIT_MASK) |	       \
+		 BUILD_BUG_ON_ZERO(base & ~MINI_STATS_BASE_MASK),	       \
+	.exponent = exp,						       \
+	.size = sz,							       \
+	.bucket_size = bsz
+
+#define VM_GENERIC_STATS_DESC(stat, type, unit, base, exp, sz, bsz)	       \
+	{								       \
+		{							       \
+			STATS_DESC_COMMON(type, unit, base, exp, sz, bsz),     \
+			.offset = offsetof(struct mini_vm_stat, generic.stat)   \
+		},							       \
+		.name = #stat,						       \
+	}
+#define VCPU_GENERIC_STATS_DESC(stat, type, unit, base, exp, sz, bsz)	       \
+	{								       \
+		{							       \
+			STATS_DESC_COMMON(type, unit, base, exp, sz, bsz),     \
+			.offset = offsetof(struct mini_vcpu_stat, generic.stat) \
+		},							       \
+		.name = #stat,						       \
+	}
+#define VM_STATS_DESC(stat, type, unit, base, exp, sz, bsz)		       \
+	{								       \
+		{							       \
+			STATS_DESC_COMMON(type, unit, base, exp, sz, bsz),     \
+			.offset = offsetof(struct mini_vm_stat, stat)	       \
+		},							       \
+		.name = #stat,						       \
+	}
+#define VCPU_STATS_DESC(stat, type, unit, base, exp, sz, bsz)		       \
+	{								       \
+		{							       \
+			STATS_DESC_COMMON(type, unit, base, exp, sz, bsz),     \
+			.offset = offsetof(struct mini_vcpu_stat, stat)	       \
+		},							       \
+		.name = #stat,						       \
+	}
+/* SCOPE: VM, VM_GENERIC, VCPU, VCPU_GENERIC */
+#define STATS_DESC(SCOPE, stat, type, unit, base, exp, sz, bsz)		       \
+	SCOPE##_STATS_DESC(stat, type, unit, base, exp, sz, bsz)
+
+#define STATS_DESC_CUMULATIVE(SCOPE, name, unit, base, exponent)	       \
+	STATS_DESC(SCOPE, name, MINI_STATS_TYPE_CUMULATIVE,		       \
+		unit, base, exponent, 1, 0)
+#define STATS_DESC_INSTANT(SCOPE, name, unit, base, exponent)		       \
+	STATS_DESC(SCOPE, name, MINI_STATS_TYPE_INSTANT,			       \
+		unit, base, exponent, 1, 0)
+#define STATS_DESC_PEAK(SCOPE, name, unit, base, exponent)		       \
+	STATS_DESC(SCOPE, name, MINI_STATS_TYPE_PEAK,			       \
+		unit, base, exponent, 1, 0)
+#define STATS_DESC_LINEAR_HIST(SCOPE, name, unit, base, exponent, sz, bsz)     \
+	STATS_DESC(SCOPE, name, MINI_STATS_TYPE_LINEAR_HIST,		       \
+		unit, base, exponent, sz, bsz)
+#define STATS_DESC_LOG_HIST(SCOPE, name, unit, base, exponent, sz)	       \
+	STATS_DESC(SCOPE, name, MINI_STATS_TYPE_LOG_HIST,		       \
+		unit, base, exponent, sz, 0)
+
+/* Cumulative counter, read/write */
+#define STATS_DESC_COUNTER(SCOPE, name)					       \
+	STATS_DESC_CUMULATIVE(SCOPE, name, MINI_STATS_UNIT_NONE,		       \
+		MINI_STATS_BASE_POW10, 0)
+/* Instantaneous counter, read only */
+#define STATS_DESC_ICOUNTER(SCOPE, name)				       \
+	STATS_DESC_INSTANT(SCOPE, name, MINI_STATS_UNIT_NONE,		       \
+		MINI_STATS_BASE_POW10, 0)
+/* Peak counter, read/write */
+#define STATS_DESC_PCOUNTER(SCOPE, name)				       \
+	STATS_DESC_PEAK(SCOPE, name, MINI_STATS_UNIT_NONE,		       \
+		MINI_STATS_BASE_POW10, 0)
+
+/* Instantaneous boolean value, read only */
+#define STATS_DESC_IBOOLEAN(SCOPE, name)				       \
+	STATS_DESC_INSTANT(SCOPE, name, MINI_STATS_UNIT_BOOLEAN,		       \
+		MINI_STATS_BASE_POW10, 0)
+/* Peak (sticky) boolean value, read/write */
+#define STATS_DESC_PBOOLEAN(SCOPE, name)				       \
+	STATS_DESC_PEAK(SCOPE, name, MINI_STATS_UNIT_BOOLEAN,		       \
+		MINI_STATS_BASE_POW10, 0)
+
+/* Cumulative time in nanosecond */
+#define STATS_DESC_TIME_NSEC(SCOPE, name)				       \
+	STATS_DESC_CUMULATIVE(SCOPE, name, MINI_STATS_UNIT_SECONDS,	       \
+		MINI_STATS_BASE_POW10, -9)
+/* Linear histogram for time in nanosecond */
+#define STATS_DESC_LINHIST_TIME_NSEC(SCOPE, name, sz, bsz)		       \
+	STATS_DESC_LINEAR_HIST(SCOPE, name, MINI_STATS_UNIT_SECONDS,	       \
+		MINI_STATS_BASE_POW10, -9, sz, bsz)
+/* Logarithmic histogram for time in nanosecond */
+#define STATS_DESC_LOGHIST_TIME_NSEC(SCOPE, name, sz)			       \
+	STATS_DESC_LOG_HIST(SCOPE, name, MINI_STATS_UNIT_SECONDS,	       \
+		MINI_STATS_BASE_POW10, -9, sz)
+
+#define MINI_GENERIC_VM_STATS()						       \
+	STATS_DESC_COUNTER(VM_GENERIC, remote_tlb_flush),		       \
+	STATS_DESC_COUNTER(VM_GENERIC, remote_tlb_flush_requests)
+
+#define MINI_GENERIC_VCPU_STATS()					       \
+	STATS_DESC_COUNTER(VCPU_GENERIC, halt_successful_poll),		       \
+	STATS_DESC_COUNTER(VCPU_GENERIC, halt_attempted_poll),		       \
+	STATS_DESC_COUNTER(VCPU_GENERIC, halt_poll_invalid),		       \
+	STATS_DESC_COUNTER(VCPU_GENERIC, halt_wakeup),			       \
+	STATS_DESC_TIME_NSEC(VCPU_GENERIC, halt_poll_success_ns),	       \
+	STATS_DESC_TIME_NSEC(VCPU_GENERIC, halt_poll_fail_ns),		       \
+	STATS_DESC_TIME_NSEC(VCPU_GENERIC, halt_wait_ns),		       \
+	STATS_DESC_LOGHIST_TIME_NSEC(VCPU_GENERIC, halt_poll_success_hist,     \
+			HALT_POLL_HIST_COUNT),				       \
+	STATS_DESC_LOGHIST_TIME_NSEC(VCPU_GENERIC, halt_poll_fail_hist,	       \
+			HALT_POLL_HIST_COUNT),				       \
+	STATS_DESC_LOGHIST_TIME_NSEC(VCPU_GENERIC, halt_wait_hist,	       \
+			HALT_POLL_HIST_COUNT),				       \
+	STATS_DESC_IBOOLEAN(VCPU_GENERIC, blocking)
+
+
+extern const struct mini_stats_header mini_vm_stats_header;
+extern const struct _mini_stats_desc mini_vm_stats_desc[];
+extern const struct mini_stats_header mini_vcpu_stats_header;
+extern const struct _mini_stats_desc mini_vcpu_stats_desc[];
+
+#if defined(CONFIG_MMU_NOTIFIER) && defined(MINI_ARCH_WANT_MMU_NOTIFIER)
+static inline int mmu_invalidate_retry(struct mini *mini, unsigned long mmu_seq)
+{
+	if (unlikely(mini->mmu_invalidate_in_progress))
+		return 1;
+	/*
+	 * Ensure the read of mmu_invalidate_in_progress happens before
+	 * the read of mmu_invalidate_seq.  This interacts with the
+	 * smp_wmb() in mmu_notifier_invalidate_range_end to make sure
+	 * that the caller either sees the old (non-zero) value of
+	 * mmu_invalidate_in_progress or the new (incremented) value of
+	 * mmu_invalidate_seq.
+	 *
+	 * PowerPC Book3s HV MINI calls this under a per-page lock rather
+	 * than under mini->mmu_lock, for scalability, so can't rely on
+	 * mini->mmu_lock to keep things ordered.
+	 */
+	smp_rmb();
+	if (mini->mmu_invalidate_seq != mmu_seq)
+		return 1;
+	return 0;
+}
+
+static inline int mmu_invalidate_retry_hva(struct mini *mini,
+					   unsigned long mmu_seq,
+					   unsigned long hva)
+{
+	lockdep_assert_held(&mini->mmu_lock);
+	/*
+	 * If mmu_invalidate_in_progress is non-zero, then the range maintained
+	 * by mini_mmu_notifier_invalidate_range_start contains all addresses
+	 * that might be being invalidated. Note that it may include some false
+	 * positives, due to shortcuts when handing concurrent invalidations.
+	 */
+	if (unlikely(mini->mmu_invalidate_in_progress) &&
+	    hva >= mini->mmu_invalidate_range_start &&
+	    hva < mini->mmu_invalidate_range_end)
+		return 1;
+	if (mini->mmu_invalidate_seq != mmu_seq)
+		return 1;
+	return 0;
+}
+#endif //defined(CONFIG_MMU_NOTIFIER) && defined(MINI_ARCH_WANT_MMU_NOTIFIER)
+#endif //__MINI_HOST_H

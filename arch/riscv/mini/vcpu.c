@@ -1,6 +1,7 @@
 #include <linux/uaccess.h>
 #include <linux/vmalloc.h>
 #include <linux/mini_host.h>
+//#include <linux/kvm_host.h>
 #include <asm/hwcap.h>
 #include <asm/sbi.h>
 
@@ -28,38 +29,65 @@ static const unsigned long mini_isa_ext_arr[] = {
 };
 */
 
-#define KVM_ISA_EXT_ARR(ext)		[KVM_RISCV_ISA_EXT_##ext] = RISCV_ISA_EXT_##ext
+const struct _mini_stats_desc mini_vcpu_stats_desc[] = {
+	MINI_GENERIC_VCPU_STATS(),
+	STATS_DESC_COUNTER(VCPU, ecall_exit_stat),
+	STATS_DESC_COUNTER(VCPU, wfi_exit_stat),
+	STATS_DESC_COUNTER(VCPU, mmio_exit_user),
+	STATS_DESC_COUNTER(VCPU, mmio_exit_kernel),
+	STATS_DESC_COUNTER(VCPU, csr_exit_user),
+	STATS_DESC_COUNTER(VCPU, csr_exit_kernel),
+	STATS_DESC_COUNTER(VCPU, signal_exits),
+	STATS_DESC_COUNTER(VCPU, exits)
+};
 
-/* Mapping between KVM ISA Extension ID & Host ISA extension ID */
+const struct mini_stats_header mini_vcpu_stats_header = {
+	.name_size = MINI_STATS_NAME_SIZE,
+	.num_desc = ARRAY_SIZE(mini_vcpu_stats_desc),
+	.id_offset = sizeof(struct mini_stats_header),
+	.desc_offset = sizeof(struct mini_stats_header) + MINI_STATS_NAME_SIZE,
+	.data_offset = sizeof(struct mini_stats_header) + MINI_STATS_NAME_SIZE +
+		       sizeof(mini_vcpu_stats_desc),
+};
+
+
+#define MINI_ISA_EXT_ARR(ext)		[MINI_RISCV_ISA_EXT_##ext] = RISCV_ISA_EXT_##ext
+
+/* Mapping between MINI ISA Extension ID & Host ISA extension ID */
 static const unsigned long mini_isa_ext_arr[] = {
-	[KVM_RISCV_ISA_EXT_A] = RISCV_ISA_EXT_a,
-	[KVM_RISCV_ISA_EXT_C] = RISCV_ISA_EXT_c,
-	[KVM_RISCV_ISA_EXT_D] = RISCV_ISA_EXT_d,
-	[KVM_RISCV_ISA_EXT_F] = RISCV_ISA_EXT_f,
-	[KVM_RISCV_ISA_EXT_H] = RISCV_ISA_EXT_h,
-	[KVM_RISCV_ISA_EXT_I] = RISCV_ISA_EXT_i,
-	[KVM_RISCV_ISA_EXT_M] = RISCV_ISA_EXT_m,
+	[MINI_RISCV_ISA_EXT_A] = RISCV_ISA_EXT_a,
+	[MINI_RISCV_ISA_EXT_C] = RISCV_ISA_EXT_c,
+	[MINI_RISCV_ISA_EXT_D] = RISCV_ISA_EXT_d,
+	[MINI_RISCV_ISA_EXT_F] = RISCV_ISA_EXT_f,
+	[MINI_RISCV_ISA_EXT_H] = RISCV_ISA_EXT_h,
+	[MINI_RISCV_ISA_EXT_I] = RISCV_ISA_EXT_i,
+	[MINI_RISCV_ISA_EXT_M] = RISCV_ISA_EXT_m,
 
-	KVM_ISA_EXT_ARR(SSAIA),
-	KVM_ISA_EXT_ARR(SSTC),
-	KVM_ISA_EXT_ARR(SVINVAL),
-	KVM_ISA_EXT_ARR(SVPBMT),
-	KVM_ISA_EXT_ARR(ZBB),
-	KVM_ISA_EXT_ARR(ZIHINTPAUSE),
-	KVM_ISA_EXT_ARR(ZICBOM),
-	KVM_ISA_EXT_ARR(ZICBOZ),
+	MINI_ISA_EXT_ARR(SSAIA),
+	MINI_ISA_EXT_ARR(SSTC),
+	MINI_ISA_EXT_ARR(SVINVAL),
+	MINI_ISA_EXT_ARR(SVPBMT),
+	MINI_ISA_EXT_ARR(ZBB),
+	MINI_ISA_EXT_ARR(ZIHINTPAUSE),
+	MINI_ISA_EXT_ARR(ZICBOM),
+	MINI_ISA_EXT_ARR(ZICBOZ),
 };
 
 static bool mini_riscv_vcpu_isa_enable_allowed(unsigned long ext)
 {
 	switch (ext) {
-	case KVM_RISCV_ISA_EXT_H:
+	case MINI_RISCV_ISA_EXT_H:
 		return false;
 	default:
 		break;
 	}
 
 	return true;
+}
+
+vm_fault_t mini_arch_vcpu_fault(struct mini_vcpu *vcpu, struct vm_fault *vmf)
+{
+	return VM_FAULT_SIGBUS;
 }
 
 int mini_arch_vcpu_create(struct mini_vcpu *vcpu)
@@ -111,7 +139,7 @@ int mini_arch_vcpu_create(struct mini_vcpu *vcpu)
 		return rc;
 
 	/* Reset VCPU */
-	//kvm_riscv_reset_vcpu(vcpu);
+	//mini_riscv_reset_vcpu(vcpu);
 
 	return 0;
 }
