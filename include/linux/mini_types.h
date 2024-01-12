@@ -2,13 +2,14 @@
 #define __MINI_TYPES_H__
 
 struct mini;
-struct mini_memory_slot;
-struct mini_memslots;
+struct kvm_memory_slot;
+struct kvm_memslots;
 struct mini_vcpu;
 
 #include <linux/types.h>
 
 #include <asm/mini_types.h>
+#include <asm/kvm_types.h>
 
 
 typedef unsigned long  gva_t;

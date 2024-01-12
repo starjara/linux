@@ -969,13 +969,13 @@ void kvm_put_kvm_no_destroy(struct kvm *kvm);
 static inline struct kvm_memslots *__kvm_memslots(struct kvm *kvm, int as_id)
 {
 	as_id = array_index_nospec(as_id, KVM_ADDRESS_SPACE_NUM);
-	kvm_info("[kvm] __kvm_memslots as_id : 0x%x\n",  as_id);
-	kvm_info("[kvm] __kvm_memslots kvm->memslots[as_id] : 0x%x\n", kvm->memslots[as_id]);
+	//kvm_info("[kvm] __kvm_memslots as_id : 0x%x\n",  as_id);
+	//kvm_info("[kvm] __kvm_memslots kvm->memslots[as_id] : 0x%x\n", kvm->memslots[as_id]);
 
-	kvm_info("[kvm] __kvm_memslots: 0x%x\n", 
-            srcu_dereference_check(kvm->memslots[as_id], &kvm->srcu,
-			lockdep_is_held(&kvm->slots_lock) ||
-			!refcount_read(&kvm->users_count)));
+	//kvm_info("[kvm] __kvm_memslots: 0x%x\n", 
+    //        srcu_dereference_check(kvm->memslots[as_id], &kvm->srcu,
+	//		lockdep_is_held(&kvm->slots_lock) ||
+	//		!refcount_read(&kvm->users_count)));
 
 	return srcu_dereference_check(kvm->memslots[as_id], &kvm->srcu,
 			lockdep_is_held(&kvm->slots_lock) ||

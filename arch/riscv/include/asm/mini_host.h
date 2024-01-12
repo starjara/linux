@@ -3,8 +3,13 @@
 
 #include <linux/types.h>
 #include <linux/mini.h>
-#include <linux/mini_types.h>
 
+#include <linux/kvm_types.h>
+
+#include "asm/kvm_host.h"
+#include "asm/kvm_types.h"
+
+/*
 #define MINI_MAX_VCPUS			1024
 
 #define MINI_REQ_SLEEP \
@@ -64,29 +69,37 @@ struct mini_arch_memory_slot {
 };
 
 struct mini_vmid {
+*/
+
 	/*
 	 * Writes to vmid_version and vmid happen with vmid_lock held
 	 * whereas reads happen without any lock held.
 	 */
+/*
 	unsigned long vmid_version;
 	unsigned long vmid;
 };
 
+*/
 struct mini_arch {
+
 	/* G-stage vmid */
-	struct mini_vmid vmid;
+	struct kvm_vmid vmid;
 
 	/* G-stage page table */
 	pgd_t *pgd;
 	phys_addr_t pgd_phys;
 
+    ///////////////////////////////
 	/* Guest Timer */
 	//struct mini_guest_timer timer;
 
 	/* AIA Guest/VM context */
 	//struct mini_aia aia;
+    ///////////////////////////////
 };
 
+/*
 struct mini_cpu_context {
 	unsigned long zero;
 	unsigned long ra;
@@ -138,6 +151,7 @@ struct mini_vcpu_csr {
 	unsigned long vsatp;
 	unsigned long scounteren;
 };
+*/
 
 struct mini_vcpu_arch {
 	/* VCPU ran at least once */
@@ -160,19 +174,19 @@ struct mini_vcpu_arch {
 	unsigned long host_scounteren;
 
 	/* CPU context of Host */
-	struct mini_cpu_context host_context;
+	struct kvm_cpu_context host_context;
 
 	/* CPU context of Guest VCPU */
-	struct mini_cpu_context guest_context;
+	struct kvm_cpu_context guest_context;
 
 	/* CPU CSR context of Guest VCPU */
-	struct mini_vcpu_csr guest_csr;
+	struct kvm_vcpu_csr guest_csr;
 
 	/* CPU context upon Guest VCPU reset */
-	struct mini_cpu_context guest_reset_context;
+	struct kvm_cpu_context guest_reset_context;
 
 	/* CPU CSR context upon Guest VCPU reset */
-	struct mini_vcpu_csr guest_reset_csr;
+	struct kvm_vcpu_csr guest_reset_csr;
 
 	/*
 	 * VCPU interrupts
@@ -184,8 +198,8 @@ struct mini_vcpu_arch {
 	 * and single consumer problem where the consumer is the VCPU itself.
 	 */
 #define MINI_RISCV_VCPU_NR_IRQS	64
-	DECLARE_BITMAP(irqs_pending, MINI_RISCV_VCPU_NR_IRQS);
-	DECLARE_BITMAP(irqs_pending_mask, MINI_RISCV_VCPU_NR_IRQS);
+	DECLARE_BITMAP(irqs_pending, KVM_RISCV_VCPU_NR_IRQS);
+	DECLARE_BITMAP(irqs_pending_mask, KVM_RISCV_VCPU_NR_IRQS);
 
 	/* VCPU Timer */
 	//struct mini_vcpu_timer timer;
@@ -194,7 +208,7 @@ struct mini_vcpu_arch {
 	spinlock_t hfence_lock;
 	unsigned long hfence_head;
 	unsigned long hfence_tail;
-	struct mini_riscv_hfence hfence_queue[MINI_RISCV_VCPU_MAX_HFENCE];
+	struct kvm_riscv_hfence hfence_queue[KVM_RISCV_VCPU_MAX_HFENCE];
 
 	/* MMIO instruction details */
 	//struct mini_mmio_decode mmio_decode;
@@ -209,7 +223,7 @@ struct mini_vcpu_arch {
 	//struct mini_vcpu_aia aia_context;
 
 	/* Cache pages needed to program page tables with spinlock held */
-	struct mini_mmu_memory_cache mmu_page_cache;
+	struct kvm_mmu_memory_cache mmu_page_cache;
 
 	/* VCPU power-off state */
 	bool power_off;
@@ -228,7 +242,7 @@ unsigned long mini_riscv_gstage_vmid_bits(void);
 int mini_riscv_gstage_vmid_init(struct mini *mini);
 
 int mini_riscv_gstage_map(struct mini_vcpu *vcpu,
-			 struct mini_memory_slot *memslot,
+			 struct kvm_memory_slot *memslot,
 	         gpa_t gpa, unsigned long hva, bool is_write);
 
 int mini_riscv_gstage_alloc_pgd(struct mini *mini);

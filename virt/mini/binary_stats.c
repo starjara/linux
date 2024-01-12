@@ -1,10 +1,11 @@
 #include <linux/mini_host.h>
+#include <linux/kvm_host.h>
 #include <linux/mini.h>
 #include <linux/errno.h>
 #include <linux/uaccess.h>
 
-ssize_t mini_stats_read(char *id, const struct mini_stats_header *header,
-		       const struct _mini_stats_desc *desc,
+ssize_t mini_stats_read(char *id, const struct kvm_stats_header *header,
+		       const struct _kvm_stats_desc *desc,
 		       void *stats, size_t size_stats,
 		       char __user *user_buffer, size_t size, loff_t *offset)
 {

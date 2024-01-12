@@ -1,5 +1,5 @@
 #include <linux/mini_host.h>
-#include <linux/mini.h>
+//#include <linux/mini.h>
 #include <linux/module.h>
 #include <linux/percpu.h>
 #include <linux/vmalloc.h>
@@ -19,6 +19,10 @@
 #include <linux/uaccess.h>
 
 #include "mini_mm.h"
+#include "../kvm/kvm_mm.h"
+
+#include <linux/kvm.h>
+#include <linux/kvm_host.h>
 
 #include <linux/mini_dirty_ring.h>
 #define ITOA_MAX_LEN 12
@@ -49,7 +53,7 @@ static long mini_vcpu_compat_ioctl(struct file *file, unsigned int ioctl,
  * For architectures that don't implement a compat infrastructure,
  * adopt a double line of defense:
  * - Prevent a compat task from opening /dev/kvm
- * - If the open has been done by a 64bit task, and the MINI fd
+ * - If the open has been done by a 64bit task, and the KVM fd
  *   passed to a compat task, let the ioctls fail.
  */
 static long mini_no_compat_ioctl(struct file *file, unsigned int ioctl,
@@ -71,6 +75,7 @@ static void ack_kick(void *_completed)
 {
 }
 
+
 bool mini_is_zone_device_page(struct page *page)
 {
 	/*
@@ -85,7 +90,7 @@ bool mini_is_zone_device_page(struct page *page)
 	return is_zone_device_page(page);
 }
 
-struct page *mini_pfn_to_refcounted_page(mini_pfn_t pfn)
+struct page *mini_pfn_to_refcounted_page(kvm_pfn_t pfn)
 {
 	struct page *page;
 
@@ -96,20 +101,20 @@ struct page *mini_pfn_to_refcounted_page(mini_pfn_t pfn)
 	if (!PageReserved(page))
 		return page;
 
-	/* The ZERO_PAGE(s) is marked PG_reserved, but is refcounted. */
+	// The ZERO_PAGE(s) is marked PG_reserved, but is refcounted.
 	if (is_zero_pfn(pfn))
 		return page;
 
-	/*
-	 * ZONE_DEVICE pages currently set PG_reserved, but from a refcounting
-	 * perspective they are "normal" pages, albeit with slightly different
-	 * usage rules.
-	 */
+	 //ZONE_DEVICE pages currently set PG_reserved, but from a refcounting
+	 //perspective they are "normal" pages, albeit with slightly different
+	 //usage rules.
+     
 	if (mini_is_zone_device_page(page))
 		return page;
 
 	return NULL;
 }
+
 static inline bool mini_kick_many_cpus(struct cpumask *cpus, bool wait)
 {
 	if (cpumask_empty(cpus))
@@ -124,10 +129,10 @@ static void mini_make_vcpu_request(struct mini_vcpu *vcpu, unsigned int req,
 {
 	int cpu;
 
-	if (likely(!(req & MINI_REQUEST_NO_ACTION)))
+	if (likely(!(req & KVM_REQUEST_NO_ACTION)))
 		__mini_make_request(req, vcpu);
 
-	if (!(req & MINI_REQUEST_NO_WAKEUP) && mini_vcpu_wake_up(vcpu))
+	if (!(req & KVM_REQUEST_NO_WAKEUP) && mini_vcpu_wake_up(vcpu))
 		return;
 
 	/*
@@ -136,7 +141,7 @@ static void mini_make_vcpu_request(struct mini_vcpu *vcpu, unsigned int req,
 	 * to the previous pCPU.  But, that's OK because the purpose of the IPI
 	 * is to ensure the vCPU returns to OUTSIDE_GUEST_MODE, which is
 	 * satisfied if the vCPU migrates. Entering READING_SHADOW_PAGE_TABLES
-	 * after this point is also OK, as the requirement is only that MINI wait
+	 * after this point is also OK, as the requirement is only that KVM wait
 	 * for vCPUs that were reading SPTEs _before_ any changes were
 	 * finalized. See mini_vcpu_kick() for more details on handling requests.
 	 */
@@ -162,14 +167,14 @@ bool mini_make_vcpus_request_mask(struct mini *mini, unsigned int req,
 	cpus = this_cpu_cpumask_var_ptr(cpu_kick_mask);
 	cpumask_clear(cpus);
 
-	for_each_set_bit(i, vcpu_bitmap, MINI_MAX_VCPUS) {
+	for_each_set_bit(i, vcpu_bitmap, KVM_MAX_VCPUS) {
 		vcpu = mini_get_vcpu(mini, i);
 		if (!vcpu)
 			continue;
 		mini_make_vcpu_request(vcpu, req, cpus, me);
 	}
 
-	called = mini_kick_many_cpus(cpus, !!(req & MINI_REQUEST_WAIT));
+	called = mini_kick_many_cpus(cpus, !!(req & KVM_REQUEST_WAIT));
 	put_cpu();
 
 	return called;
@@ -189,13 +194,13 @@ bool mini_make_all_cpus_request_except(struct mini *mini, unsigned int req,
 	cpus = this_cpu_cpumask_var_ptr(cpu_kick_mask);
 	cpumask_clear(cpus);
 
-	mini_for_each_vcpu(i, vcpu, mini) {
+	kvm_for_each_vcpu(i, vcpu, mini) {
 		if (vcpu == except)
 			continue;
 		mini_make_vcpu_request(vcpu, req, cpus, me);
 	}
 
-	called = mini_kick_many_cpus(cpus, !!(req & MINI_REQUEST_WAIT));
+	called = mini_kick_many_cpus(cpus, !!(req & KVM_REQUEST_WAIT));
 	put_cpu();
 
 	return called;
@@ -224,14 +229,14 @@ void mini_flush_remote_tlbs(struct mini *mini)
 	 * barrier here.
 	 */
 	if (!mini_arch_flush_remote_tlb(mini)
-	    || mini_make_all_cpus_request(mini, MINI_REQ_TLB_FLUSH))
+	    || mini_make_all_cpus_request(mini, KVM_REQ_TLB_FLUSH))
 		++mini->stat.generic.remote_tlb_flush;
 }
 EXPORT_SYMBOL_GPL(mini_flush_remote_tlbs);
 #endif
 
-#ifdef MINI_ARCH_NR_OBJS_PER_MEMORY_CACHE
-static inline void *mmu_memory_cache_alloc_obj(struct mini_mmu_memory_cache *mc,
+#ifdef KVM_ARCH_NR_OBJS_PER_MEMORY_CACHE
+static inline void *mmu_memory_cache_alloc_obj(struct kvm_mmu_memory_cache *mc,
 					       gfp_t gfp_flags)
 {
 	gfp_flags |= mc->gfp_zero;
@@ -242,7 +247,7 @@ static inline void *mmu_memory_cache_alloc_obj(struct mini_mmu_memory_cache *mc,
 		return (void *)__get_free_page(gfp_flags);
 }
 
-int __mini_mmu_topup_memory_cache(struct mini_mmu_memory_cache *mc, int capacity, int min)
+int __mini_mmu_topup_memory_cache(struct kvm_mmu_memory_cache *mc, int capacity, int min)
 {
 	gfp_t gfp = mc->gfp_custom ? mc->gfp_custom : GFP_KERNEL_ACCOUNT;
 	void *obj;
@@ -274,17 +279,17 @@ int __mini_mmu_topup_memory_cache(struct mini_mmu_memory_cache *mc, int capacity
 	return 0;
 }
 
-int mini_mmu_topup_memory_cache(struct mini_mmu_memory_cache *mc, int min)
+int kvm_mmu_topup_memory_cache(struct kvm_mmu_memory_cache *mc, int min)
 {
-	return __mini_mmu_topup_memory_cache(mc, MINI_ARCH_NR_OBJS_PER_MEMORY_CACHE, min);
+	return __mini_mmu_topup_memory_cache(mc, KVM_ARCH_NR_OBJS_PER_MEMORY_CACHE, min);
 }
 
-int mini_mmu_memory_cache_nr_free_objects(struct mini_mmu_memory_cache *mc)
+int mini_mmu_memory_cache_nr_free_objects(struct kvm_mmu_memory_cache *mc)
 {
 	return mc->nobjs;
 }
 
-void mini_mmu_free_memory_cache(struct mini_mmu_memory_cache *mc)
+void kvm_mmu_free_memory_cache(struct kvm_mmu_memory_cache *mc)
 {
 	while (mc->nobjs) {
 		if (mc->kmem_cache)
@@ -299,7 +304,7 @@ void mini_mmu_free_memory_cache(struct mini_mmu_memory_cache *mc)
 	mc->capacity = 0;
 }
 
-void *mini_mmu_memory_cache_alloc(struct mini_mmu_memory_cache *mc)
+void *mini_mmu_memory_cache_alloc(struct kvm_mmu_memory_cache *mc)
 {
 	void *p;
 
@@ -312,12 +317,37 @@ void *mini_mmu_memory_cache_alloc(struct mini_mmu_memory_cache *mc)
 }
 #endif
 
-static int check_memory_region_flags(const struct mini_userspace_memory_region *mem)
+static void mini_vcpu_init(struct mini_vcpu *vcpu, struct mini *mini, unsigned id)
 {
-	u32 valid_flags = MINI_MEM_LOG_DIRTY_PAGES;
+    pr_notice("[mini] mini_vcpu_init\n");
 
-#ifdef __MINI_HAVE_READONLY_MEM
-	valid_flags |= MINI_MEM_READONLY;
+	mutex_init(&vcpu->mutex);
+	vcpu->cpu = -1;
+	vcpu->mini = mini;
+	vcpu->vcpu_id = id;
+	vcpu->pid = NULL;
+#ifndef __KVM_HAVE_ARCH_WQP
+	rcuwait_init(&vcpu->wait);
+#endif
+	//kvm_async_pf_vcpu_init(vcpu);
+
+	//kvm_vcpu_set_in_spin_loop(vcpu, false);
+	//kvm_vcpu_set_dy_eligible(vcpu, false);
+	vcpu->preempted = false;
+	vcpu->ready = false;
+	//preempt_notifier_init(&vcpu->preempt_notifier, &kvm_preempt_ops);
+	vcpu->last_used_slot = NULL;
+
+	/* Fill the stats id string for the vcpu */
+	snprintf(vcpu->stats_id, sizeof(vcpu->stats_id), "mini-%d/vcpu-%d",
+		 task_pid_nr(current), id);
+}
+static int check_memory_region_flags(const struct kvm_userspace_memory_region *mem)
+{
+	u32 valid_flags = KVM_MEM_LOG_DIRTY_PAGES;
+
+#ifdef __KVM_HAVE_READONLY_MEM
+	valid_flags |= KVM_MEM_READONLY;
 #endif
 
 	if (mem->flags & ~valid_flags)
@@ -331,9 +361,9 @@ __weak void mini_arch_mmu_notifier_invalidate_range(struct mini *mini,
 {
 }
 
-static struct mini_memslots *mini_get_inactive_memslots(struct mini *mini, int as_id)
+static struct kvm_memslots *mini_get_inactive_memslots(struct mini *mini, int as_id)
 {
-	struct mini_memslots *active = __mini_memslots(mini, as_id);
+	struct kvm_memslots *active = __mini_memslots(mini, as_id);
 	int node_idx_inactive = active->node_idx ^ 1;
 
 	return &mini->__memslots[as_id][node_idx_inactive];
@@ -341,14 +371,14 @@ static struct mini_memslots *mini_get_inactive_memslots(struct mini *mini, int a
 
 static void mini_swap_active_memslots(struct mini *mini, int as_id)
 {
-	struct mini_memslots *slots = mini_get_inactive_memslots(mini, as_id);
+	struct kvm_memslots *slots = mini_get_inactive_memslots(mini, as_id);
     mini_info("[mini] mini_swap_active_memslots\n");
 
 	/* Grab the generation from the activate memslots. */
 	u64 gen = __mini_memslots(mini, as_id)->generation;
 
-	WARN_ON(gen & MINI_MEMSLOT_GEN_UPDATE_IN_PROGRESS);
-	slots->generation = gen | MINI_MEMSLOT_GEN_UPDATE_IN_PROGRESS;
+	WARN_ON(gen & KVM_MEMSLOT_GEN_UPDATE_IN_PROGRESS);
+	slots->generation = gen | KVM_MEMSLOT_GEN_UPDATE_IN_PROGRESS;
 
 	/*
 	 * Do not store the new memslots while there are invalidations in
@@ -383,7 +413,7 @@ static void mini_swap_active_memslots(struct mini *mini, int as_id)
 	 * the number of address spaces.  This provides a unique and easily
 	 * identifiable generation number while the memslots are in flux.
 	 */
-	gen = slots->generation & ~MINI_MEMSLOT_GEN_UPDATE_IN_PROGRESS;
+	gen = slots->generation & ~KVM_MEMSLOT_GEN_UPDATE_IN_PROGRESS;
 
 	/*
 	 * Generations must be unique even across address spaces.  We do not need
@@ -392,15 +422,15 @@ static void mini_swap_active_memslots(struct mini *mini, int as_id)
 	 * space 0 will use generations 0, 2, 4, ... while address space 1 will
 	 * use generations 1, 3, 5, ...
 	 */
-	gen += MINI_ADDRESS_SPACE_NUM;
+	gen += KVM_ADDRESS_SPACE_NUM;
 
 	mini_arch_memslots_updated(mini, gen);
 
 	slots->generation = gen;
 }
 
-static void mini_copy_memslot(struct mini_memory_slot *dest,
-			     const struct mini_memory_slot *src)
+static void mini_copy_memslot(struct kvm_memory_slot *dest,
+			     const struct kvm_memory_slot *src)
 {
 	dest->base_gfn = src->base_gfn;
 	dest->npages = src->npages;
@@ -417,7 +447,7 @@ static void mini_copy_memslot(struct mini_memory_slot *dest,
 static struct mini *mini_create_vm(unsigned long type, const char *fdname)
 {
     struct mini *mini = mini_arch_alloc_vm();
-    struct mini_memslots *slots;
+    struct kvm_memslots *slots;
     int r = -ENOMEM;
     int i, j;
 
@@ -430,11 +460,11 @@ static struct mini *mini_create_vm(unsigned long type, const char *fdname)
 
     __module_get(mini_chardev_ops.owner);
 
-	MINI_MMU_LOCK_INIT(mini);
+	KVM_MMU_LOCK_INIT(mini);
 	mmgrab(current->mm);
 	mini->mm = current->mm;
 	//mini_eventfd_init(mini);
-	//mutex_init(&mini->lock);
+	mutex_init(&mini->lock);
 	//mutex_init(&mini->irq_lock);
 	mutex_init(&mini->slots_lock);
 	mutex_init(&mini->slots_arch_lock);
@@ -442,7 +472,7 @@ static struct mini *mini_create_vm(unsigned long type, const char *fdname)
 	rcuwait_init(&mini->mn_memslots_update_rcuwait);
 	xa_init(&mini->vcpu_array);
 
-	mini->max_vcpus = MINI_MAX_VCPUS;
+	mini->max_vcpus = KVM_MAX_VCPUS;
 
 	snprintf(mini->stats_id, sizeof(mini->stats_id), "mini-%d",
 		 task_pid_nr(current));
@@ -454,7 +484,7 @@ static struct mini *mini_create_vm(unsigned long type, const char *fdname)
         //return NULL;
 		//goto out_err_no_irq_srcu;
 
-	for (i = 0; i < MINI_ADDRESS_SPACE_NUM; i++) {
+	for (i = 0; i < KVM_ADDRESS_SPACE_NUM; i++) {
 		for (j = 0; j < 2; j++) {
             slots = &mini->__memslots[i][j];
 
@@ -474,16 +504,11 @@ static struct mini *mini_create_vm(unsigned long type, const char *fdname)
     return mini;
 }
 
-
-
-
-
-
 /*
  * Allocation size is twice as large as the actual dirty bitmap size.
  * See mini_vm_ioctl_get_dirty_log() why this is needed.
  */
-static int mini_alloc_dirty_bitmap(struct mini_memory_slot *memslot)
+static int mini_alloc_dirty_bitmap(struct kvm_memory_slot *memslot)
 {
 	unsigned long dirty_bytes = mini_dirty_bitmap_bytes(memslot);
 
@@ -494,7 +519,7 @@ static int mini_alloc_dirty_bitmap(struct mini_memory_slot *memslot)
 	return 0;
 }
 
-static void mini_destroy_dirty_bitmap(struct mini_memory_slot *memslot)
+static void mini_destroy_dirty_bitmap(struct kvm_memory_slot *memslot)
 {
 	if (!memslot->dirty_bitmap)
 		return;
@@ -503,8 +528,8 @@ static void mini_destroy_dirty_bitmap(struct mini_memory_slot *memslot)
 	memslot->dirty_bitmap = NULL;
 }
 
-/* This does not remove the slot from struct mini_memslots data structures */
-static void mini_free_memslot(struct mini *mini, struct mini_memory_slot *slot)
+/* This does not remove the slot from struct kvm_memslots data structures */
+static void mini_free_memslot(struct mini *mini, struct kvm_memory_slot *slot)
 {
 	mini_destroy_dirty_bitmap(slot);
 
@@ -513,10 +538,10 @@ static void mini_free_memslot(struct mini *mini, struct mini_memory_slot *slot)
 	kfree(slot);
 }
 
-static void mini_free_memslots(struct mini *mini, struct mini_memslots *slots)
+static void mini_free_memslots(struct mini *mini, struct kvm_memslots *slots)
 {
 	struct hlist_node *idnode;
-	struct mini_memory_slot *memslot;
+	struct kvm_memory_slot *memslot;
 	int bkt;
 
 	/*
@@ -533,9 +558,9 @@ static void mini_free_memslots(struct mini *mini, struct mini_memslots *slots)
 }
 
 static void mini_commit_memory_region(struct mini *mini,
-				     struct mini_memory_slot *old,
-				     const struct mini_memory_slot *new,
-				     enum mini_mr_change change)
+				     struct kvm_memory_slot *old,
+				     const struct kvm_memory_slot *new,
+				     enum kvm_mr_change change)
 {
 	int old_flags = old ? old->flags : 0;
 	int new_flags = new ? new->flags : 0;
@@ -544,13 +569,13 @@ static void mini_commit_memory_region(struct mini *mini,
 	 * Update the total number of memslot pages before calling the arch
 	 * hook so that architectures can consume the result directly.
 	 */
-	if (change == MINI_MR_DELETE)
+	if (change == KVM_MR_DELETE)
 		mini->nr_memslot_pages -= old->npages;
-	else if (change == MINI_MR_CREATE)
+	else if (change == KVM_MR_CREATE)
 		mini->nr_memslot_pages += new->npages;
 
-	if ((old_flags ^ new_flags) & MINI_MEM_LOG_DIRTY_PAGES) {
-		int change = (new_flags & MINI_MEM_LOG_DIRTY_PAGES) ? 1 : -1;
+	if ((old_flags ^ new_flags) & KVM_MEM_LOG_DIRTY_PAGES) {
+		int change = (new_flags & KVM_MEM_LOG_DIRTY_PAGES) ? 1 : -1;
 		atomic_set(&mini->nr_memslots_dirty_logging,
 			   atomic_read(&mini->nr_memslots_dirty_logging) + change);
 	}
@@ -558,15 +583,15 @@ static void mini_commit_memory_region(struct mini *mini,
 	mini_arch_commit_memory_region(mini, old, new, change);
 
 	switch (change) {
-	case MINI_MR_CREATE:
+	case KVM_MR_CREATE:
 		/* Nothing more to do. */
 		break;
-	case MINI_MR_DELETE:
+	case KVM_MR_DELETE:
 		/* Free the old memslot and all its metadata. */
 		mini_free_memslot(mini, old);
 		break;
-	case MINI_MR_MOVE:
-	case MINI_MR_FLAGS_ONLY:
+	case KVM_MR_MOVE:
+	case KVM_MR_FLAGS_ONLY:
 		/*
 		 * Free the dirty bitmap as needed; the below check encompasses
 		 * both the flags and whether a ring buffer is being used)
@@ -587,9 +612,9 @@ static void mini_commit_memory_region(struct mini *mini,
 }
 
  int mini_prepare_memory_region(struct mini *mini,
-				     const struct mini_memory_slot *old,
-				     struct mini_memory_slot *new,
-				     enum mini_mr_change change)
+				     const struct kvm_memory_slot *old,
+				     struct kvm_memory_slot *new,
+				     enum kvm_mr_change change)
 {
 	int r;
 
@@ -599,11 +624,11 @@ static void mini_commit_memory_region(struct mini *mini,
 	 * If dirty logging is disabled, nullify the bitmap; the old bitmap
 	 * will be freed on "commit".  If logging is enabled in both old and
 	 * new, reuse the existing bitmap.  If logging is enabled only in the
-	 * new and MINI isn't using a ring buffer, allocate and initialize a
+	 * new and KVM isn't using a ring buffer, allocate and initialize a
 	 * new bitmap.
 	 */
-	if (change != MINI_MR_DELETE) {
-		if (!(new->flags & MINI_MEM_LOG_DIRTY_PAGES))
+	if (change != KVM_MR_DELETE) {
+		if (!(new->flags & KVM_MEM_LOG_DIRTY_PAGES))
 			new->dirty_bitmap = NULL;
 		else if (old && old->dirty_bitmap)
 			new->dirty_bitmap = old->dirty_bitmap;
@@ -631,8 +656,8 @@ static void mini_commit_memory_region(struct mini *mini,
  * This also serves as a sanity that at least one of the pointers is non-NULL,
  * and that their address space IDs don't diverge.
  */
-static int mini_memslots_get_as_id(struct mini_memory_slot *a,
-				  struct mini_memory_slot *b)
+static int kvm_memslots_get_as_id(struct kvm_memory_slot *a,
+				  struct kvm_memory_slot *b)
 {
 	if (WARN_ON_ONCE(!a && !b))
 		return 0;
@@ -646,8 +671,8 @@ static int mini_memslots_get_as_id(struct mini_memory_slot *a,
 	return a->as_id;
 }
 
-static void mini_insert_gfn_node(struct mini_memslots *slots,
-				struct mini_memory_slot *slot)
+static void mini_insert_gfn_node(struct kvm_memslots *slots,
+				struct kvm_memory_slot *slot)
 {
 	struct rb_root *gfn_tree = &slots->gfn_tree;
 	struct rb_node **node, *parent;
@@ -655,9 +680,9 @@ static void mini_insert_gfn_node(struct mini_memslots *slots,
 
 	parent = NULL;
 	for (node = &gfn_tree->rb_node; *node; ) {
-		struct mini_memory_slot *tmp;
+		struct kvm_memory_slot *tmp;
 
-		tmp = container_of(*node, struct mini_memory_slot, gfn_node[idx]);
+		tmp = container_of(*node, struct kvm_memory_slot, gfn_node[idx]);
 		parent = *node;
 		if (slot->base_gfn < tmp->base_gfn)
 			node = &(*node)->rb_left;
@@ -671,15 +696,15 @@ static void mini_insert_gfn_node(struct mini_memslots *slots,
 	rb_insert_color(&slot->gfn_node[idx], gfn_tree);
 }
 
-static void mini_erase_gfn_node(struct mini_memslots *slots,
-			       struct mini_memory_slot *slot)
+static void mini_erase_gfn_node(struct kvm_memslots *slots,
+			       struct kvm_memory_slot *slot)
 {
 	rb_erase(&slot->gfn_node[slots->node_idx], &slots->gfn_tree);
 }
 
-static void mini_replace_gfn_node(struct mini_memslots *slots,
-				 struct mini_memory_slot *old,
-				 struct mini_memory_slot *new)
+static void mini_replace_gfn_node(struct kvm_memslots *slots,
+				 struct kvm_memory_slot *old,
+				 struct kvm_memory_slot *new)
 {
 	int idx = slots->node_idx;
 
@@ -699,11 +724,11 @@ static void mini_replace_gfn_node(struct mini_memslots *slots,
  * appropriately.
  */
 static void mini_replace_memslot(struct mini *mini,
-				struct mini_memory_slot *old,
-				struct mini_memory_slot *new)
+				struct kvm_memory_slot *old,
+				struct kvm_memory_slot *new)
 {
-	int as_id = mini_memslots_get_as_id(old, new);
-	struct mini_memslots *slots = mini_get_inactive_memslots(mini, as_id);
+	int as_id = kvm_memslots_get_as_id(old, new);
+	struct kvm_memslots *slots = mini_get_inactive_memslots(mini, as_id);
 	int idx = slots->node_idx;
 
     mini_info("[mini] mini_replace_memslot\n");
@@ -753,8 +778,8 @@ static void mini_replace_memslot(struct mini *mini,
 }
 
 static void mini_invalidate_memslot(struct mini *mini,
-				   struct mini_memory_slot *old,
-				   struct mini_memory_slot *invalid_slot)
+				   struct kvm_memory_slot *old,
+				   struct kvm_memory_slot *invalid_slot)
 {
 	/*
 	 * Mark the current slot INVALID.  As with all memslot modifications,
@@ -762,7 +787,7 @@ static void mini_invalidate_memslot(struct mini *mini,
 	 * current slot in the active tree.
 	 */
 	mini_copy_memslot(invalid_slot, old);
-	invalid_slot->flags |= MINI_MEMSLOT_INVALID;
+	invalid_slot->flags |= KVM_MEMSLOT_INVALID;
 	mini_replace_memslot(mini, old, invalid_slot);
 
 	/*
@@ -804,10 +829,10 @@ static void mini_invalidate_memslot(struct mini *mini,
  * (while also swapping the sets).
  */
 static void mini_activate_memslot(struct mini *mini,
-				 struct mini_memory_slot *old,
-				 struct mini_memory_slot *new)
+				 struct kvm_memory_slot *old,
+				 struct kvm_memory_slot *new)
 {
-	int as_id = mini_memslots_get_as_id(old, new);
+	int as_id = kvm_memslots_get_as_id(old, new);
 
     mini_info("[mini] mini_activate_memslot\n");
 
@@ -819,8 +844,8 @@ static void mini_activate_memslot(struct mini *mini,
 
 
 static void mini_update_flags_memslot(struct mini *mini,
-				     struct mini_memory_slot *old,
-				     struct mini_memory_slot *new)
+				     struct kvm_memory_slot *old,
+				     struct kvm_memory_slot *new)
 {
 	/*
 	 * Similar to the MOVE case, but the slot doesn't need to be zapped as
@@ -833,7 +858,7 @@ static void mini_update_flags_memslot(struct mini *mini,
 }
 
 static void mini_create_memslot(struct mini *mini,
-			       struct mini_memory_slot *new)
+			       struct kvm_memory_slot *new)
 {
 	/* Add the new memslot to the inactive set and activate. */
     mini_info("[mini] mini_create_memslot\n");
@@ -842,8 +867,8 @@ static void mini_create_memslot(struct mini *mini,
 }
 
 static void mini_delete_memslot(struct mini *mini,
-			       struct mini_memory_slot *old,
-			       struct mini_memory_slot *invalid_slot)
+			       struct kvm_memory_slot *old,
+			       struct kvm_memory_slot *invalid_slot)
 {
 	/*
 	 * Remove the old memslot (in the inactive memslots) by passing NULL as
@@ -855,9 +880,9 @@ static void mini_delete_memslot(struct mini *mini,
 }
 
 static void mini_move_memslot(struct mini *mini,
-			     struct mini_memory_slot *old,
-			     struct mini_memory_slot *new,
-			     struct mini_memory_slot *invalid_slot)
+			     struct kvm_memory_slot *old,
+			     struct kvm_memory_slot *new,
+			     struct kvm_memory_slot *invalid_slot)
 {
 	/*
 	 * Replace the old memslot in the inactive slots, and then swap slots
@@ -869,11 +894,11 @@ static void mini_move_memslot(struct mini *mini,
 }
 
 static int mini_set_memslot(struct mini *mini,
-			   struct mini_memory_slot *old,
-			   struct mini_memory_slot *new,
-			   enum mini_mr_change change)
+			   struct kvm_memory_slot *old,
+			   struct kvm_memory_slot *new,
+			   enum kvm_mr_change change)
 {
-	struct mini_memory_slot *invalid_slot;
+	struct kvm_memory_slot *invalid_slot;
 	int r;
 
     mini_info("[mini] mini_set_memslot\n");
@@ -899,14 +924,14 @@ static int mini_set_memslot(struct mini *mini,
 	 * continue running by ensuring there are no mappings or shadow pages
 	 * for the memslot when it is deleted/moved.  Without pre-invalidation
 	 * (and without a lock), a window would exist between effecting the
-	 * delete/move and committing the changes in arch code where MINI or a
+	 * delete/move and committing the changes in arch code where KVM or a
 	 * guest could access a non-existent memslot.
 	 *
 	 * Modifications are done on a temporary, unreachable slot.  The old
 	 * slot needs to be preserved in case a later step fails and the
 	 * invalidation needs to be reverted.
 	 */
-	if (change == MINI_MR_DELETE || change == MINI_MR_MOVE) {
+	if (change == KVM_MR_DELETE || change == KVM_MR_MOVE) {
 		invalid_slot = kzalloc(sizeof(*invalid_slot), GFP_KERNEL_ACCOUNT);
 		if (!invalid_slot) {
 			mutex_unlock(&mini->slots_arch_lock);
@@ -923,7 +948,7 @@ static int mini_set_memslot(struct mini *mini,
 		 * in the inactive slots.  Changing the active memslots also
 		 * release slots_arch_lock.
 		 */
-		if (change == MINI_MR_DELETE || change == MINI_MR_MOVE) {
+		if (change == KVM_MR_DELETE || change == KVM_MR_MOVE) {
 			mini_activate_memslot(mini, invalid_slot, old);
 			kfree(invalid_slot);
 		} else {
@@ -939,19 +964,19 @@ static int mini_set_memslot(struct mini *mini,
 	 * For CREATE, there is no old slot.  For DELETE and FLAGS_ONLY, the
 	 * old slot is detached but otherwise preserved.
 	 */
-	if (change == MINI_MR_CREATE)
+	if (change == KVM_MR_CREATE)
 		mini_create_memslot(mini, new);
-	else if (change == MINI_MR_DELETE)
+	else if (change == KVM_MR_DELETE)
 		mini_delete_memslot(mini, old, invalid_slot);
-	else if (change == MINI_MR_MOVE)
+	else if (change == KVM_MR_MOVE)
 		mini_move_memslot(mini, old, new, invalid_slot);
-	else if (change == MINI_MR_FLAGS_ONLY)
+	else if (change == KVM_MR_FLAGS_ONLY)
 		mini_update_flags_memslot(mini, old, new);
 	else
 		BUG();
 
 	/* Free the temporary INVALID slot used for DELETE and MOVE. */
-	if (change == MINI_MR_DELETE || change == MINI_MR_MOVE)
+	if (change == KVM_MR_DELETE || change == KVM_MR_MOVE)
 		kfree(invalid_slot);
 
 	/*
@@ -964,12 +989,12 @@ static int mini_set_memslot(struct mini *mini,
 	return 0;
 }
 
-static bool mini_check_memslot_overlap(struct mini_memslots *slots, int id,
+static bool mini_check_memslot_overlap(struct kvm_memslots *slots, int id,
 				      gfn_t start, gfn_t end)
 {
-	struct mini_memslot_iter iter;
+	struct kvm_memslot_iter iter;
 
-	mini_for_each_memslot_in_gfn_range(&iter, slots, start, end) {
+	kvm_for_each_memslot_in_gfn_range(&iter, slots, start, end) {
 		if (iter.slot->id != id)
 			return true;
 	}
@@ -986,11 +1011,11 @@ static bool mini_check_memslot_overlap(struct mini_memslots *slots, int id,
  * Must be called holding mini->slots_lock for write.
  */
 int __mini_set_memory_region(struct mini *mini,
-			    const struct mini_userspace_memory_region *mem)
+			    const struct kvm_userspace_memory_region *mem)
 {
-	struct mini_memory_slot *old, *new;
-	struct mini_memslots *slots;
-	enum mini_mr_change change;
+	struct kvm_memory_slot *old, *new;
+	struct kvm_memslots *slots;
+	enum kvm_mr_change change;
 	unsigned long npages;
 	gfn_t base_gfn;
 	int as_id, id;
@@ -1024,11 +1049,11 @@ int __mini_set_memory_region(struct mini *mini,
 	     !access_ok((void __user *)(unsigned long)mem->userspace_addr,
 			mem->memory_size))
 		return -EINVAL;
-	if (as_id >= MINI_ADDRESS_SPACE_NUM || id >= MINI_MEM_SLOTS_NUM)
+	if (as_id >= KVM_ADDRESS_SPACE_NUM || id >= KVM_MEM_SLOTS_NUM)
 		return -EINVAL;
 	if (mem->guest_phys_addr + mem->memory_size < mem->guest_phys_addr)
 		return -EINVAL;
-	if ((mem->memory_size >> PAGE_SHIFT) > MINI_MEM_MAX_NR_PAGES)
+	if ((mem->memory_size >> PAGE_SHIFT) > KVM_MEM_MAX_NR_PAGES)
 		return -EINVAL;
     mini_info("[mini] __mini_set_memory_region_after_sanity\n");
 
@@ -1054,17 +1079,17 @@ int __mini_set_memory_region(struct mini *mini,
 		if (WARN_ON_ONCE(mini->nr_memslot_pages < old->npages))
 			return -EIO;
 
-		return mini_set_memslot(mini, old, NULL, MINI_MR_DELETE);
+		return mini_set_memslot(mini, old, NULL, KVM_MR_DELETE);
 	}
 
 	base_gfn = (mem->guest_phys_addr >> PAGE_SHIFT);
 	npages = (mem->memory_size >> PAGE_SHIFT);
 
 	if (!old || !old->npages) {
-		change = MINI_MR_CREATE;
+		change = KVM_MR_CREATE;
 
 		/*
-		 * To simplify MINI internals, the total number of pages across
+		 * To simplify KVM internals, the total number of pages across
 		 * all memslots must fit in an unsigned long.
 		 */
 		if ((mini->nr_memslot_pages + npages) < mini->nr_memslot_pages)
@@ -1072,18 +1097,18 @@ int __mini_set_memory_region(struct mini *mini,
 	} else { /* Modify an existing slot. */
 		if ((mem->userspace_addr != old->userspace_addr) ||
 		    (npages != old->npages) ||
-		    ((mem->flags ^ old->flags) & MINI_MEM_READONLY))
+		    ((mem->flags ^ old->flags) & KVM_MEM_READONLY))
 			return -EINVAL;
 
 		if (base_gfn != old->base_gfn)
-			change = MINI_MR_MOVE;
+			change = KVM_MR_MOVE;
 		else if (mem->flags != old->flags)
-			change = MINI_MR_FLAGS_ONLY;
+			change = KVM_MR_FLAGS_ONLY;
 		else /* Nothing to change. */
 			return 0;
 	}
 
-	if ((change == MINI_MR_CREATE || change == MINI_MR_MOVE) &&
+	if ((change == KVM_MR_CREATE || change == KVM_MR_MOVE) &&
 	    mini_check_memslot_overlap(slots, id, base_gfn, base_gfn + npages))
 		return -EEXIST;
 
@@ -1111,7 +1136,7 @@ int __mini_set_memory_region(struct mini *mini,
 EXPORT_SYMBOL_GPL(__mini_set_memory_region);
 
 int mini_set_memory_region(struct mini *mini,
-			  const struct mini_userspace_memory_region *mem)
+			  const struct kvm_userspace_memory_region *mem)
 {
 	int r;
 
@@ -1127,8 +1152,8 @@ EXPORT_SYMBOL_GPL(mini_set_memory_region);
 static bool mini_page_in_dirty_ring(struct mini *mini, unsigned long pgoff)
 {
 #ifdef CONFIG_HAVE_MINI_DIRTY_RING
-	return (pgoff >= MINI_DIRTY_LOG_PAGE_OFFSET) &&
-	    (pgoff < MINI_DIRTY_LOG_PAGE_OFFSET +
+	return (pgoff >= KVM_DIRTY_LOG_PAGE_OFFSET) &&
+	    (pgoff < KVM_DIRTY_LOG_PAGE_OFFSET +
 	     mini->dirty_ring_size / PAGE_SIZE);
 #else
 	return false;
@@ -1143,17 +1168,17 @@ static vm_fault_t mini_vcpu_fault(struct vm_fault *vmf)
 	if (vmf->pgoff == 0)
 		page = virt_to_page(vcpu->run);
 #ifdef CONFIG_X86
-	else if (vmf->pgoff == MINI_PIO_PAGE_OFFSET)
+	else if (vmf->pgoff == KVM_PIO_PAGE_OFFSET)
 		page = virt_to_page(vcpu->arch.pio_data);
 #endif
 #ifdef CONFIG_MINI_MMIO
-	else if (vmf->pgoff == MINI_COALESCED_MMIO_PAGE_OFFSET)
+	else if (vmf->pgoff == KVM_COALESCED_MMIO_PAGE_OFFSET)
 		page = virt_to_page(vcpu->mini->coalesced_mmio_ring);
 #endif
 	else if (mini_page_in_dirty_ring(vcpu->mini, vmf->pgoff))
 		page = mini_dirty_ring_get_page(
 		    &vcpu->dirty_ring,
-		    vmf->pgoff - MINI_DIRTY_LOG_PAGE_OFFSET);
+		    vmf->pgoff - KVM_DIRTY_LOG_PAGE_OFFSET);
 	else
 		return mini_arch_vcpu_fault(vcpu, vmf);
 	get_page(page);
@@ -1166,9 +1191,9 @@ static const struct vm_operations_struct mini_vcpu_vm_ops = {
 };
 
 static int mini_vm_ioctl_set_memory_region(struct mini *mini,
-					  struct mini_userspace_memory_region *mem)
+					  struct kvm_userspace_memory_region *mem)
 {
-	if ((u16)mem->slot >= MINI_USER_MEM_SLOTS)
+	if ((u16)mem->slot >= KVM_USER_MEM_SLOTS)
 		return -EINVAL;
 
 	return mini_set_memory_region(mini, mem);
@@ -1222,7 +1247,7 @@ static int mini_vm_ioctl_create_vcpu(struct mini *mini, u32 id)
 
     mini_info("[mini] mini_vm_ioctl_create_vcpu\n");
 
-    if (id >= MINI_MAX_VCPU_IDS)
+    if (id >= KVM_MAX_VCPU_IDS)
         return -EINVAL;
 
     mutex_lock(&mini->lock);
@@ -1253,6 +1278,8 @@ static int mini_vm_ioctl_create_vcpu(struct mini *mini, u32 id)
     mini_info("[mini] alloc_page\n");
     vcpu->run = page_address(page);
 
+    mini_vcpu_init(vcpu, mini, id);
+
     r = mini_arch_vcpu_create(vcpu);
     if(r) {
         r = -ENOMEM;
@@ -1280,11 +1307,8 @@ static long mini_vm_ioctl(struct file *flip,
 	case MINI_CREATE_VCPU:
 		r = mini_vm_ioctl_create_vcpu(mini, arg);
 		break;
-    //case MINI_ALLOC:
-
-    //    break;
 	case MINI_SET_USER_MEMORY_REGION: {
-		struct mini_userspace_memory_region mini_userspace_mem;
+		struct kvm_userspace_memory_region mini_userspace_mem;
 
 		r = -EFAULT;
 		if (copy_from_user(&mini_userspace_mem, argp,
@@ -1339,159 +1363,19 @@ out:
     return r;
 }
 
-/*
-static int __mini_write_guest_page(struct mini *mini,
-				  struct mini_memory_slot *memslot, gfn_t gfn,
-			          const void *data, int offset, int len)
+static bool memslot_is_readonly(const struct kvm_memory_slot *slot)
 {
-	int r;
-	unsigned long addr;
-
-    mini_info ("[mini] __mini_write_guest_page\n");
-
-	addr = gfn_to_hva_memslot(memslot, gfn);
-	if (mini_is_error_hva(addr))
-		return -EFAULT;
-	r = __copy_to_user((void __user *)addr + offset, data, len);
-	if (r)
-		return -EFAULT;
-	mark_page_dirty_in_slot(mini, memslot, gfn);
-    mini_info("\t[mini] gfn : 0x%x\toffset : 0x%x\n", gfn, offset);
-    mini_info("\t[mini] data : %s\n", data);
-	return 0;
+	return slot->flags & KVM_MEM_READONLY;
 }
 
-int mini_write_guest_page(struct mini *mini, gfn_t gfn,
-			 const void *data, int offset, int len)
-{
-	struct mini_memory_slot *slot = gfn_to_memslot(mini, gfn);
-
-	return __mini_write_guest_page(mini, slot, gfn, data, offset, len);
-}
-EXPORT_SYMBOL_GPL(mini_write_guest_page);
-
-int mini_write_guest(struct mini *mini, gpa_t gpa, const void *data,
-		    unsigned long len)
-{
-	gfn_t gfn = gpa >> PAGE_SHIFT;
-	int seg;
-	int offset = offset_in_page(gpa);
-	int ret;
-
-	while ((seg = next_segment(len, offset)) != 0) {
-		ret = mini_write_guest_page(mini, gfn, data, offset, seg);
-		if (ret < 0)
-			return ret;
-		offset = 0;
-		len -= seg;
-		data += seg;
-		++gfn;
-	}
-	return 0;
-}
-EXPORT_SYMBOL_GPL(mini_write_guest);
-*/
-
-static inline struct mini_memory_slot *
-try_get_memslot(struct mini_memory_slot *slot, gfn_t gfn)
-{
-	if (!slot)
-		return NULL;
-
-	if (gfn >= slot->base_gfn && gfn < slot->base_gfn + slot->npages)
-		return slot;
-	else
-		return NULL;
-}
-
-static inline struct mini_memory_slot *
-search_memslots(struct mini_memslots *slots, gfn_t gfn, bool approx)
-{
-	struct mini_memory_slot *slot;
-	struct rb_node *node;
-	int idx = slots->node_idx;
-
-	slot = NULL;
-	for (node = slots->gfn_tree.rb_node; node; ) {
-		slot = container_of(node, struct mini_memory_slot, gfn_node[idx]);
-		if (gfn >= slot->base_gfn) {
-			if (gfn < slot->base_gfn + slot->npages)
-				return slot;
-			node = node->rb_right;
-		} else
-			node = node->rb_left;
-	}
-
-	return approx ? slot : NULL;
-}
-
-static inline struct mini_memory_slot *
-____gfn_to_memslot(struct mini_memslots *slots, gfn_t gfn, bool approx)
-{
-	struct mini_memory_slot *slot;
-
-	slot = (struct mini_memory_slot *)atomic_long_read(&slots->last_used_slot);
-	slot = try_get_memslot(slot, gfn);
-	if (slot)
-		return slot;
-
-	slot = search_memslots(slots, gfn, approx);
-	if (slot) {
-		atomic_long_set(&slots->last_used_slot, (unsigned long)slot);
-		return slot;
-	}
-
-	return NULL;
-}
-
-/*
- * __gfn_to_memslot() and its descendants are here to allow arch code to inline
- * the lookups in hot paths.  gfn_to_memslot() itself isn't here as an inline
- * because that would bloat other code too much.
- */
-static inline struct mini_memory_slot *
-__gfn_to_memslot(struct mini_memslots *slots, gfn_t gfn)
-{
-	return ____gfn_to_memslot(slots, gfn, false);
-}
-
-static inline unsigned long
-__gfn_to_hva_memslot(const struct mini_memory_slot *slot, gfn_t gfn)
-{
-	/*
-	 * The index was checked originally in search_memslots.  To avoid
-	 * that a malicious guest builds a Spectre gadget out of e.g. page
-	 * table walks, do not let the processor speculate loads outside
-	 * the guest's registered memslots.
-	 */
-	unsigned long offset = gfn - slot->base_gfn;
-	offset = array_index_nospec(offset, slot->npages);
-	return slot->userspace_addr + offset * PAGE_SIZE;
-}
-
-static inline int memslot_id(struct mini *mini, gfn_t gfn)
-{
-	return mini_gfn_to_memslot(mini, gfn)->id;
-}
-
-struct mini_memory_slot *gfn_to_memslot(struct mini *mini, gfn_t gfn)
-{
-	return __gfn_to_memslot(mini_memslots(mini), gfn);
-}
-
-static bool memslot_is_readonly(const struct mini_memory_slot *slot)
-{
-	return slot->flags & MINI_MEM_READONLY;
-}
-
-static unsigned long __gfn_to_hva_many(const struct mini_memory_slot *slot, gfn_t gfn,
+static unsigned long __gfn_to_hva_many(const struct kvm_memory_slot *slot, gfn_t gfn,
 				       gfn_t *nr_pages, bool write)
 {
-	if (!slot || slot->flags & MINI_MEMSLOT_INVALID)
-		return MINI_HVA_ERR_BAD;
+	if (!slot || slot->flags & KVM_MEMSLOT_INVALID)
+		return KVM_HVA_ERR_BAD;
 
 	if (memslot_is_readonly(slot) && write)
-		return MINI_HVA_ERR_RO_BAD;
+		return KVM_HVA_ERR_RO_BAD;
 
 	if (nr_pages)
 		*nr_pages = slot->npages - (gfn - slot->base_gfn);
@@ -1510,7 +1394,7 @@ static bool vma_is_valid(struct vm_area_struct *vma, bool write_fault)
 	return true;
 }
 
-static int mini_try_get_pfn(mini_pfn_t pfn)
+static int mini_try_get_pfn(kvm_pfn_t pfn)
 {
 	struct page *page = mini_pfn_to_refcounted_page(pfn);
 
@@ -1520,23 +1404,24 @@ static int mini_try_get_pfn(mini_pfn_t pfn)
 	return get_page_unless_zero(page);
 }
 
-unsigned long gfn_to_hva_memslot_prot(struct mini_memory_slot *slot,
+unsigned long gfn_to_hva_memslot_prot(struct kvm_memory_slot *slot,
 				      gfn_t gfn, bool *writable)
 {
 	unsigned long hva = __gfn_to_hva_many(slot, gfn, NULL, false);
 
-	if (!mini_is_error_hva(hva) && writable)
+	if (!kvm_is_error_hva(hva) && writable)
 		*writable = !memslot_is_readonly(slot);
 
 	return hva;
 }
+
 /*
  * The fast path to get the writable pfn which will be stored in @pfn,
  * true indicates success, otherwise false is returned.  It's also the
  * only part that runs if we can in atomic context.
  */
 static bool hva_to_pfn_fast(unsigned long addr, bool write_fault,
-			    bool *writable, mini_pfn_t *pfn)
+			    bool *writable, kvm_pfn_t *pfn)
 {
 	struct page *page[1];
 
@@ -1572,7 +1457,7 @@ static inline int check_user_page_hwpoison(unsigned long addr)
  * 1 indicates success, -errno is returned if error is detected.
  */
 static int hva_to_pfn_slow(unsigned long addr, bool *async, bool write_fault,
-			   bool interruptible, bool *writable, mini_pfn_t *pfn)
+			   bool interruptible, bool *writable, kvm_pfn_t *pfn)
 {
 	unsigned int flags = FOLL_HWPOISON;
 	struct page *page;
@@ -1610,9 +1495,9 @@ static int hva_to_pfn_slow(unsigned long addr, bool *async, bool write_fault,
 
 static int hva_to_pfn_remapped(struct vm_area_struct *vma,
 			       unsigned long addr, bool write_fault,
-			       bool *writable, mini_pfn_t *p_pfn)
+			       bool *writable, kvm_pfn_t *p_pfn)
 {
-	mini_pfn_t pfn;
+	kvm_pfn_t pfn;
 	pte_t *ptep;
 	spinlock_t *ptl;
 	int r;
@@ -1638,7 +1523,7 @@ static int hva_to_pfn_remapped(struct vm_area_struct *vma,
 	}
 
 	if (write_fault && !pte_write(*ptep)) {
-		pfn = MINI_PFN_ERR_RO_FAULT;
+		pfn = KVM_PFN_ERR_RO_FAULT;
 		goto out;
 	}
 
@@ -1687,11 +1572,11 @@ out:
  * 2): @write_fault = false && @writable, @writable will tell the caller
  *     whether the mapping is writable.
  */
-mini_pfn_t hva_to_pfn(unsigned long addr, bool atomic, bool interruptible,
+kvm_pfn_t hva_to_pfn(unsigned long addr, bool atomic, bool interruptible,
 		     bool *async, bool write_fault, bool *writable)
 {
 	struct vm_area_struct *vma;
-	mini_pfn_t pfn;
+	kvm_pfn_t pfn;
 	int npages, r;
 
 	/* we can do it either atomically or asynchronously, not both */
@@ -1701,19 +1586,19 @@ mini_pfn_t hva_to_pfn(unsigned long addr, bool atomic, bool interruptible,
 		return pfn;
 
 	if (atomic)
-		return MINI_PFN_ERR_FAULT;
+		return KVM_PFN_ERR_FAULT;
 
 	npages = hva_to_pfn_slow(addr, async, write_fault, interruptible,
 				 writable, &pfn);
 	if (npages == 1)
 		return pfn;
 	if (npages == -EINTR)
-		return MINI_PFN_ERR_SIGPENDING;
+		return KVM_PFN_ERR_SIGPENDING;
 
 	mmap_read_lock(current->mm);
 	if (npages == -EHWPOISON ||
 	      (!async && check_user_page_hwpoison(addr))) {
-		pfn = MINI_PFN_ERR_HWPOISON;
+		pfn = KVM_PFN_ERR_HWPOISON;
 		goto exit;
 	}
 
@@ -1721,24 +1606,24 @@ retry:
 	vma = vma_lookup(current->mm, addr);
 
 	if (vma == NULL)
-		pfn = MINI_PFN_ERR_FAULT;
+		pfn = KVM_PFN_ERR_FAULT;
 	else if (vma->vm_flags & (VM_IO | VM_PFNMAP)) {
 		r = hva_to_pfn_remapped(vma, addr, write_fault, writable, &pfn);
 		if (r == -EAGAIN)
 			goto retry;
 		if (r < 0)
-			pfn = MINI_PFN_ERR_FAULT;
+			pfn = KVM_PFN_ERR_FAULT;
 	} else {
 		if (async && vma_is_valid(vma, write_fault))
 			*async = true;
-		pfn = MINI_PFN_ERR_FAULT;
+		pfn = KVM_PFN_ERR_FAULT;
 	}
 exit:
 	mmap_read_unlock(current->mm);
 	return pfn;
 }
 
-mini_pfn_t mini__gfn_to_pfn_memslot(const struct mini_memory_slot *slot, gfn_t gfn,
+kvm_pfn_t mini__gfn_to_pfn_memslot(const struct kvm_memory_slot *slot, gfn_t gfn,
 			       bool atomic, bool interruptible, bool *async,
 			       bool write_fault, bool *writable, hva_t *hva)
 {
@@ -1747,16 +1632,16 @@ mini_pfn_t mini__gfn_to_pfn_memslot(const struct mini_memory_slot *slot, gfn_t g
 	if (hva)
 		*hva = addr;
 
-	if (addr == MINI_HVA_ERR_RO_BAD) {
+	if (addr == KVM_HVA_ERR_RO_BAD) {
 		if (writable)
 			*writable = false;
-		return MINI_PFN_ERR_RO_FAULT;
+		return KVM_PFN_ERR_RO_FAULT;
 	}
 
-	if (mini_is_error_hva(addr)) {
+	if (kvm_is_error_hva(addr)) {
 		if (writable)
 			*writable = false;
-		return MINI_PFN_NOSLOT;
+		return KVM_PFN_NOSLOT;
 	}
 
 	/* Do not map writable pfn in the readonly memslot. */
@@ -1770,13 +1655,19 @@ mini_pfn_t mini__gfn_to_pfn_memslot(const struct mini_memory_slot *slot, gfn_t g
 }
 EXPORT_SYMBOL_GPL(mini__gfn_to_pfn_memslot);
 
-mini_pfn_t mini_gfn_to_pfn_prot(struct mini *mini, gfn_t gfn, bool write_fault,
+kvm_pfn_t mini_gfn_to_pfn_prot(struct mini *mini, gfn_t gfn, bool write_fault,
 		      bool *writable)
 {
-	return mini__gfn_to_pfn_memslot(gfn_to_memslot(mini, gfn), gfn, false, false,
+	return mini__gfn_to_pfn_memslot(mini_gfn_to_memslot(mini, gfn), gfn, false, false,
 				    NULL, write_fault, writable, NULL);
 }
 EXPORT_SYMBOL_GPL(mini_gfn_to_pfn_prot);
+
+struct kvm_memory_slot *mini_gfn_to_memslot(struct mini *mini, gfn_t gfn)
+{
+	return __gfn_to_memslot(mini_memslots(mini), gfn);
+}
+EXPORT_SYMBOL_GPL(mini_gfn_to_memslot);
 
 static const struct file_operations mini_vm_fops = {
     .unlocked_ioctl = mini_vm_ioctl,
@@ -1823,6 +1714,14 @@ static long mini_dev_ioctl(struct file *flip,
     case MINI_CREATE_VM: 
         r = mini_dev_ioctl_create_vm(arg);
         break;
+	case MINI_GET_VCPU_MMAP_SIZE:
+		if (arg)
+            return r;
+		r = PAGE_SIZE;     /* struct kvm_run */
+#ifdef CONFIG_KVM_MMIO
+		r += PAGE_SIZE;    /* coalesced mmio ring page */
+#endif
+		break;
     case MINI_DEST_VM:
         break;
     default:
@@ -1858,7 +1757,7 @@ static ssize_t mini_vcpu_stats_read(struct file *file, char __user *user_buffer,
 {
 	struct mini_vcpu *vcpu = file->private_data;
 
-	return mini_stats_read(vcpu->stats_id, &mini_vcpu_stats_header,
+	return kvm_stats_read(vcpu->stats_id, &mini_vcpu_stats_header,
 			&mini_vcpu_stats_desc[0], &vcpu->stat,
 			sizeof(vcpu->stat), user_buffer, size, offset);
 }
@@ -1884,7 +1783,7 @@ static long mini_vcpu_ioctl(struct file *filp,
 
 	if (unlikely(_IOC_TYPE(ioctl) != MINIIO))
 		return -EINVAL;
-    mini_info("[mini] MINIIO\n");
+    mini_info("[mini] KVMIO\n");
 
 	switch (ioctl) {
         case MINI_ALLOC: 
@@ -1896,24 +1795,22 @@ static long mini_vcpu_ioctl(struct file *filp,
             unsigned long vma_pagesize;
             gpa_t gpa = 0x80000000;
             gfn_t gfn = gpa >> (PAGE_SHIFT);
-            struct mini_memory_slot *memslot = gfn_to_memslot(mini, gfn);
+            struct kvm_memory_slot *memslot = mini_gfn_to_memslot(mini, gfn);
             int count = 0;
-
-        // GPA 2 HPA mapping 
 
             // GPA 2 HPA mapping 
             while(count < memslot->npages) { 
-                mini_pfn_t hfn = mini_gfn_to_pfn_prot(mini, gfn, true, &writable);
+                mini_info("prog : %d / %d\n", count+1, memslot->npages);
+                kvm_pfn_t hfn = mini_gfn_to_pfn_prot(mini, gfn, true, &writable);
                 phys_addr_t hpa = hfn << PAGE_SHIFT;
                 gfn = gpa >> (PAGE_SHIFT);
                 unsigned long hva = gfn_to_hva_memslot_prot(memslot, gfn, &writable);
 
-                //mini_info("prog : %d / %d\n", count+1, memslot->npages);
-                //mini_info("[mini] gpa : 0x%x, gfn : 0x%x, hva : 0x%lx, hfn : 0x%x, hpa : 0x%x\n",
-                //        gpa, gfn, hva, hfn, hpa);
-                //mini_info("[mini] pages %d\taddr 0x%lx\t id %d\n", memslot->npages, memslot->userspace_addr, memslot->id);
+                mini_info("[mini] gpa : 0x%x, gfn : 0x%x, hva : 0x%lx, hfn : 0x%x, hpa : 0x%x\n",
+                        gpa, gfn, hva, hfn, hpa);
+                mini_info("[mini] pages %d\taddr 0x%lx\t id %d\n", memslot->npages, memslot->userspace_addr, memslot->id);
 
-                //uintptr_t end_va = kernel_map.virt_addr + 0x40000;
+                uintptr_t end_va = kernel_map.virt_addr + 0x40000;
 
                 mini_riscv_gstage_map(vcpu, memslot, gpa, hva, true); 
 
@@ -1931,7 +1828,7 @@ static long mini_vcpu_ioctl(struct file *filp,
 }
 int mini_init(unsigned vcpu_size, unsigned vcpu_align, struct module *module)
 {
-    mini_info("mini_init %x %x\n", vcpu_size, vcpu_align);
+    mini_info("[mini] mini_init %x %x\n", vcpu_size, vcpu_align);
 
     major = register_chrdev(0, DEVICE_NAME, &mini_chardev_ops);
     if(major < 0) {

@@ -10,6 +10,8 @@
 #include <asm/hwcap.h>
 #include <asm/insn-def.h>
 
+#include <linux/kvm_host.h>
+
 #define has_svinval()	riscv_has_extension_unlikely(RISCV_ISA_EXT_SVINVAL)
 
 void mini_riscv_local_hfence_gvma_vmid_gpa(unsigned long vmid,
@@ -70,7 +72,7 @@ void mini_riscv_local_hfence_gvma_all(void)
 }
 
 static bool vcpu_hfence_enqueue(struct mini_vcpu *vcpu,
-				const struct mini_riscv_hfence *data)
+				const struct kvm_riscv_hfence *data)
 {
 	bool ret = false;
 	struct mini_vcpu_arch *varch = &vcpu->arch;
@@ -82,7 +84,7 @@ static bool vcpu_hfence_enqueue(struct mini_vcpu *vcpu,
 		       data, sizeof(*data));
 
 		varch->hfence_tail++;
-		if (varch->hfence_tail == MINI_RISCV_VCPU_MAX_HFENCE)
+		if (varch->hfence_tail == KVM_RISCV_VCPU_MAX_HFENCE)
 			varch->hfence_tail = 0;
 
 		ret = true;
@@ -96,15 +98,15 @@ static bool vcpu_hfence_enqueue(struct mini_vcpu *vcpu,
 static void make_xfence_request(struct mini *mini,
 				unsigned long hbase, unsigned long hmask,
 				unsigned int req, unsigned int fallback_req,
-				const struct mini_riscv_hfence *data)
+				const struct kvm_riscv_hfence *data)
 {
 	unsigned long i;
 	struct mini_vcpu *vcpu;
 	unsigned int actual_req = req;
-	DECLARE_BITMAP(vcpu_mask, MINI_MAX_VCPUS);
+	DECLARE_BITMAP(vcpu_mask, KVM_MAX_VCPUS);
 
-	bitmap_clear(vcpu_mask, 0, MINI_MAX_VCPUS);
-	mini_for_each_vcpu(i, vcpu, mini) {
+	bitmap_clear(vcpu_mask, 0, KVM_MAX_VCPUS);
+	kvm_for_each_vcpu(i, vcpu, mini) {
 		if (hbase != -1UL) {
 			if (vcpu->vcpu_id < hbase)
 				continue;
@@ -134,13 +136,13 @@ void mini_riscv_hfence_gvma_vmid_gpa(struct mini *mini,
 				    gpa_t gpa, gpa_t gpsz,
 				    unsigned long order)
 {
-	struct mini_riscv_hfence data;
+	struct kvm_riscv_hfence data;
 
-	data.type = MINI_RISCV_HFENCE_GVMA_VMID_GPA;
+	data.type = KVM_RISCV_HFENCE_GVMA_VMID_GPA;
 	data.asid = 0;
 	data.addr = gpa;
 	data.size = gpsz;
 	data.order = order;
-	make_xfence_request(mini, hbase, hmask, MINI_REQ_HFENCE,
-			    MINI_REQ_HFENCE_GVMA_VMID_ALL, &data);
+	make_xfence_request(mini, hbase, hmask, KVM_REQ_HFENCE,
+			    KVM_REQ_HFENCE_GVMA_VMID_ALL, &data);
 }

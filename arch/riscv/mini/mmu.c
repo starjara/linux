@@ -1,4 +1,5 @@
 #include <linux/mini_host.h>
+#include <linux/kvm_host.h>
 #include <linux/module.h>
 #include <linux/hugetlb.h>
 
@@ -126,7 +127,7 @@ static void gstage_remote_tlb_flush(struct mini *mini, u32 level, gpa_t addr)
 }
 
 static int gstage_set_pte(struct mini *mini, u32 level,
-			   struct mini_mmu_memory_cache *pcache,
+			   struct kvm_mmu_memory_cache *pcache,
 			   gpa_t addr, const pte_t *new_pte)
 {
 	u32 current_level = gstage_pgd_levels - 1;
@@ -182,7 +183,7 @@ static int gstage_set_pte(struct mini *mini, u32 level,
 }
 
 static int gstage_map_page(struct mini *mini,
-			   struct mini_mmu_memory_cache *pcache,
+			   struct kvm_mmu_memory_cache *pcache,
 			   gpa_t gpa, phys_addr_t hpa,
 			   unsigned long page_size,
 			   bool page_rdonly, bool page_exec)
@@ -343,8 +344,8 @@ next:
 
 static void gstage_wp_memory_region(struct mini *mini, int slot)
 {
-	struct mini_memslots *slots = mini_memslots(mini);
-	struct mini_memory_slot *memslot = mini_id_to_memslot(slots, slot);
+	struct kvm_memslots *slots = mini_memslots(mini);
+	struct kvm_memory_slot *memslot = mini_id_to_memslot(slots, slot);
 	phys_addr_t start = memslot->base_gfn << PAGE_SHIFT;
 	phys_addr_t end = (memslot->base_gfn + memslot->npages) << PAGE_SHIFT;
 
@@ -363,7 +364,7 @@ int mini_riscv_gstage_ioremap(struct mini *mini, gpa_t gpa,
 	int ret = 0;
 	unsigned long pfn;
 	phys_addr_t addr, end;
-	struct mini_mmu_memory_cache pcache = {
+	struct kvm_mmu_memory_cache pcache = {
 		.gfp_custom = (in_atomic) ? GFP_ATOMIC | __GFP_ACCOUNT : 0,
 		.gfp_zero = __GFP_ZERO,
 	};
@@ -379,7 +380,7 @@ int mini_riscv_gstage_ioremap(struct mini *mini, gpa_t gpa,
 		if (!writable)
 			pte = pte_wrprotect(pte);
 
-		ret = mini_mmu_topup_memory_cache(&pcache, gstage_pgd_levels);
+		ret = kvm_mmu_topup_memory_cache(&pcache, gstage_pgd_levels);
 		if (ret)
 			goto out;
 
@@ -393,7 +394,7 @@ int mini_riscv_gstage_ioremap(struct mini *mini, gpa_t gpa,
 	}
 
 out:
-	mini_mmu_free_memory_cache(&pcache);
+	kvm_mmu_free_memory_cache(&pcache);
 	return ret;
 }
 
@@ -404,7 +405,7 @@ void mini_riscv_gstage_iounmap(struct mini *mini, gpa_t gpa, unsigned long size)
 	spin_unlock(&mini->mmu_lock);
 }
 
-void mini_arch_free_memslot(struct mini *mini, struct mini_memory_slot *free)
+void mini_arch_free_memslot(struct mini *mini, struct kvm_memory_slot *free)
 {
 }
 
@@ -413,13 +414,13 @@ void mini_arch_memslots_updated(struct mini *mini, u64 gen)
 }
 
 void mini_arch_flush_remote_tlbs_memslot(struct mini *mini,
-					const struct mini_memory_slot *memslot)
+					const struct kvm_memory_slot *memslot)
 {
 	mini_flush_remote_tlbs(mini);
 }
 
 void mini_arch_flush_shadow_memslot(struct mini *mini,
-				   struct mini_memory_slot *slot)
+				   struct kvm_memory_slot *slot)
 {
 	gpa_t gpa = slot->base_gfn << PAGE_SHIFT;
 	phys_addr_t size = slot->npages << PAGE_SHIFT;
@@ -430,9 +431,9 @@ void mini_arch_flush_shadow_memslot(struct mini *mini,
 }
 
 void mini_arch_commit_memory_region(struct mini *mini,
-				struct mini_memory_slot *old,
-				const struct mini_memory_slot *new,
-				enum mini_mr_change change)
+				struct kvm_memory_slot *old,
+				const struct kvm_memory_slot *new,
+				enum kvm_mr_change change)
 {
     mini_info("[mini] mini_arch_commit_memory_region\n");
 	/*
@@ -440,14 +441,14 @@ void mini_arch_commit_memory_region(struct mini *mini,
 	 * allocated dirty_bitmap[], dirty pages will be tracked while
 	 * the memory slot is write protected.
 	 */
-	if (change != MINI_MR_DELETE && new->flags & MINI_MEM_LOG_DIRTY_PAGES)
+	if (change != KVM_MR_DELETE && new->flags & KVM_MEM_LOG_DIRTY_PAGES)
 		gstage_wp_memory_region(mini, new->id);
 }
 
 int mini_arch_prepare_memory_region(struct mini *mini,
-				const struct mini_memory_slot *old,
-				struct mini_memory_slot *new,
-				enum mini_mr_change change)
+				const struct kvm_memory_slot *old,
+				struct kvm_memory_slot *new,
+				enum kvm_mr_change change)
 {
 	hva_t hva, reg_end, size;
 	gpa_t base_gpa;
@@ -456,8 +457,8 @@ int mini_arch_prepare_memory_region(struct mini *mini,
 
     mini_info("[mini] mini_arch_prepare_memory_region\n");
 
-	if (change != MINI_MR_CREATE && change != MINI_MR_MOVE &&
-			change != MINI_MR_FLAGS_ONLY)
+	if (change != KVM_MR_CREATE && change != KVM_MR_MOVE &&
+			change != KVM_MR_FLAGS_ONLY)
 		return 0;
 
 	/*
@@ -536,7 +537,7 @@ int mini_arch_prepare_memory_region(struct mini *mini,
 		hva = vm_end;
 	} while (hva < reg_end);
 
-	if (change == MINI_MR_FLAGS_ONLY)
+	if (change == KVM_MR_FLAGS_ONLY)
 		goto out;
 
 	if (ret)
@@ -613,17 +614,17 @@ void mini_riscv_gstage_update_hgatp(struct mini *mini)
 }
 
 int mini_riscv_gstage_map(struct mini_vcpu *vcpu,
-			 struct mini_memory_slot *memslot,
+			 struct kvm_memory_slot *memslot,
 			 gpa_t gpa, unsigned long hva, bool is_write)
 {
 	int ret;
-	mini_pfn_t hfn;
+	kvm_pfn_t hfn;
 	bool writable;
 	short vma_pageshift;
 	gfn_t gfn = gpa >> PAGE_SHIFT;
 	struct vm_area_struct *vma;
 	struct mini *mini = vcpu->mini;
-	struct mini_mmu_memory_cache *pcache = &vcpu->arch.mmu_page_cache;
+	struct kvm_mmu_memory_cache *pcache = &vcpu->arch.mmu_page_cache;
 	bool logging = (memslot->dirty_bitmap &&
 			!(memslot->flags & MINI_MEM_READONLY)) ? true : false;
 	unsigned long vma_pagesize, mmu_seq;
@@ -632,7 +633,7 @@ int mini_riscv_gstage_map(struct mini_vcpu *vcpu,
     //mini_info("[mini] gpa : 0x%lx, hva : 0x%lx\n", gpa, hva);
 
 	/* We need minimum second+third level pages */
-	ret = mini_mmu_topup_memory_cache(pcache, gstage_pgd_levels);
+	ret = kvm_mmu_topup_memory_cache(pcache, gstage_pgd_levels);
 	if (ret) {
 		mini_err("Failed to topup G-stage cache\n");
 		return ret;
@@ -677,7 +678,7 @@ int mini_riscv_gstage_map(struct mini_vcpu *vcpu,
 	}
 
 	hfn = mini_gfn_to_pfn_prot(mini, gfn, is_write, &writable);
-	if (hfn == MINI_PFN_ERR_HWPOISON) {
+	if (hfn == KVM_PFN_ERR_HWPOISON) {
 		send_sig_mceerr(BUS_MCEERR_AR, (void __user *)hva,
 				vma_pageshift, current);
 		return 0;
@@ -694,7 +695,7 @@ int mini_riscv_gstage_map(struct mini_vcpu *vcpu,
 
 	spin_lock(&mini->mmu_lock);
 
-	if (mmu_invalidate_retry(mini, mmu_seq))
+	if (mini_mmu_invalidate_retry(mini, mmu_seq))
         return -EFAULT;
 		//goto out_unlock;
 
@@ -711,11 +712,10 @@ int mini_riscv_gstage_map(struct mini_vcpu *vcpu,
 	if (ret)
 		mini_err("Failed to map in G-stage\n");
 
-    /*
 out_unlock:
 	spin_unlock(&mini->mmu_lock);
-	mini_set_pfn_accessed(hfn);
-	mini_release_pfn_clean(hfn);
-    */
+	//kvm_set_pfn_accessed(hfn);
+	//kvm_release_pfn_clean(hfn);
+
 	return ret;
 }

@@ -16,6 +16,9 @@ struct kvm_vcpu;
 struct kvm_vcpu_init;
 struct kvm_memslots;
 
+struct mini;
+struct mini_vcpu;
+
 enum kvm_mr_change;
 
 #include <linux/bits.h>
