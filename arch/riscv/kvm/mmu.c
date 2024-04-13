@@ -259,6 +259,8 @@ static void gstage_op_pte(struct kvm *kvm, gpa_t addr,
 	u32 next_ptep_level;
 	unsigned long next_page_size, page_size;
 
+    kvm_info("[kvm] gstage_op_pte %d\n", op);
+
 	ret = gstage_level_to_page_size(ptep_level, &page_size);
 	if (ret)
 		return;
@@ -301,6 +303,9 @@ static void gstage_unmap_range(struct kvm *kvm, gpa_t start,
 	bool found_leaf;
 	unsigned long page_size;
 	gpa_t addr = start, end = start + size;
+
+    kvm_info("[kvm] gstage_unmap_range\n");
+    kvm_info("start : 0x%x, end : 0x%x\n", start, end);
 
 	while (addr < end) {
 		found_leaf = gstage_get_leaf_entry(kvm, addr,
@@ -586,6 +591,7 @@ out:
 
 bool kvm_unmap_gfn_range(struct kvm *kvm, struct kvm_gfn_range *range)
 {
+    kvm_info("[kvm] kvm_unmap_gfn_range %d\n", range->slot->npages);
 	if (!kvm->arch.pgd)
 		return false;
 
@@ -667,7 +673,7 @@ int kvm_riscv_gstage_map(struct kvm_vcpu *vcpu,
 			!(memslot->flags & KVM_MEM_READONLY)) ? true : false;
 	unsigned long vma_pagesize, mmu_seq;
 
-    //kvm_info("[kvm] kvm_riscv_gstage_map\n");
+    kvm_info("[kvm] kvm_riscv_gstage_map\n");
     //kvm_info("[kvm] gpa : 0x%lx, hva : 0x%lx\n", gpa, hva);
 
 	/* We need minimum second+third level pages */
@@ -784,6 +790,8 @@ int kvm_riscv_gstage_alloc_pgd(struct kvm *kvm)
 void kvm_riscv_gstage_free_pgd(struct kvm *kvm)
 {
 	void *pgd = NULL;
+
+    kvm_info("[kvm] kvm_riscv_gstage_free_pgd\n");
 
 	spin_lock(&kvm->mmu_lock);
 	if (kvm->arch.pgd) {

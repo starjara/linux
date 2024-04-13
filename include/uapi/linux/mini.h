@@ -26,6 +26,9 @@
 #define MINI_ENTER          _IO(MINIIO, 0x09)
 #define MINI_EXIT           _IO(MINIIO, 0x0a)
 
+#define MINI_ATTACH         _IO(MINIIO, 0x0b)
+#define MINI_DETACH         _IO(MINIIO, 0x0c)
+
 #define MINI_CREATE_VCPU           _IO(MINIIO,   0x41)
 
 #define MINI_SET_USER_MEMORY_REGION _IOW(MINIIO, 0x46, \

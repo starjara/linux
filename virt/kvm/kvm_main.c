@@ -436,6 +436,7 @@ int kvm_mmu_memory_cache_nr_free_objects(struct kvm_mmu_memory_cache *mc)
 
 void kvm_mmu_free_memory_cache(struct kvm_mmu_memory_cache *mc)
 {
+    kvm_info("[kvm] kvm_mmu_free_memory_cache\n");
 	while (mc->nobjs) {
 		if (mc->kmem_cache)
 			kmem_cache_free(mc->kmem_cache, mc->objects[--mc->nobjs]);
@@ -490,6 +491,7 @@ static void kvm_vcpu_init(struct kvm_vcpu *vcpu, struct kvm *kvm, unsigned id)
 
 static void kvm_vcpu_destroy(struct kvm_vcpu *vcpu)
 {
+    kvm_info("[kvm] vcpu_destroy\n");
 	kvm_arch_vcpu_destroy(vcpu);
 	kvm_dirty_ring_free(&vcpu->dirty_ring);
 
@@ -508,6 +510,8 @@ void kvm_destroy_vcpus(struct kvm *kvm)
 {
 	unsigned long i;
 	struct kvm_vcpu *vcpu;
+
+    kvm_info("[kvm] destory_vcups\n");
 
 	kvm_for_each_vcpu(i, vcpu, kvm) {
 		kvm_vcpu_destroy(vcpu);
@@ -1302,6 +1306,8 @@ static void kvm_destroy_vm(struct kvm *kvm)
 	int i;
 	struct mm_struct *mm = kvm->mm;
 
+    kvm_info("[kvm] kvm_destory_vm %d\n", mm->mm_count);
+
 	kvm_destroy_pm_notifier(kvm);
 	kvm_uevent_notify_change(KVM_EVENT_DESTROY_VM, kvm);
 	kvm_destroy_vm_debugfs(kvm);
@@ -1346,7 +1352,9 @@ static void kvm_destroy_vm(struct kvm *kvm)
 	kvm_arch_free_vm(kvm);
 	preempt_notifier_dec();
 	hardware_disable_all();
+    kvm_info("\t[kvm] before_mmdrop %d\n", mm->mm_count);
 	mmdrop(mm);
+    kvm_info("\t[kvm] after_mmdrop%d\n", mm->mm_count);
 	module_put(kvm_chardev_ops.owner);
 }
 
@@ -2962,10 +2970,12 @@ static void kvm_set_page_accessed(struct page *page)
 
 void kvm_release_page_clean(struct page *page)
 {
+    kvm_info("[kvm] before kvm_release_page_clean ref : %d\n", page->_refcount);
 	WARN_ON(is_error_page(page));
 
 	kvm_set_page_accessed(page);
 	put_page(page);
+    kvm_info("[kvm] after kvm_release_page_clean ref : %d\n", page->_refcount);
 }
 EXPORT_SYMBOL_GPL(kvm_release_page_clean);
 
@@ -4359,6 +4369,8 @@ out_free1:
         struct kvm *kvm = vcpu->kvm;
         kvm_info("[kvm] KVM_INIT_MINI\n");
 
+        kvm_info("[kvm] SIZE_OF_KVM : %d\n", sizeof(struct kvm));
+        kvm_info("[kvm] SIZE_OF_VCPU : %d\n", sizeof(struct kvm_vcpu));
         // set SATPs
         /*
         kvm_riscv_gstage_update_hgatp(vcpu);    // HGATP setting

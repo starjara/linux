@@ -16,3 +16,8 @@ struct page *mini_dirty_ring_get_page(struct mini_dirty_ring *ring, u32 offset)
 	return vmalloc_to_page((void *)ring->dirty_gfns + offset * PAGE_SIZE);
 }
 
+void mini_dirty_ring_free(struct mini_dirty_ring *ring)
+{
+	vfree(ring->dirty_gfns);
+	ring->dirty_gfns = NULL;
+}

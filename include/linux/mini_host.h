@@ -178,6 +178,18 @@ static inline struct mini *mini_arch_alloc_vm(void)
 }
 #endif //__MINI_HVAE_ARCH_VM_ALLOC
 
+static inline void __mini_arch_free_vm(struct mini *mini)
+{
+	kvfree(mini);
+}
+
+#ifndef __MINI_HAVE_ARCH_VM_FREE
+static inline void mini_arch_free_vm(struct mini *mini)
+{
+	__mini_arch_free_vm(mini);
+}
+#endif
+
 static inline struct kvm_memslots *__mini_memslots(struct mini *mini, int as_id)
 {
     //mini_info("[mini] __kvm_memslots\n");
@@ -244,6 +256,8 @@ static inline struct mini_vcpu *mini_get_vcpu_by_id(struct mini *mini, int id)
 	return NULL;
 }
 
+void mini_destroy_vcpus(struct mini *mini);
+
 static inline void __mini_make_request(int req, struct mini_vcpu *vcpu)
 {
 	/*
@@ -267,8 +281,10 @@ int mini_init(unsigned vcpu_size, unsigned vcpu_align, struct module *module);
 void mini_exit(void);
 
 int mini_arch_init_vm(struct mini *mini, unsigned long type);
+void mini_arch_destroy_vm(struct mini *mini);
 
 int mini_arch_enter(struct mini *mini);
+int mini_arch_exit(struct mini *mini);
 
 #ifndef __KVM_HAVE_ARCH_FLUSH_REMOTE_TLB
 static inline int mini_arch_flush_remote_tlb(struct mini *mini)
@@ -304,6 +320,9 @@ unsigned long gfn_to_hva_memslot_prot(struct kvm_memory_slot *slot, gfn_t gfn,
 kvm_pfn_t mini__gfn_to_pfn_memslot(const struct kvm_memory_slot *slot, gfn_t gfn,
 			       bool atomic, bool interruptible, bool *async,
 			       bool write_fault, bool *writable, hva_t *hva);
+
+void mini_release_pfn_clean(kvm_pfn_t pfn);
+void mini_set_pfn_accessed(kvm_pfn_t pfn);
 
 int mini_write_guest_page(struct mini *mini, gfn_t gfn, const void *data,
 			 int offset, int len);
@@ -354,6 +373,7 @@ int mini_get_dirty_log(struct mini *mini, struct mini_dirty_log *log,
 
 vm_fault_t mini_arch_vcpu_fault(struct mini_vcpu *vcpu, struct vm_fault *vmf);
 int mini_arch_vcpu_create(struct mini_vcpu *vcpu);
+void mini_arch_vcpu_destroy(struct mini_vcpu *vcpu);
 
 extern const struct kvm_stats_header mini_vm_stats_header;
 extern const struct _kvm_stats_desc mini_vm_stats_desc[];

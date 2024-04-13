@@ -193,8 +193,8 @@ static int gstage_map_page(struct mini *mini,
 	pte_t new_pte;
 	pgprot_t prot;
 
-    mini_info("[mini] gstage_map_page\n");
-    mini_info("\t[gstage_map_page] gpa : 0x%lx, hpa : 0x%lx\n", gpa, hpa);
+    //mini_info("[mini] gstage_map_page\n");
+    //mini_info("\t[gstage_map_page] gpa : 0x%lx, hpa : 0x%lx\n", gpa, hpa);
 
 	ret = gstage_page_size_to_level(page_size, &level);
 	if (ret)
@@ -243,6 +243,8 @@ static void gstage_op_pte(struct mini *mini, gpa_t addr,
 	pte_t *next_ptep;
 	u32 next_ptep_level;
 	unsigned long next_page_size, page_size;
+    
+   //mini_info("[mini] gstage_op_pte %d\n", op);
 
 	ret = gstage_level_to_page_size(ptep_level, &page_size);
 	if (ret)
@@ -261,16 +263,21 @@ static void gstage_op_pte(struct mini *mini, gpa_t addr,
 		if (ret)
 			return;
 
-		if (op == GSTAGE_OP_CLEAR)
+		if (op == GSTAGE_OP_CLEAR) {
 			set_pte(ptep, __pte(0));
+            //mini_info("\tclear1\n");
+        }
 		for (i = 0; i < PTRS_PER_PTE; i++)
 			gstage_op_pte(mini, addr + i * next_page_size,
 					&next_ptep[i], next_ptep_level, op);
 		if (op == GSTAGE_OP_CLEAR)
 			put_page(virt_to_page(next_ptep));
 	} else {
-		if (op == GSTAGE_OP_CLEAR)
+		if (op == GSTAGE_OP_CLEAR) {
+            //mini_info("\tbefore-pte_p : %x\n", *ptep);
 			set_pte(ptep, __pte(0));
+            //mini_info("\tafter-pte_p : %x\n", *ptep);
+        }
 		else if (op == GSTAGE_OP_WP)
 			set_pte(ptep, __pte(pte_val(*ptep) & ~_PAGE_WRITE));
 		gstage_remote_tlb_flush(mini, ptep_level, addr);
@@ -287,10 +294,16 @@ static void gstage_unmap_range(struct mini *mini, gpa_t start,
 	unsigned long page_size;
 	gpa_t addr = start, end = start + size;
 
+    mini_info("[mini] gstage_unmap_range\n");
+    mini_info("start : 0x%x, end : 0x%x\n", start, end);
+
 	while (addr < end) {
 		found_leaf = gstage_get_leaf_entry(mini, addr,
 						   &ptep, &ptep_level);
 		ret = gstage_level_to_page_size(ptep_level, &page_size);
+
+        //mini_info("\t[mini] level: %d, size : %d, addr : 0x%x, leaf : %d\n", ptep_level, ret, addr, found_leaf);
+        
 		if (ret)
 			break;
 
@@ -411,6 +424,11 @@ void mini_arch_free_memslot(struct mini *mini, struct kvm_memory_slot *free)
 
 void mini_arch_memslots_updated(struct mini *mini, u64 gen)
 {
+}
+
+void mini_arch_flush_shadow_all(struct mini *mini)
+{
+	mini_riscv_gstage_free_pgd(mini);
 }
 
 void mini_arch_flush_remote_tlbs_memslot(struct mini *mini,
@@ -548,6 +566,19 @@ out:
 	return ret;
 }
 
+/*
+bool mini_unmap_gfn_range(struct mini *mini, struct mini_gfn_range *range)
+{
+	if (!kvm->arch.pgd)
+		return false;
+
+	gstage_unmap_range(kvm, range->start << PAGE_SHIFT,
+			   (range->end - range->start) << PAGE_SHIFT,
+			   range->may_block);
+	return false;
+}
+*/
+
 int mini_riscv_gstage_alloc_pgd(struct mini *mini)
 {
 	struct page *pgd_page;
@@ -579,6 +610,8 @@ int mini_riscv_gstage_alloc_pgd(struct mini *mini)
 void mini_riscv_gstage_free_pgd(struct mini *mini)
 {
 	void *pgd = NULL;
+
+    mini_info("[mini] mini_riscv_gstage_free_pgd\n");
 
 	spin_lock(&mini->mmu_lock);
 	if (mini->arch.pgd) {
@@ -640,6 +673,7 @@ int mini_riscv_gstage_map(struct mini_vcpu *vcpu,
 	}
 
 	mmap_read_lock(current->mm);
+    //mini_info("[mini] curren->mm->next : 0x%x prev : 0x%x\n", current->mm->next);
 
 	vma = vma_lookup(current->mm, hva);
 	if (unlikely(!vma)) {
@@ -696,8 +730,7 @@ int mini_riscv_gstage_map(struct mini_vcpu *vcpu,
 	spin_lock(&mini->mmu_lock);
 
 	if (mini_mmu_invalidate_retry(mini, mmu_seq))
-        return -EFAULT;
-		//goto out_unlock;
+		goto out_unlock;
 
 	if (writable) {
 		//mini_set_pfn_dirty(hfn);
@@ -709,13 +742,16 @@ int mini_riscv_gstage_map(struct mini_vcpu *vcpu,
 				      vma_pagesize, true, true);
 	}
 
+    //mini_info("\t[mini] kmem_cache : %p\n", pcache->kmem_cache);
+    //mini_info("\t[mini] size: %u\n", (pcache->kmem_cache)->size);
+
 	if (ret)
 		mini_err("Failed to map in G-stage\n");
 
 out_unlock:
 	spin_unlock(&mini->mmu_lock);
-	//kvm_set_pfn_accessed(hfn);
-	//kvm_release_pfn_clean(hfn);
+	mini_set_pfn_accessed(hfn);
+	mini_release_pfn_clean(hfn);
 
 	return ret;
 }

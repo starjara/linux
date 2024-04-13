@@ -23,10 +23,14 @@ static inline struct page *mini_dirty_ring_get_page(struct mini_dirty_ring *ring
 {
 	return NULL;
 }
+static inline void mini_dirty_ring_free(struct mini_dirty_ring *ring)
+{
+}
 #else /* CONFIG_HAVE_KVM_DIRTY_RING */
 
 bool mini_use_dirty_bitmap(struct mini *mini);
 struct page *mini_dirty_ring_get_page(struct mini_dirty_ring *ring, u32 offset);
+void mini_dirty_ring_free(struct mini_dirty_ring *ring);
 
 #endif /* CONFIG_HAVE_KVM_DIRTY_RING */
 

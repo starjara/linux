@@ -19,8 +19,19 @@ int mini_arch_init_vm(struct mini *mini, unsigned long type)
     return 0;
 }
 
+void mini_arch_destroy_vm(struct mini *mini)
+{
+    mini_destroy_vcpus(mini);
+}
+
 int mini_arch_enter(struct mini *mini)
 {
     mini_riscv_gstage_update_hgatp(mini);
+    return 0;
+}
+
+int mini_arch_exit(struct mini *mini)
+{
+    csr_write(CSR_HGATP, 0x0);
     return 0;
 }

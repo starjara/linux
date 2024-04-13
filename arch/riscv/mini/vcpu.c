@@ -143,3 +143,8 @@ int mini_arch_vcpu_create(struct mini_vcpu *vcpu)
 
 	return 0;
 }
+
+void mini_arch_vcpu_destroy(struct mini_vcpu *vcpu)
+{
+	kvm_mmu_free_memory_cache(&vcpu->arch.mmu_page_cache);
+}
