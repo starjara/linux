@@ -2023,6 +2023,12 @@ static const struct file_operations mini_vcpu_stats_fops = {
 static long mini_vcpu_ioctl(struct file *filp,
 			   unsigned int ioctl, unsigned long arg)
 {
+    unsigned long long  rdcycle;
+    asm("rdcycle %0\n"
+            : "=r" (rdcycle)
+       );
+    mini_info("rdcycle: 0x%llx\n", rdcycle);
+
     struct mini_vcpu *vcpu = filp->private_data;
     void __user *argv = (void __user *)arg;
 
@@ -2132,6 +2138,12 @@ static long mini_vcpu_ioctl(struct file *filp,
 }
 int mini_init(unsigned vcpu_size, unsigned vcpu_align, struct module *module)
 {
+    unsigned long long  rdcycle;
+    asm("rdcycle %0\n"
+            : "=r" (rdcycle)
+       );
+    mini_info("rdcycle: 0x%llx\n", rdcycle);
+
     mini_info("[mini] mini_init %x %x\n", vcpu_size, vcpu_align);
 
     major = register_chrdev(0, DEVICE_NAME, &mini_chardev_ops);
@@ -2159,7 +2171,24 @@ int mini_init(unsigned vcpu_size, unsigned vcpu_align, struct module *module)
     cls = class_create(DEVICE_NAME);
     device_create(cls, NULL, MKDEV(major, 0), NULL, DEVICE_NAME);
 
+    asm("rdcycle %0\n"
+            : "=r" (rdcycle)
+       );
+    mini_info("rdcycle: 0x%llx\n", rdcycle);
+
+    unsigned long cycle = get_cycles();
+    mini_info("cycle1 : %d\n", cycle);
+
     mini_info("Device created on /dev/%s\n", DEVICE_NAME);
+
+    unsigned long cycle2 = get_cycles();
+    mini_info("cycle2 : %d\n", cycle2);
+
+    unsigned long long scounteren = csr_read(CSR_SCOUNTEREN);
+    mini_info("scounteren: 0x%x\n", scounteren);
+    csr_write(CSR_SCOUNTEREN, 0x7f);
+    scounteren = csr_read(CSR_SCOUNTEREN);
+    mini_info("scounteren: 0x%x\n", scounteren);
 
     return 0;
 }
