@@ -385,32 +385,6 @@ static void mini_free_memslots(struct mini *mini, struct kvm_memslots *slots)
 		mini_free_memslot(mini, memslot);
 }
 
-static void mini_vcpu_init(struct mini_vcpu *vcpu, struct mini *mini, unsigned id)
-{
-    pr_notice("[mini] mini_vcpu_init\n");
-
-	mutex_init(&vcpu->mutex);
-	vcpu->cpu = -1;
-	vcpu->mini = mini;
-	vcpu->vcpu_id = id;
-	vcpu->pid = NULL;
-#ifndef __KVM_HAVE_ARCH_WQP
-	rcuwait_init(&vcpu->wait);
-#endif
-	//kvm_async_pf_vcpu_init(vcpu);
-
-	//kvm_vcpu_set_in_spin_loop(vcpu, false);
-	//kvm_vcpu_set_dy_eligible(vcpu, false);
-	vcpu->preempted = false;
-	vcpu->ready = false;
-	//preempt_notifier_init(&vcpu->preempt_notifier, &kvm_preempt_ops);
-	vcpu->last_used_slot = NULL;
-
-	/* Fill the stats id string for the vcpu */
-	snprintf(vcpu->stats_id, sizeof(vcpu->stats_id), "mini-%d/vcpu-%d",
-		 task_pid_nr(current), id);
-}
-
 static void mini_vcpu_destroy(struct mini_vcpu *vcpu)
 {
 	mini_arch_vcpu_destroy(vcpu);
@@ -660,12 +634,10 @@ static struct mini *mini_create_vm(unsigned long type, const char *fdname)
 static void mini_destroy_vm(struct mini *mini)
 {
 	int i;
+    /*
 	struct mm_struct *mm = mini->mm;
 
     mini_info("[mini] destroy_vm %d\n", mm->mm_count);
-    //mini_destroy_vcpus(mini);
-    //mini_vcpu_destroy(mini->vcpu);
-    /*
 	mini_destroy_pm_notifier(kvm);
 	mini_uevent_notify_change(KVM_EVENT_DESTROY_VM, kvm);
 	mini_destroy_vm_debugfs(kvm);
@@ -673,20 +645,9 @@ static void mini_destroy_vm(struct mini *mini)
 	mutex_lock(&mini_lock);
 	list_del(&mini->vm_list);
 	mutex_unlock(&mini_lock);
-	kvm_arch_pre_destroy_vm(kvm);
-
-	kvm_free_irq_routing(kvm);
-	for (i = 0; i < KVM_NR_BUSES; i++) {
-		struct kvm_io_bus *bus = kvm_get_bus(kvm, i);
-
-		if (bus)
-			kvm_io_bus_destroy(bus);
-		kvm->buses[i] = NULL;
-	}
-	mini_coalesced_mmio_free(kvm);
     */
 #if defined(CONFIG_MMU_NOTIFIER) && defined(MINI_ARCH_WANT_MMU_NOTIFIER)
-	mmu_notifier_unregister(&mini->mmu_notifier, mini->mm);
+	//mmu_notifier_unregister(&mini->mmu_notifier, mini->mm);
 	/*
 	 * At this point, pending calls to invalidate_range_start()
 	 * have completed but no more MMU notifiers will run, so
@@ -701,22 +662,22 @@ static void mini_destroy_vm(struct mini *mini)
 #else
 	mini_flush_shadow_all(mini);
 #endif
-	mini_arch_destroy_vm(mini);
+	//mini_arch_destroy_vm(mini);
 	//mini_destroy_devices(kvm);
 	for (i = 0; i < KVM_ADDRESS_SPACE_NUM; i++) {
 		mini_free_memslots(mini, &mini->__memslots[i][0]);
 		mini_free_memslots(mini, &mini->__memslots[i][1]);
 	}
 	//cleanup_srcu_struct(&kvm->irq_srcu);
-	cleanup_srcu_struct(&mini->srcu);
+	//cleanup_srcu_struct(&mini->srcu);
 	mini_arch_free_vm(mini);
 	//preempt_notifier_dec();
 	//hardware_disable_all();
-    mini_info("\t[mini] before_mmdrop %d\n", mm->mm_count);
-	mmdrop(mm);
-    mini_info("\t[mini] after_mmdrop %d\n", mm->mm_count);
+    //mini_info("\t[mini] before_mmdrop %d\n", mm->mm_count);
+	//mmdrop(mm);
+    //mini_info("\t[mini] after_mmdrop %d\n", mm->mm_count);
     mini_info("\t[mini] module_put\n");
-	module_put(mini_chardev_ops.owner);
+	//module_put(mini_chardev_ops.owner);
 }
 
 
@@ -1425,36 +1386,6 @@ static bool mini_page_in_dirty_ring(struct mini *mini, unsigned long pgoff)
 #endif
 }
 
-static vm_fault_t mini_vcpu_fault(struct vm_fault *vmf)
-{
-	struct mini_vcpu *vcpu = vmf->vma->vm_file->private_data;
-	struct page *page;
-
-	if (vmf->pgoff == 0)
-		page = virt_to_page(vcpu->run);
-#ifdef CONFIG_X86
-	else if (vmf->pgoff == KVM_PIO_PAGE_OFFSET)
-		page = virt_to_page(vcpu->arch.pio_data);
-#endif
-#ifdef CONFIG_MINI_MMIO
-	else if (vmf->pgoff == KVM_COALESCED_MMIO_PAGE_OFFSET)
-		page = virt_to_page(vcpu->mini->coalesced_mmio_ring);
-#endif
-	else if (mini_page_in_dirty_ring(vcpu->mini, vmf->pgoff))
-		page = mini_dirty_ring_get_page(
-		    &vcpu->dirty_ring,
-		    vmf->pgoff - KVM_DIRTY_LOG_PAGE_OFFSET);
-	else
-		return mini_arch_vcpu_fault(vcpu, vmf);
-	get_page(page);
-	vmf->page = page;
-	return 0;
-}
-
-static const struct vm_operations_struct mini_vcpu_vm_ops = {
-	.fault = mini_vcpu_fault,
-};
-
 static int mini_vm_ioctl_set_memory_region(struct mini *mini,
 					  struct kvm_userspace_memory_region *mem)
 {
@@ -1462,109 +1393,6 @@ static int mini_vm_ioctl_set_memory_region(struct mini *mini,
 		return -EINVAL;
 
 	return mini_set_memory_region(mini, mem);
-}
-
-static int mini_vcpu_mmap(struct file *file, struct vm_area_struct *vma)
-{
-	struct mini_vcpu *vcpu = file->private_data;
-	unsigned long pages = vma_pages(vma);
-
-	if ((mini_page_in_dirty_ring(vcpu->mini, vma->vm_pgoff) ||
-	     mini_page_in_dirty_ring(vcpu->mini, vma->vm_pgoff + pages - 1)) &&
-	    ((vma->vm_flags & VM_EXEC) || !(vma->vm_flags & VM_SHARED)))
-		return -EINVAL;
-
-	vma->vm_ops = &mini_vcpu_vm_ops;
-	return 0;
-}
-
-static int mini_vcpu_release(struct inode *inode, struct file *filp)
-{
-	struct mini_vcpu *vcpu = filp->private_data;
-
-	//kvm_put_kvm(vcpu->kvm);
-	return 0;
-}
-
-static const struct file_operations mini_vcpu_fops = {
-	.release        = mini_vcpu_release,
-	.unlocked_ioctl = mini_vcpu_ioctl,
-	.mmap           = mini_vcpu_mmap,
-	.llseek		= noop_llseek,
-	MINI_COMPAT(mini_vcpu_compat_ioctl),
-};
-
-static int create_vcpu_fd(struct mini_vcpu *vcpu)
-{
-	char name[8 + 1 + ITOA_MAX_LEN + 1];
-
-    mini_info("[mini] create_vcpu_fd\n");
-
-	snprintf(name, sizeof(name), "mini-vcpu:%d", vcpu->vcpu_id);
-	return anon_inode_getfd(name, &mini_vcpu_fops, vcpu, O_RDWR | O_CLOEXEC);
-}
-
-static int mini_vm_ioctl_create_vcpu(struct mini *mini, u32 id)
-{
-    int r;
-    struct mini_vcpu *vcpu;
-    struct page *page;
-
-    mini_info("[mini] mini_vm_ioctl_create_vcpu\n");
-
-    if (id >= KVM_MAX_VCPU_IDS)
-        return -EINVAL;
-
-    mutex_lock(&mini->lock);
-    if (mini->created_vcpus >= mini->max_vcpus) {
-        mutex_unlock(&mini->lock);
-        return -EINVAL;
-    }
-
-    r = 0;
-    
-    mini->created_vcpus++;
-    mutex_unlock(&mini->lock);
-
-    mini_info("[mini] zalloc\n");
-    vcpu = kmem_cache_zalloc(mini_vcpu_cache, GFP_KERNEL_ACCOUNT);
-    if(!vcpu) {
-        r = -ENOMEM;
-        //goto vcpu_decrement;
-    }
-    mini_info("[mini] cache_zalloc\n");
-
-    //BUILD_BUG_ON(sizeof(struct mini_run) > PAGE_SIZE);
-    page = alloc_page(GFP_KERNEL_ACCOUNT | __GFP_ZERO);
-    if(!page) {
-        r = -ENOMEM;
-        //goto vcpu_free;
-    }
-    mini_info("[mini] alloc_page\n");
-    vcpu->run = page_address(page);
-
-    mini_vcpu_init(vcpu, mini, id);
-
-    r = mini_arch_vcpu_create(vcpu);
-    if(r) {
-        r = -ENOMEM;
-        //goto vcpu_free_run_page;
-    }
-
-	vcpu->vcpu_idx = atomic_read(&mini->online_vcpus);
-	r = xa_reserve(&mini->vcpu_array, vcpu->vcpu_idx, GFP_KERNEL_ACCOUNT);
-	if (r < 0)
-        mini_info("[mini] VCPU CREATE FAILED\n");
-
-	r = create_vcpu_fd(vcpu);
-	if (r < 0) {
-        r = -EINVAL;
-        mini_info("[mini] ERROR fd\n");
-    }
-
-	atomic_inc(&mini->online_vcpus);
-
-    return r;
 }
 
 static long mini_vm_ioctl(struct file *flip,
@@ -1577,99 +1405,6 @@ static long mini_vm_ioctl(struct file *flip,
     mini_info("[mini] mini_vm_ioctl\n");
 
     switch(ioctl) {
-	case MINI_CREATE_VCPU:
-		r = mini_vm_ioctl_create_vcpu(mini, arg);
-		break;
-        /*
-	case MINI_SET_USER_MEMORY_REGION: {
-        mini_info("MINI_SET_USER_MEMORY_REGION\n");
-		struct kvm_userspace_memory_region mini_userspace_mem;
-
-		r = -EFAULT;
-		if (copy_from_user(&mini_userspace_mem, argp,
-						sizeof(mini_userspace_mem)))
-            goto out;
-
-		r = mini_vm_ioctl_set_memory_region(mini, &mini_userspace_mem);
-        mini->base_gpa = mini_userspace_mem.guest_phys_addr;
-        mini->mmu_page_cache.gfp_zero = __GFP_ZERO;
-
-        ////////////////////////////////////////////
-        //mini_info("[mini] MINI_ALLOC\n");
-
-        gpa_t gpa = mini->base_gpa;
-        gfn_t gfn = gpa >> (PAGE_SHIFT);
-        struct kvm_memory_slot *memslot = mini_gfn_to_memslot(mini, gfn);
-        int count = 0;
-
-
-        mini_info("[mini] SIZE_OF_MINI : %d\n", sizeof(struct mini));
-        mini_info("[mini] SIZE_OF_VCPU : %d\n", sizeof(struct mini_vcpu));
-
-        // GPA 2 HPA mapping setup
-        bool writable = true;
-        //unsigned long vma_pagesize;
-        //int count = 0;
-        
-        mini_info("\t[mini] map_count %d\n", mini->mm->map_count);
-        
-        // GPA 2 HPA mapping 
-        while(count < memslot->npages) { 
-            mini_info("prog : %d / %d\n", count+1, memslot->npages);
-            kvm_pfn_t hfn = mini_gfn_to_pfn_prot(mini, gfn, true, &writable);
-            phys_addr_t hpa = hfn << PAGE_SHIFT;
-            gfn = gpa >> (PAGE_SHIFT);
-            unsigned long hva = gfn_to_hva_memslot_prot(memslot, gfn, &writable);
-
-            */
-            /*
-            mini_info("\t[mini] gpa : 0x%x, gfn : 0x%x, hva : 0x%lx, hfn : 0x%x, hpa : 0x%x\n",
-                    gpa, gfn, hva, hfn, hpa);
-            mini_info("\t[mini] pages %d\tuser_addr 0x%lx\t id %d\n", memslot->npages, memslot->userspace_addr, memslot->id);
-
-            mini_info("\t[mini] task_size %d\n", mini->mm->task_size);
-            mini_info("\t[mini] pagetables_bytes %d\n", mini->mm->pgtables_bytes);
-            mini_info("\t[mini] total_vm %d\n", mini->mm->total_vm);
-            */
-
-        /*
-            //mini_riscv_gstage_map(vcpu, memslot, gpa, hva, true); 
-            mini_riscv_gstage_map(mini, memslot, gpa, hva, true); 
-            mini_release_pfn_clean(hfn);
-
-            gpa += PAGE_SIZE;
-            count ++;
-        } // while end
-
-        mini_info("\t[mini] map_count %d\n", mini->mm->map_count);
-
-		break;
-	}
-    */
-    case MINI_ENTER:
-        mini_arch_enter(mini);
-        csr_write(CSR_HSTATUS, csr_read(CSR_HSTATUS) | HSTATUS_HU);
-        mini_info("MINI_ENTER : 0x%x\n", csr_read(CSR_HSTATUS));
-        break;
-    case MINI_EXIT:
-        mini_info("MINI_EXIT 0x%x\n", csr_read(CSR_HSTATUS));
-        mini_arch_exit(mini);
-        csr_write(CSR_HSTATUS, csr_read(CSR_HSTATUS) & !HSTATUS_HU);
-        break;
-    case MINI_ATTACH:
-        mini_arch_enter(mini);
-        break;
-    case MINI_DETACH:
-        mini_arch_exit(mini);
-        mini_info("MINI_DETACH 0x%x\n", csr_read(CSR_HSTATUS));
-        break;
-        /*
-    case MINI_DEST_VM:
-        mini_destroy_vm(mini);
-        break;
-        */
-    default:
-        break;
     }
     return r;
 
@@ -2035,35 +1770,33 @@ static long mini_dev_ioctl(struct file *flip,
     static int current_mini = -1;
     struct mini *mini = NULL;
 
+    int count = 0;
+
     switch(ioctl) {
     case MINI_CREATE_VM: 
+        mini_info("[mini] verse_create\n");
         //r = mini_dev_ioctl_create_vm(arg);
-        mini_array[arg] = mini_dev_ioctl_create_vm(arg);
-        /*
-        // Create VM
-        struct mini *mini;
-        mini = mini_dev_ioctl_create_vm(arg);
+        if(mini_array[arg] != NULL) {
+            mini_info("%d is already used\n");
+            r = -EFAULT;
+        }
+        else {
+            mini_array[arg] = mini_dev_ioctl_create_vm(arg);
+        }
 
-        // map user memory (uaccess routine)
-        void __user *argp = (void __user *)arg;
-
-		struct kvm_userspace_memory_region mini_userspace_mem;
-
-		r = -EFAULT;
-		if (copy_from_user(&mini_userspace_mem, argp,
-						sizeof(mini_userspace_mem)))
-			return -1;
-
-		//struct kvm_userspace_memory_region mini_userspace_mem = {
-        //    0, 0, 0x80000000, 4096, kmap(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE, -1, 0)
-        //};
-
-		r = mini_vm_ioctl_set_memory_region(mini, &mini_userspace_mem);
-        mini->base_gpa = mini_userspace_mem.guest_phys_addr;
-
-        // create VCPU
-		r = mini_vm_ioctl_create_vcpu(mini, 0);
-        */
+        break;
+    case MINI_DEST_VM:
+        mini_info("[mini] verse_dest\n");
+        if(mini_array[arg] == NULL) {
+            mini_info("%d is not created\n");
+            r = -EFAULT;
+        }
+        else {
+            kfree(mini_array[arg]->mini_kva);
+            mini_destroy_vm(mini_array[arg]);
+            mini_array[arg] = NULL;
+            r = 0;
+        }
         break;
 	case MINI_SET_USER_MEMORY_REGION: {
         mini_info("MINI_SET_USER_MEMORY_REGION\n");
@@ -2085,17 +1818,22 @@ static long mini_dev_ioctl(struct file *flip,
 
 		r = -EFAULT;
 		if (copy_from_user(&mini_userspace_mem, argp,
-						sizeof(mini_userspace_mem)))
+						sizeof(mini_userspace_mem))) {
             return r;
+        }
             //goto out;
 
-        /*
         mini_userspace_mem.userspace_addr = (unsigned long)kmalloc(mini_userspace_mem.memory_size, GFP_KERNEL);
+        mini->mini_kva = mini_userspace_mem.userspace_addr;
+        mini->memory_size = mini_userspace_mem.memory_size;
+        /*
         mini_userspace_mem.userspace_addr = __get_free_pages(GFP_KERNEL, mini_userspace_mem.memory_size/PAGE_SIZE);
         struct page *p = virt_to_page(mini_userspace_mem.userspace_addr);
         */
+        /*
         struct page *p = virt_to_page(mini_userspace_mem.userspace_addr);
         kmap(p);
+        */
         mini_info("[MINI] userspace_addr: 0x%lx", mini_userspace_mem.userspace_addr);
 		r = mini_vm_ioctl_set_memory_region(mini, &mini_userspace_mem);
         mini->base_gpa = mini_userspace_mem.guest_phys_addr;
@@ -2107,11 +1845,6 @@ static long mini_dev_ioctl(struct file *flip,
         gpa_t gpa = mini->base_gpa;
         gfn_t gfn = gpa >> (PAGE_SHIFT);
         struct kvm_memory_slot *memslot = mini_gfn_to_memslot(mini, gfn);
-        int count = 0;
-
-
-        mini_info("[mini] SIZE_OF_MINI : %d\n", sizeof(struct mini));
-        mini_info("[mini] SIZE_OF_VCPU : %d\n", sizeof(struct mini_vcpu));
 
         // GPA 2 HPA mapping setup
         bool writable = true;
@@ -2154,17 +1887,49 @@ static long mini_dev_ioctl(struct file *flip,
         } // while end 
         //mini_info("\t[mini] map_count %d\n", mini->mm->map_count); 
         
-        /* 
-         *(unsigned long *)mini_userspace_mem.userspace_addr = 0xDEADBEEF; 
-         mini_info("Write : 0x%lx\n", *(unsigned long *)mini_userspace_mem.userspace_addr); 
-         unsigned long val, guest_addr; 
-         guest_addr = 0x80000000; 
-         asm volatile(HLV_W(%[val], %[addr]) :[val] "=&r" (val): [addr] "r" (guest_addr) ); 
-         */
-
-
 		break;
       }
+    case MINI_FREE:
+        mini_info("VERSE_MUNMAP\n");
+
+        r = -EFAULT;
+
+        if(current_mini < 0) {
+            mini_info("Need to enter\n");
+            return r;
+        }
+
+        mini = mini_array[current_mini];
+
+        gpa_t gpa = mini->base_gpa;
+        gfn_t gfn = gpa >> (PAGE_SHIFT);
+        struct kvm_memory_slot *memslot = mini_gfn_to_memslot(mini, gfn);
+        mini = mini_array[current_mini];
+        unsigned long hva = mini->mini_kva;
+
+        mini_info("\tVariables\n");
+
+        while(count < memslot->npages) { 
+            mini_info("prog : %d / %d\n", count+1, memslot->npages);
+            mini_info("get hva %lx\n", hva);
+
+            struct page *p = virt_to_page(hva);
+
+            mini_info("ref count = %d\n", page_ref_count(p));
+            page_ref_dec(p);
+            mini_info("ref count = %d\n", page_ref_count(p));
+
+            hva += PAGE_SIZE;
+
+            count ++;
+
+        } // End of while
+
+        //mini_riscv_gstage_iounmap(mini, gpa, mini->memory_size);
+
+        r = 0;
+
+        break;
     case MINI_ENTER:
         current_mini = arg;
 
@@ -2230,21 +1995,6 @@ bool mini_vcpu_wake_up(struct mini_vcpu *vcpu)
 }
 EXPORT_SYMBOL_GPL(mini_vcpu_wake_up);
 
-static ssize_t mini_vcpu_stats_read(struct file *file, char __user *user_buffer,
-			      size_t size, loff_t *offset)
-{
-	struct mini_vcpu *vcpu = file->private_data;
-
-	return kvm_stats_read(vcpu->stats_id, &mini_vcpu_stats_header,
-			&mini_vcpu_stats_desc[0], &vcpu->stat,
-			sizeof(vcpu->stat), user_buffer, size, offset);
-}
-
-static const struct file_operations mini_vcpu_stats_fops = {
-	.read = mini_vcpu_stats_read,
-	.llseek = noop_llseek,
-};
-
 static long mini_vcpu_ioctl(struct file *filp,
 			   unsigned int ioctl, unsigned long arg)
 {
@@ -2271,97 +2021,6 @@ static long mini_vcpu_ioctl(struct file *filp,
     mini_info("[mini] KVMIO\n");
 
 	switch (ioctl) {
-                /*******************
-        case MINI_ALLOC: 
-            mini_info("[mini] MINI_ALLOC\n");
-
-            mini_info("[mini] SIZE_OF_MINI : %d\n", sizeof(struct mini));
-            mini_info("[mini] SIZE_OF_VCPU : %d\n", sizeof(struct mini_vcpu));
-
-            // GPA 2 HPA mapping setup
-            bool writable = true;
-            //unsigned long vma_pagesize;
-            //int count = 0;
-            
-            mini_info("\t[mini] map_count %d\n", mini->mm->map_count);
-            
-            // GPA 2 HPA mapping 
-            while(count < memslot->npages) { 
-                mini_info("prog : %d / %d\n", count+1, memslot->npages);
-                kvm_pfn_t hfn = mini_gfn_to_pfn_prot(mini, gfn, true, &writable);
-                phys_addr_t hpa = hfn << PAGE_SHIFT;
-                gfn = gpa >> (PAGE_SHIFT);
-                unsigned long hva = gfn_to_hva_memslot_prot(memslot, gfn, &writable);
-
-                mini_info("\t[mini] gpa : 0x%x, gfn : 0x%x, hva : 0x%lx, hfn : 0x%x, hpa : 0x%x\n",
-                        gpa, gfn, hva, hfn, hpa);
-                mini_info("\t[mini] pages %d\tuser_addr 0x%lx\t id %d\n", memslot->npages, memslot->userspace_addr, memslot->id);
-
-                mini_info("\t[mini] task_size %d\n", mini->mm->task_size);
-                mini_info("\t[mini] pagetables_bytes %d\n", mini->mm->pgtables_bytes);
-                mini_info("\t[mini] total_vm %d\n", mini->mm->total_vm);
-
-                //mini_riscv_gstage_map(vcpu, memslot, gpa, hva, true); 
-                mini_release_pfn_clean(hfn);
-
-                gpa += PAGE_SIZE;
-                count ++;
-            } // while end
-            mini_info("\t[mini] map_count %d\n", mini->mm->map_count);
-            break;
-                ***********************/
-        case MINI_FREE: 
-            mini_info("[mini] MINI_FREE\n");
-
-            int size = memslot->npages << PAGE_SHIFT;
-
-            mini_info("[mini] gpa : 0x%x, size : %d\n", gpa, size);
-            mini_info("\t[mini] npage %d\n", memslot->npages);
-            mini_riscv_gstage_iounmap(mini, gpa, size);
-            //mmdrop(mini->mm);
-            while(count < memslot->npages) { 
-                //kvm_pfn_t hfn = mini_gfn_to_pfn_prot(mini, gfn, true, &writable);
-                gfn = gpa >> (PAGE_SHIFT);
-                //mini_release_pfn_clean(hfn);
-                //mini_info("prog : %d / %d\n", count+1, memslot->npages);
-
-                //mini_arch_flush_shadow_memslot(mini, memslot);
-
-                //gpa += PAGE_SIZE;
-                count ++;
-            } // while end
-            //kvm_mmu_free_memory_cache(&vcpu->arch.mmu_page_cache);
-            break;
-    case MINI_ENTER:
-        mini_arch_enter(vcpu->mini);
-        csr_write(CSR_HSTATUS, csr_read(CSR_HSTATUS) | HSTATUS_HU);
-        mini_info("MINI_ENTER : 0x%x\n", csr_read(CSR_HSTATUS));
-        break;
-    case MINI_EXIT:
-        mini_info("MINI_EXIT 0x%x\n", csr_read(CSR_HSTATUS));
-        mini_arch_exit(vcpu->mini);
-        csr_write(CSR_HSTATUS, csr_read(CSR_HSTATUS) & !HSTATUS_HU);
-        break;
-    case MINI_ATTACH:
-        case MINI_DEST_VM:
-            mini_info("[mini] MINI_DEST\n");
-            mini_vcpu_destroy(vcpu);
-            mini_destroy_vm(mini);
-            
-            /*
-            kvm_mmu_free_memory_cache(&vcpu->arch.mmu_page_cache);
-            mini_riscv_gstage_free_pgd(mini);
-            //mmdrop(mini->mm);
-            kfree(mini->mm);
-            kvfree(mini);
-            free_page((unsigned long)vcpu->run);
-	        kmem_cache_free(mini_vcpu_cache, vcpu);
-            kfree(vcpu);
-            */
-            break;
-        default:
-            mini_info("[mini] undefined case\n");
-            break;
     }
 
     return r;
@@ -2379,22 +2038,6 @@ int mini_init(unsigned vcpu_size, unsigned vcpu_align, struct module *module)
     }
 
     mini_info("Assigned major number : %d\n", major);
-
-    /*
-	if (!vcpu_align)
-		vcpu_align = __alignof__(struct mini_vcpu);
-	mini_vcpu_cache =
-		kmem_cache_create_usercopy("mini_vcpu", vcpu_size, vcpu_align,
-					   SLAB_ACCOUNT,
-					   offsetof(struct mini_vcpu, arch),
-					   offsetofend(struct mini_vcpu, stats_id)
-					   - offsetof(struct mini_vcpu, arch),
-					   NULL);
-	if (!mini_vcpu_cache) {
-        mini_info("ERROR!\n");   
-        return -1;
-    }
-    */
 
     cls = class_create(DEVICE_NAME);
     device_create(cls, NULL, MKDEV(major, 0), NULL, DEVICE_NAME);

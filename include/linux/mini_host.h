@@ -132,6 +132,8 @@ struct mini {
     gpa_t base_gpa; // Base address of the GPA
     int vid;        // User declared VID
 	struct kvm_mmu_memory_cache mmu_page_cache; // page cache
+    unsigned long mini_kva;
+    __u64 memory_size;    
     // End of custom variables
 
 	struct mutex slots_lock;
@@ -177,6 +179,7 @@ struct mini {
 	bool vm_dead;
 
     char stats_id[KVM_STATS_NAME_SIZE];
+
 };
 
 #ifndef __MINI_HAVE_ARCH_VM_ALLOC
@@ -247,22 +250,6 @@ static inline struct mini_vcpu *mini_get_vcpu(struct mini *mini, int i)
 	return xa_load(&mini->vcpu_array, i);
 }
 
-static inline struct mini_vcpu *mini_get_vcpu_by_id(struct mini *mini, int id)
-{
-	struct mini_vcpu *vcpu = NULL;
-	unsigned long i;
-
-	if (id < 0)
-		return NULL;
-	if (id < KVM_MAX_VCPUS)
-		vcpu = mini_get_vcpu(mini, id);
-	if (vcpu && vcpu->vcpu_id == id)
-		return vcpu;
-	kvm_for_each_vcpu(i, vcpu, mini)
-		if (vcpu->vcpu_id == id)
-			return vcpu;
-	return NULL;
-}
 
 void mini_destroy_vcpus(struct mini *mini);
 
@@ -382,11 +369,6 @@ int mini_get_dirty_log(struct mini *mini, struct mini_dirty_log *log,
 vm_fault_t mini_arch_vcpu_fault(struct mini_vcpu *vcpu, struct vm_fault *vmf);
 int mini_arch_vcpu_create(struct mini_vcpu *vcpu);
 void mini_arch_vcpu_destroy(struct mini_vcpu *vcpu);
-
-extern const struct kvm_stats_header mini_vm_stats_header;
-extern const struct _kvm_stats_desc mini_vm_stats_desc[];
-extern const struct kvm_stats_header mini_vcpu_stats_header;
-extern const struct _kvm_stats_desc mini_vcpu_stats_desc[];
 
 #if defined(CONFIG_MMU_NOTIFIER) && defined(KVM_ARCH_WANT_MMU_NOTIFIER)
 static inline int mini_mmu_invalidate_retry(struct mini *mini, unsigned long mmu_seq)

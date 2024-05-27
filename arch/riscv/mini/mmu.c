@@ -198,6 +198,7 @@ static int gstage_map_page(struct mini *mini,
     mini_info("\t[gstage_map_page] gpa : 0x%lx, hpa : 0x%lx\n", gpa, hpa);
 
 	ret = gstage_page_size_to_level(page_size, &level);
+    mini_info("\t[gstage_map_page] ret : %d page_size: %d, level: %d\n", ret, page_size, level);
 	if (ret)
 		return ret;
 
@@ -682,10 +683,14 @@ int mini_riscv_gstage_map(struct mini *mini,
 		return ret;
 	}
 
+    unsigned long phys_addr = virt_to_phys(hva);
+    mini_info("[mini] hpa : 0x%lx\n", phys_addr);
+
+
+    /**********************************
+
 	mmap_read_lock(current->mm);
     //mini_info("[mini] curren->mm->next : 0x%x prev : 0x%x\n", current->mm->next);
-
-    //**********************************
 
 	vma = vma_lookup(current->mm, hva);
     
@@ -717,7 +722,7 @@ int mini_riscv_gstage_map(struct mini *mini,
 
     mini_info("Set vma_pagesize\n");
 
-    //****************************/
+    ****************************/
 
 	/*
 	 * Read mmu_invalidate_seq so that MINI can detect if the results of
@@ -728,7 +733,7 @@ int mini_riscv_gstage_map(struct mini *mini,
 	 * with the smp_wmb() in mini_mmu_invalidate_end().
 	 */
 
-    //**************************************
+    /**************************************
 	mmu_seq = mini->mmu_invalidate_seq;
 	mmap_read_unlock(current->mm);
 	//mmap_read_unlock(p->mm);
@@ -739,23 +744,25 @@ int mini_riscv_gstage_map(struct mini *mini,
 		mini_err("Invalid VMA page size 0x%lx\n", vma_pagesize);
 		return -EFAULT;
 	}
-    //****************************************/
+    ****************************************/
 
-    //vma_pagesize = PAGE_SIZE;
+    vma_pagesize = PAGE_SIZE;
 
-	hfn = mini_gfn_to_pfn_prot(mini, gfn, is_write, &writable);
+	//hfn = mini_gfn_to_pfn_prot(mini, gfn, is_write, &writable);
     //hfn = virt_to_pfn(hva);
-    if(hfn == KVM_PFN_NOSLOT) {
+    //if(hfn == KVM_PFN_NOSLOT) {
+    if(phys_addr == KVM_PFN_NOSLOT) {
         mini_info("[mini] can't find hfn\n");
         return -EFAULT;
     }
-	if (hfn == KVM_PFN_ERR_HWPOISON) {
+	//if (hfn == KVM_PFN_ERR_HWPOISON) {
+	if (phys_addr == KVM_PFN_ERR_HWPOISON) {
 		send_sig_mceerr(BUS_MCEERR_AR, (void __user *)hva,
 				vma_pageshift, current);
 		return 0;
 	}
 
-    mini_info("\t[gstage_map] hfn : %lx\n", hfn);
+    //mini_info("\t[gstage_map] hfn : %lx\n", hfn);
 
     /*
 	if (is_error_noslot_pfn(hfn))
@@ -782,17 +789,23 @@ int mini_riscv_gstage_map(struct mini *mini,
     */
 
 	if (writable) {
+        mini_info("\t[gstage_map] write_able\n");
 		//mini_set_pfn_dirty(hfn);
 		//mark_page_dirty(mini, gfn);
+        /*
 		ret = gstage_map_page(mini, pcache, gpa, hfn << PAGE_SHIFT,
 				      vma_pagesize, false, true);
-        /*
-		ret = gstage_map_page(mini, pcache, gpa, pfn << PAGE_SHIFT,
-				      vma_pagesize, false, true);
                       */
+		ret = gstage_map_page(mini, pcache, gpa, phys_addr,
+				      vma_pagesize, false, true);
 	} else {
+        mini_info("\t[gstage_map] non-write_able\n");
+        /*
 		ret = gstage_map_page(mini, pcache, gpa, hfn << PAGE_SHIFT, //hfn
 				      vma_pagesize, true, true);
+                      */
+		ret = gstage_map_page(mini, pcache, gpa, phys_addr,
+				      vma_pagesize, false, true);
 	}
 
     //mini_info("\t[mini] kmem_cache : %p\n", pcache->kmem_cache);
@@ -801,12 +814,18 @@ int mini_riscv_gstage_map(struct mini *mini,
 	if (ret)
 		mini_err("Failed to map in G-stage\n");
 
+    struct page *p = virt_to_page(hva);
+    mini_info("ref count = %d\n", page_ref_count(p));
+    page_ref_inc(p);
+    mini_info("ref count = %d\n", page_ref_count(p));
+
+
 out_unlock:
 	spin_unlock(&mini->mmu_lock);
-	mini_set_pfn_accessed(hfn);
-	mini_release_pfn_clean(hfn);
-	//mini_set_pfn_accessed(pfn);
-	//mini_release_pfn_clean(pfn);
+	//mini_set_pfn_accessed(hfn);
+	//mini_release_pfn_clean(hfn);
+	mini_set_pfn_accessed(phys_addr);
+	mini_release_pfn_clean(phys_addr);
 
 	return ret;
 }
