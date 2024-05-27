@@ -242,10 +242,17 @@ unsigned long mini_riscv_gstage_vmid_bits(void);
 int mini_riscv_gstage_vmid_init(struct mini *mini);
 
 void mini_riscv_gstage_iounmap(struct mini *kvm, gpa_t gpa, unsigned long size);
+/*
 int mini_riscv_gstage_map(struct mini_vcpu *vcpu,
 			 struct kvm_memory_slot *memslot,
 	         gpa_t gpa, unsigned long hva, bool is_write);
+             */
 
+int mini_riscv_gstage_map(struct mini *mini,
+			 struct kvm_memory_slot *memslot,
+	         gpa_t gpa, unsigned long hva, bool is_write);
+
+int mini_riscv_gstage_alloc_pgd(struct mini *mini);
 int mini_riscv_gstage_alloc_pgd(struct mini *mini);
 
 void mini_riscv_gstage_free_pgd(struct mini *mini);

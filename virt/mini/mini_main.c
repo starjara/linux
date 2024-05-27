@@ -322,7 +322,7 @@ void *mini_mmu_memory_cache_alloc(struct kvm_mmu_memory_cache *mc)
 {
 	void *p;
 
-    mini_info ("[mini] mini_mmu_memory_cache_alloc\n");
+    //mini_info ("[mini] mini_mmu_memory_cache_alloc\n");
 	if (WARN_ON(!mc->nobjs))
 		p = mmu_memory_cache_alloc_obj(mc, GFP_ATOMIC | __GFP_ACCOUNT);
 	else
@@ -613,8 +613,8 @@ static struct mini *mini_create_vm(unsigned long type, const char *fdname)
     __module_get(mini_chardev_ops.owner);
 
 	KVM_MMU_LOCK_INIT(mini);
-	mmgrab(current->mm);
-	mini->mm = current->mm;
+	//mmgrab(current->mm);
+	//mini->mm = current->mm;
 	//mini_eventfd_init(mini);
 	mutex_init(&mini->lock);
 	//mutex_init(&mini->irq_lock);
@@ -622,9 +622,9 @@ static struct mini *mini_create_vm(unsigned long type, const char *fdname)
 	mutex_init(&mini->slots_arch_lock);
 	spin_lock_init(&mini->mn_invalidate_lock);
 	rcuwait_init(&mini->mn_memslots_update_rcuwait);
-	xa_init(&mini->vcpu_array);
+	//xa_init(&mini->vcpu_array);
 
-	mini->max_vcpus = KVM_MAX_VCPUS;
+	//mini->max_vcpus = KVM_MAX_VCPUS;
 
 	snprintf(mini->stats_id, sizeof(mini->stats_id), "mini-%d",
 		 task_pid_nr(current));
@@ -1196,7 +1196,7 @@ EXPORT_SYMBOL_GPL(mini_release_page_clean);
 void mini_release_pfn_clean(kvm_pfn_t pfn)
 {
     struct page *page;
-    //mini_info("[mini] release_pfn_clean 0x%lx\n", pfn);
+    mini_info("[mini] release_pfn_clean 0x%lx\n", pfn);
 
     if (is_error_noslot_pfn(pfn)){
         mini_info("\t[mini] pfn slot error\n");
@@ -1295,13 +1295,17 @@ int __mini_set_memory_region(struct mini *mini,
 	if (mem->guest_phys_addr & (PAGE_SIZE - 1))
 		return -EINVAL;
     mini_info("\t[mini] phys_addr\n");
+
 	/* We can read the guest memory with __xxx_user() later on. */
+    /*
 	if ((mem->userspace_addr & (PAGE_SIZE - 1)) ||
 	    (mem->userspace_addr != untagged_addr(mem->userspace_addr)) ||
 	     !access_ok((void __user *)(unsigned long)mem->userspace_addr,
 			mem->memory_size))
 		return -EINVAL;
+    */
     mini_info("\t[mini] userspace_addr\n");
+
 	if (as_id >= KVM_ADDRESS_SPACE_NUM || id >= KVM_MEM_SLOTS_NUM)
 		return -EINVAL;
     mini_info("\t[mini] as_id\n");
@@ -1576,17 +1580,72 @@ static long mini_vm_ioctl(struct file *flip,
 	case MINI_CREATE_VCPU:
 		r = mini_vm_ioctl_create_vcpu(mini, arg);
 		break;
+        /*
 	case MINI_SET_USER_MEMORY_REGION: {
+        mini_info("MINI_SET_USER_MEMORY_REGION\n");
 		struct kvm_userspace_memory_region mini_userspace_mem;
 
 		r = -EFAULT;
 		if (copy_from_user(&mini_userspace_mem, argp,
 						sizeof(mini_userspace_mem)))
-			goto out;
+            goto out;
 
 		r = mini_vm_ioctl_set_memory_region(mini, &mini_userspace_mem);
+        mini->base_gpa = mini_userspace_mem.guest_phys_addr;
+        mini->mmu_page_cache.gfp_zero = __GFP_ZERO;
+
+        ////////////////////////////////////////////
+        //mini_info("[mini] MINI_ALLOC\n");
+
+        gpa_t gpa = mini->base_gpa;
+        gfn_t gfn = gpa >> (PAGE_SHIFT);
+        struct kvm_memory_slot *memslot = mini_gfn_to_memslot(mini, gfn);
+        int count = 0;
+
+
+        mini_info("[mini] SIZE_OF_MINI : %d\n", sizeof(struct mini));
+        mini_info("[mini] SIZE_OF_VCPU : %d\n", sizeof(struct mini_vcpu));
+
+        // GPA 2 HPA mapping setup
+        bool writable = true;
+        //unsigned long vma_pagesize;
+        //int count = 0;
+        
+        mini_info("\t[mini] map_count %d\n", mini->mm->map_count);
+        
+        // GPA 2 HPA mapping 
+        while(count < memslot->npages) { 
+            mini_info("prog : %d / %d\n", count+1, memslot->npages);
+            kvm_pfn_t hfn = mini_gfn_to_pfn_prot(mini, gfn, true, &writable);
+            phys_addr_t hpa = hfn << PAGE_SHIFT;
+            gfn = gpa >> (PAGE_SHIFT);
+            unsigned long hva = gfn_to_hva_memslot_prot(memslot, gfn, &writable);
+
+            */
+            /*
+            mini_info("\t[mini] gpa : 0x%x, gfn : 0x%x, hva : 0x%lx, hfn : 0x%x, hpa : 0x%x\n",
+                    gpa, gfn, hva, hfn, hpa);
+            mini_info("\t[mini] pages %d\tuser_addr 0x%lx\t id %d\n", memslot->npages, memslot->userspace_addr, memslot->id);
+
+            mini_info("\t[mini] task_size %d\n", mini->mm->task_size);
+            mini_info("\t[mini] pagetables_bytes %d\n", mini->mm->pgtables_bytes);
+            mini_info("\t[mini] total_vm %d\n", mini->mm->total_vm);
+            */
+
+        /*
+            //mini_riscv_gstage_map(vcpu, memslot, gpa, hva, true); 
+            mini_riscv_gstage_map(mini, memslot, gpa, hva, true); 
+            mini_release_pfn_clean(hfn);
+
+            gpa += PAGE_SIZE;
+            count ++;
+        } // while end
+
+        mini_info("\t[mini] map_count %d\n", mini->mm->map_count);
+
 		break;
 	}
+    */
     case MINI_ENTER:
         mini_arch_enter(mini);
         csr_write(CSR_HSTATUS, csr_read(CSR_HSTATUS) | HSTATUS_HU);
@@ -1834,6 +1893,8 @@ kvm_pfn_t hva_to_pfn(unsigned long addr, bool atomic, bool interruptible,
 	kvm_pfn_t pfn;
 	int npages, r;
 
+    mini_info("[mini] hva_to_pfn\n");
+
 	/* we can do it either atomically or asynchronously, not both */
 	BUG_ON(atomic && async);
 
@@ -1884,6 +1945,8 @@ kvm_pfn_t mini__gfn_to_pfn_memslot(const struct kvm_memory_slot *slot, gfn_t gfn
 {
 	unsigned long addr = __gfn_to_hva_many(slot, gfn, NULL, write_fault);
 
+    mini_info("[mini] mini__gfn_to_pfn_memslot 0x%lx, 0x%lx\n", hva, addr);
+
 	if (hva)
 		*hva = addr;
 
@@ -1929,7 +1992,8 @@ static const struct file_operations mini_vm_fops = {
 	.llseek		= noop_llseek,
 };
 
-static int mini_dev_ioctl_create_vm(unsigned long type)
+//static int mini_dev_ioctl_create_vm(unsigned long type)
+static struct mini *mini_dev_ioctl_create_vm(unsigned long type)
 {
     char fdname[ITOA_MAX_LEN + 1];
     int r, fd;
@@ -1948,6 +2012,7 @@ static int mini_dev_ioctl_create_vm(unsigned long type)
     if(IS_ERR(mini)) {
         r = PTR_ERR(mini);
     }
+    mini->vid = type;
 
     file = anon_inode_getfile("mini-vm", &mini_vm_fops, mini, O_RDWR);
     if(IS_ERR(file)) {
@@ -1955,19 +2020,179 @@ static int mini_dev_ioctl_create_vm(unsigned long type)
     }
 
     fd_install(fd, file);
-    return fd;
+    //return fd;
+    return mini;
 
 }
+
 static long mini_dev_ioctl(struct file *flip, 
             unsigned int ioctl, unsigned long arg)
 {
     int r = -EINVAL;
-    mini_info("mini_dev_ioctl, %x\n", ioctl);
+    mini_info("mini_dev_ioctl, %x, %u\n", ioctl, arg);
 
+    static struct mini *mini_array[1024];
+    static int current_mini = -1;
+    struct mini *mini = NULL;
 
     switch(ioctl) {
     case MINI_CREATE_VM: 
-        r = mini_dev_ioctl_create_vm(arg);
+        //r = mini_dev_ioctl_create_vm(arg);
+        mini_array[arg] = mini_dev_ioctl_create_vm(arg);
+        /*
+        // Create VM
+        struct mini *mini;
+        mini = mini_dev_ioctl_create_vm(arg);
+
+        // map user memory (uaccess routine)
+        void __user *argp = (void __user *)arg;
+
+		struct kvm_userspace_memory_region mini_userspace_mem;
+
+		r = -EFAULT;
+		if (copy_from_user(&mini_userspace_mem, argp,
+						sizeof(mini_userspace_mem)))
+			return -1;
+
+		//struct kvm_userspace_memory_region mini_userspace_mem = {
+        //    0, 0, 0x80000000, 4096, kmap(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE, -1, 0)
+        //};
+
+		r = mini_vm_ioctl_set_memory_region(mini, &mini_userspace_mem);
+        mini->base_gpa = mini_userspace_mem.guest_phys_addr;
+
+        // create VCPU
+		r = mini_vm_ioctl_create_vcpu(mini, 0);
+        */
+        break;
+	case MINI_SET_USER_MEMORY_REGION: {
+        mini_info("MINI_SET_USER_MEMORY_REGION\n");
+
+        if(current_mini < 0)  {
+            mini_info("Need enter first\n");
+            return -1;
+        }
+
+		struct kvm_userspace_memory_region mini_userspace_mem;
+
+        void __user *argp = (void __user *)arg;
+
+        mini = mini_array[current_mini];
+        if(mini == NULL) {
+            mini_err("Can't find %dth\n", current_mini);
+            return -EFAULT;
+        }
+
+		r = -EFAULT;
+		if (copy_from_user(&mini_userspace_mem, argp,
+						sizeof(mini_userspace_mem)))
+            return r;
+            //goto out;
+
+        /*
+        mini_userspace_mem.userspace_addr = (unsigned long)kmalloc(mini_userspace_mem.memory_size, GFP_KERNEL);
+        mini_userspace_mem.userspace_addr = __get_free_pages(GFP_KERNEL, mini_userspace_mem.memory_size/PAGE_SIZE);
+        struct page *p = virt_to_page(mini_userspace_mem.userspace_addr);
+        */
+        struct page *p = virt_to_page(mini_userspace_mem.userspace_addr);
+        kmap(p);
+        mini_info("[MINI] userspace_addr: 0x%lx", mini_userspace_mem.userspace_addr);
+		r = mini_vm_ioctl_set_memory_region(mini, &mini_userspace_mem);
+        mini->base_gpa = mini_userspace_mem.guest_phys_addr;
+        mini->mmu_page_cache.gfp_zero = __GFP_ZERO;
+
+        ////////////////////////////////////////////
+        mini_info("[mini] MINI_ALLOC\n");
+
+        gpa_t gpa = mini->base_gpa;
+        gfn_t gfn = gpa >> (PAGE_SHIFT);
+        struct kvm_memory_slot *memslot = mini_gfn_to_memslot(mini, gfn);
+        int count = 0;
+
+
+        mini_info("[mini] SIZE_OF_MINI : %d\n", sizeof(struct mini));
+        mini_info("[mini] SIZE_OF_VCPU : %d\n", sizeof(struct mini_vcpu));
+
+        // GPA 2 HPA mapping setup
+        bool writable = true;
+        //unsigned long vma_pagesize;
+        
+        //mini_info("\t[mini] map_count %d\n", mini->mm->map_count);
+        
+        // Create GPA 2 HPA mapping 
+        while(count < memslot->npages) { 
+            mini_info("prog : %d / %d\n", count+1, memslot->npages);
+            /*
+            kvm_pfn_t hfn = mini_gfn_to_pfn_prot(mini, gfn, true, &writable);
+            mini_info("get hfn %lx\n", hfn);
+            phys_addr_t hpa = hfn << PAGE_SHIFT;
+            mini_info("get hpa %lx\n", hpa);
+            */
+            gfn = gpa >> (PAGE_SHIFT);
+            unsigned long hva = gfn_to_hva_memslot_prot(memslot, gfn, &writable);
+            mini_info("get hva %lx\n", hva);
+
+            /*
+            mini_info("\t[mini] gpa : 0x%x, gfn : 0x%x, hva : 0x%lx, hfn : 0x%x, hpa : 0x%x\n",
+                    gpa, gfn, hva, hfn, hpa); 
+            mini_info("\t[mini] pages %d\tuser_addr 0x%lx\t id %d\n", 
+            memslot->npages, memslot->userspace_addr, memslot->id); 
+            mini_info("\t[mini] task_size %d\n", mini->mm->task_size); 
+            mini_info("\t[mini] pagetables_bytes %d\n", mini->mm->pgtables_bytes); 
+            mini_info("\t[mini] total_vm %d\n", mini->mm->total_vm); 
+            */ 
+            //mini_riscv_gstage_map(vcpu, memslot, gpa, hva, true); 
+            r = mini_riscv_gstage_map(mini, memslot, gpa, hva, true); 
+            if(r) { 
+                mini_info("map failed\n"); 
+                return r; 
+            } 
+            mini_info("map succedded\n"); 
+            //mini_release_pfn_clean(hfn); 
+            gpa += PAGE_SIZE; 
+            count ++; 
+        } // while end 
+        //mini_info("\t[mini] map_count %d\n", mini->mm->map_count); 
+        
+        /* 
+         *(unsigned long *)mini_userspace_mem.userspace_addr = 0xDEADBEEF; 
+         mini_info("Write : 0x%lx\n", *(unsigned long *)mini_userspace_mem.userspace_addr); 
+         unsigned long val, guest_addr; 
+         guest_addr = 0x80000000; 
+         asm volatile(HLV_W(%[val], %[addr]) :[val] "=&r" (val): [addr] "r" (guest_addr) ); 
+         */
+
+
+		break;
+      }
+    case MINI_ENTER:
+        current_mini = arg;
+
+        if(mini_array[current_mini] == NULL) {
+            mini_info("[mini] Can't find %dth mini\n", current_mini);
+            current_mini = -1;
+            return -1;
+        }
+
+        mini = mini_array[current_mini];
+
+        mini_arch_enter(mini);
+        csr_write(CSR_HSTATUS, csr_read(CSR_HSTATUS) | HSTATUS_HU);
+        mini_info("MINI_ENTER : 0x%x\n", csr_read(CSR_HSTATUS));
+        break;
+    case MINI_EXIT:
+        mini = mini_array[current_mini];
+        if(current_mini < 0) {
+            mini_info("[mini] not in enter\n");
+            return -1;
+        }
+
+        mini_info("MINI_EXIT 0x%x\n", csr_read(CSR_HSTATUS));
+        mini_arch_exit(mini);
+        csr_write(CSR_HSTATUS, csr_read(CSR_HSTATUS) & !HSTATUS_HU);
+
+        current_mini = -1;
+
         break;
 	case MINI_GET_VCPU_MMAP_SIZE:
 		if (arg)
@@ -2023,17 +2248,11 @@ static const struct file_operations mini_vcpu_stats_fops = {
 static long mini_vcpu_ioctl(struct file *filp,
 			   unsigned int ioctl, unsigned long arg)
 {
-    unsigned long long  rdcycle;
-    asm("rdcycle %0\n"
-            : "=r" (rdcycle)
-       );
-    mini_info("rdcycle: 0x%llx\n", rdcycle);
-
     struct mini_vcpu *vcpu = filp->private_data;
     void __user *argv = (void __user *)arg;
 
     struct mini *mini = vcpu->mini;
-    gpa_t gpa = 0x80000000;
+    gpa_t gpa = mini->base_gpa;
     gfn_t gfn = gpa >> (PAGE_SHIFT);
     struct kvm_memory_slot *memslot = mini_gfn_to_memslot(mini, gfn);
     int count = 0;
@@ -2052,6 +2271,7 @@ static long mini_vcpu_ioctl(struct file *filp,
     mini_info("[mini] KVMIO\n");
 
 	switch (ioctl) {
+                /*******************
         case MINI_ALLOC: 
             mini_info("[mini] MINI_ALLOC\n");
 
@@ -2067,13 +2287,12 @@ static long mini_vcpu_ioctl(struct file *filp,
             
             // GPA 2 HPA mapping 
             while(count < memslot->npages) { 
-                //mini_info("prog : %d / %d\n", count+1, memslot->npages);
+                mini_info("prog : %d / %d\n", count+1, memslot->npages);
                 kvm_pfn_t hfn = mini_gfn_to_pfn_prot(mini, gfn, true, &writable);
                 phys_addr_t hpa = hfn << PAGE_SHIFT;
                 gfn = gpa >> (PAGE_SHIFT);
                 unsigned long hva = gfn_to_hva_memslot_prot(memslot, gfn, &writable);
 
-                /*
                 mini_info("\t[mini] gpa : 0x%x, gfn : 0x%x, hva : 0x%lx, hfn : 0x%x, hpa : 0x%x\n",
                         gpa, gfn, hva, hfn, hpa);
                 mini_info("\t[mini] pages %d\tuser_addr 0x%lx\t id %d\n", memslot->npages, memslot->userspace_addr, memslot->id);
@@ -2081,9 +2300,8 @@ static long mini_vcpu_ioctl(struct file *filp,
                 mini_info("\t[mini] task_size %d\n", mini->mm->task_size);
                 mini_info("\t[mini] pagetables_bytes %d\n", mini->mm->pgtables_bytes);
                 mini_info("\t[mini] total_vm %d\n", mini->mm->total_vm);
-                */
 
-                mini_riscv_gstage_map(vcpu, memslot, gpa, hva, true); 
+                //mini_riscv_gstage_map(vcpu, memslot, gpa, hva, true); 
                 mini_release_pfn_clean(hfn);
 
                 gpa += PAGE_SIZE;
@@ -2091,6 +2309,7 @@ static long mini_vcpu_ioctl(struct file *filp,
             } // while end
             mini_info("\t[mini] map_count %d\n", mini->mm->map_count);
             break;
+                ***********************/
         case MINI_FREE: 
             mini_info("[mini] MINI_FREE\n");
 
@@ -2113,6 +2332,17 @@ static long mini_vcpu_ioctl(struct file *filp,
             } // while end
             //kvm_mmu_free_memory_cache(&vcpu->arch.mmu_page_cache);
             break;
+    case MINI_ENTER:
+        mini_arch_enter(vcpu->mini);
+        csr_write(CSR_HSTATUS, csr_read(CSR_HSTATUS) | HSTATUS_HU);
+        mini_info("MINI_ENTER : 0x%x\n", csr_read(CSR_HSTATUS));
+        break;
+    case MINI_EXIT:
+        mini_info("MINI_EXIT 0x%x\n", csr_read(CSR_HSTATUS));
+        mini_arch_exit(vcpu->mini);
+        csr_write(CSR_HSTATUS, csr_read(CSR_HSTATUS) & !HSTATUS_HU);
+        break;
+    case MINI_ATTACH:
         case MINI_DEST_VM:
             mini_info("[mini] MINI_DEST\n");
             mini_vcpu_destroy(vcpu);
@@ -2136,13 +2366,9 @@ static long mini_vcpu_ioctl(struct file *filp,
 
     return r;
 }
+
 int mini_init(unsigned vcpu_size, unsigned vcpu_align, struct module *module)
 {
-    unsigned long long  rdcycle;
-    asm("rdcycle %0\n"
-            : "=r" (rdcycle)
-       );
-    mini_info("rdcycle: 0x%llx\n", rdcycle);
 
     mini_info("[mini] mini_init %x %x\n", vcpu_size, vcpu_align);
 
@@ -2154,6 +2380,7 @@ int mini_init(unsigned vcpu_size, unsigned vcpu_align, struct module *module)
 
     mini_info("Assigned major number : %d\n", major);
 
+    /*
 	if (!vcpu_align)
 		vcpu_align = __alignof__(struct mini_vcpu);
 	mini_vcpu_cache =
@@ -2167,22 +2394,10 @@ int mini_init(unsigned vcpu_size, unsigned vcpu_align, struct module *module)
         mini_info("ERROR!\n");   
         return -1;
     }
+    */
 
     cls = class_create(DEVICE_NAME);
     device_create(cls, NULL, MKDEV(major, 0), NULL, DEVICE_NAME);
-
-    asm("rdcycle %0\n"
-            : "=r" (rdcycle)
-       );
-    mini_info("rdcycle: 0x%llx\n", rdcycle);
-
-    unsigned long cycle = get_cycles();
-    mini_info("cycle1 : %d\n", cycle);
-
-    mini_info("Device created on /dev/%s\n", DEVICE_NAME);
-
-    unsigned long cycle2 = get_cycles();
-    mini_info("cycle2 : %d\n", cycle2);
 
     unsigned long long scounteren = csr_read(CSR_SCOUNTEREN);
     mini_info("scounteren: 0x%x\n", scounteren);

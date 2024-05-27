@@ -29,6 +29,8 @@
 #define mini_info(fmt, ...) \
     pr_info("mini [%i]: " fmt, task_pid_nr(current), ## __VA_ARGS__)
 
+static struct mm_struct *module_mm;
+
 bool mini_make_vcpus_request_mask(struct mini *mini, unsigned int req,
 				 unsigned long *vcpu_bitmap);
 bool mini_make_all_cpus_request(struct mini *mini, unsigned int req);
@@ -125,6 +127,12 @@ struct mini {
 #else
 	spinlock_t mmu_lock;
 #endif /* KVM_HAVE_MMU_RWLOCK */
+
+    /// Custom variables
+    gpa_t base_gpa; // Base address of the GPA
+    int vid;        // User declared VID
+	struct kvm_mmu_memory_cache mmu_page_cache; // page cache
+    // End of custom variables
 
 	struct mutex slots_lock;
 	struct mutex slots_arch_lock;
