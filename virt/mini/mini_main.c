@@ -1902,14 +1902,17 @@ static long mini_dev_ioctl(struct file *flip,
         ///////////////////////////////////////////////////////////////////////////
         // Stack Allocation
         ///////////////////////////////////////////////////////////////////////////
+        unsigned long stack_start = current->mm->start_stack;
         mini_info("[mini] MINI_STACK_ALLOC\n");
 		struct kvm_userspace_memory_region mini_vm_stack = {
             1,
             0,
-            0x00000000FFFFF000 - (PAGE_SIZE * 1),
+            (stack_start & 0xFFFFFFF000) - (PAGE_SIZE * 1),
             PAGE_SIZE * 2,
             0 
         };
+
+        mini_info("[mini] START_STACK = 0x%016lx,\tGPA_START = 0x%016lx\n", stack_start, mini_vm_stack.guest_phys_addr);
 
         unsigned long stack_page = __get_free_pages(GFP_KERNEL, mini_vm_stack.memory_size << PAGE_SIZE);
         mini_vm_stack.userspace_addr = stack_page;
