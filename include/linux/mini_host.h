@@ -133,6 +133,7 @@ struct mini {
     int vid;        // User declared VID
 	struct kvm_mmu_memory_cache mmu_page_cache; // page cache
     unsigned long mini_kva;
+    unsigned long mini_stack_base_kva;
     __u64 memory_size;    
     // End of custom variables
 

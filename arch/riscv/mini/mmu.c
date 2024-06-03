@@ -485,6 +485,8 @@ int mini_arch_prepare_memory_region(struct mini *mini,
 	 * Prevent userspace from creating a memory region outside of the GPA
 	 * space addressable by the MINI guest GPA space.
 	 */
+	mini_info("New: 0x%016lx, Base : 0x%016lx\n", (new->base_gfn + new->npages), (gstage_gpa_size >> PAGE_SHIFT));
+
 	if ((new->base_gfn + new->npages) >=
 	    (gstage_gpa_size >> PAGE_SHIFT))
 		return -EFAULT;
@@ -814,10 +816,12 @@ int mini_riscv_gstage_map(struct mini *mini,
 	if (ret)
 		mini_err("Failed to map in G-stage\n");
 
+    /*
     struct page *p = virt_to_page(hva);
     mini_info("ref count = %d\n", page_ref_count(p));
     page_ref_inc(p);
     mini_info("ref count = %d\n", page_ref_count(p));
+    */
 
 
 out_unlock:

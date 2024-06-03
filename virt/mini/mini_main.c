@@ -1232,9 +1232,9 @@ int __mini_set_memory_region(struct mini *mini,
 
     mini_info("\t[mini] mem->slot : 0x%x\n", mem->slot);
     mini_info("\t[mini] mem->flags : 0x%x\n", mem->flags);
-    mini_info("\t[mini] mem->guest_phys_addr: 0x%x\n", mem->guest_phys_addr);
-    mini_info("\t[mini] mem->memory_size : 0x%x\n", mem->memory_size);
-    mini_info("\t[mini] mem->userspace_addr : 0x%x\n", mem->userspace_addr);
+    mini_info("\t[mini] mem->guest_phys_addr: 0x%lx\n", mem->guest_phys_addr);
+    mini_info("\t[mini] mem->memory_size : 0x%lx\n", mem->memory_size);
+    mini_info("\t[mini] mem->userspace_addr : 0x%lx\n", mem->userspace_addr);
 
 	r = check_memory_region_flags(mem);
 	if (r)
@@ -1335,7 +1335,7 @@ int __mini_set_memory_region(struct mini *mini,
 	if ((change == KVM_MR_CREATE || change == KVM_MR_MOVE) &&
 	    mini_check_memslot_overlap(slots, id, base_gfn, base_gfn + npages))
 		return -EEXIST;
-    mini_info("\t[mini] cheange checked\n");
+    mini_info("\t[mini] change checked\n");
 
 	/* Allocate a slot that will persist in the memslot. */
 	new = kzalloc(sizeof(*new), GFP_KERNEL_ACCOUNT);
@@ -1782,6 +1782,7 @@ static long mini_dev_ioctl(struct file *flip,
         }
         else {
             mini_array[arg] = mini_dev_ioctl_create_vm(arg);
+            r = 0;
         }
 
         break;
@@ -1792,7 +1793,9 @@ static long mini_dev_ioctl(struct file *flip,
             r = -EFAULT;
         }
         else {
-            kfree(mini_array[arg]->mini_kva);
+            //kfree(mini_array[arg]->mini_kva);
+            free_pages(mini_array[arg]->mini_kva, 0);
+            free_pages(mini_array[arg]->mini_stack_base_kva, 0);
             mini_destroy_vm(mini_array[arg]);
             mini_array[arg] = NULL;
             r = 0;
@@ -1823,7 +1826,12 @@ static long mini_dev_ioctl(struct file *flip,
         }
             //goto out;
 
-        mini_userspace_mem.userspace_addr = (unsigned long)kmalloc(mini_userspace_mem.memory_size, GFP_KERNEL);
+        unsigned long new_page = __get_free_pages(GFP_KERNEL, mini_userspace_mem.memory_size << PAGE_SIZE);
+        mini_info("page : 0x%lx\n", new_page);
+        //free_pages(new_page, 1);
+        mini_userspace_mem.userspace_addr = new_page;
+
+        //mini_userspace_mem.userspace_addr = (unsigned long)kmalloc(mini_userspace_mem.memory_size, GFP_KERNEL);
         mini->mini_kva = mini_userspace_mem.userspace_addr;
         mini->memory_size = mini_userspace_mem.memory_size;
         /*
@@ -1838,6 +1846,10 @@ static long mini_dev_ioctl(struct file *flip,
 		r = mini_vm_ioctl_set_memory_region(mini, &mini_userspace_mem);
         mini->base_gpa = mini_userspace_mem.guest_phys_addr;
         mini->mmu_page_cache.gfp_zero = __GFP_ZERO;
+
+        mini_info("start_stack : 0x%lx\n", current->mm->start_stack);
+        mini_info("start_brk : 0x%lx\n", current->mm->start_brk);
+        mini_info("brk : 0x%lx\n", current->mm->brk);
 
         ////////////////////////////////////////////
         mini_info("[mini] MINI_ALLOC\n");
@@ -1887,6 +1899,64 @@ static long mini_dev_ioctl(struct file *flip,
         } // while end 
         //mini_info("\t[mini] map_count %d\n", mini->mm->map_count); 
         
+        ///////////////////////////////////////////////////////////////////////////
+        // Stack Allocation
+        ///////////////////////////////////////////////////////////////////////////
+        mini_info("[mini] MINI_STACK_ALLOC\n");
+		struct kvm_userspace_memory_region mini_vm_stack = {
+            1,
+            0,
+            0x00000000FFFFF000 - (PAGE_SIZE * 1),
+            PAGE_SIZE * 2,
+            0 
+        };
+
+        unsigned long stack_page = __get_free_pages(GFP_KERNEL, mini_vm_stack.memory_size << PAGE_SIZE);
+        mini_vm_stack.userspace_addr = stack_page;
+        mini->mini_stack_base_kva = stack_page;
+
+		r = mini_vm_ioctl_set_memory_region(mini, &mini_vm_stack);
+
+        gpa = mini_vm_stack.guest_phys_addr;
+        gfn = gpa >> (PAGE_SHIFT);
+        memslot = mini_gfn_to_memslot(mini, gfn);
+
+        count = 0;
+
+        // Create GPA 2 HPA mapping 
+        while(count < memslot->npages) { 
+            mini_info("prog : %d / %d\n", count+1, memslot->npages);
+            /*
+            kvm_pfn_t hfn = mini_gfn_to_pfn_prot(mini, gfn, true, &writable);
+            mini_info("get hfn %lx\n", hfn);
+            phys_addr_t hpa = hfn << PAGE_SHIFT;
+            mini_info("get hpa %lx\n", hpa);
+            */
+            gfn = gpa >> (PAGE_SHIFT);
+            unsigned long hva = gfn_to_hva_memslot_prot(memslot, gfn, &writable);
+            mini_info("get hva %lx\n", hva);
+
+            /*
+            mini_info("\t[mini] gpa : 0x%x, gfn : 0x%x, hva : 0x%lx, hfn : 0x%x, hpa : 0x%x\n",
+                    gpa, gfn, hva, hfn, hpa); 
+            mini_info("\t[mini] pages %d\tuser_addr 0x%lx\t id %d\n", 
+            memslot->npages, memslot->userspace_addr, memslot->id); 
+            mini_info("\t[mini] task_size %d\n", mini->mm->task_size); 
+            mini_info("\t[mini] pagetables_bytes %d\n", mini->mm->pgtables_bytes); 
+            mini_info("\t[mini] total_vm %d\n", mini->mm->total_vm); 
+            */ 
+            //mini_riscv_gstage_map(vcpu, memslot, gpa, hva, true); 
+            r = mini_riscv_gstage_map(mini, memslot, gpa, hva, true); 
+            if(r) { 
+                mini_info("map failed\n"); 
+                return r; 
+            } 
+            mini_info("map succedded\n"); 
+            //mini_release_pfn_clean(hfn); 
+            gpa += PAGE_SIZE; 
+            count ++; 
+        } // while end 
+        //mini_info("\t[mini] map_count %d\n", mini->mm->map_count); 
 		break;
       }
     case MINI_FREE:
@@ -1909,6 +1979,7 @@ static long mini_dev_ioctl(struct file *flip,
 
         mini_info("\tVariables\n");
 
+        /*
         while(count < memslot->npages) { 
             mini_info("prog : %d / %d\n", count+1, memslot->npages);
             mini_info("get hva %lx\n", hva);
@@ -1924,6 +1995,7 @@ static long mini_dev_ioctl(struct file *flip,
             count ++;
 
         } // End of while
+        */
 
         //mini_riscv_gstage_iounmap(mini, gpa, mini->memory_size);
 
