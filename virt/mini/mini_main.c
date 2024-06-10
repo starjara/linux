@@ -1760,6 +1760,57 @@ static struct mini *mini_dev_ioctl_create_vm(unsigned long type)
 
 }
 
+static int mini_map_gstage_pages (struct mini *mini, struct kvm_userspace_memory_region *map_info)
+{
+    int r = mini_vm_ioctl_set_memory_region(mini, map_info);
+    if(r != 0) {
+        return r;
+    }
+
+    gpa_t gpa = map_info->guest_phys_addr;
+    gfn_t gfn = gpa >> (PAGE_SHIFT);
+    struct kvm_memory_slot *memslot = mini_gfn_to_memslot(mini, gfn);
+    bool writable = true;
+    int count = 0;
+
+    // Create GPA 2 HPA mapping 
+    while(count < memslot->npages) { 
+        mini_info("prog : %d / %d\n", count+1, memslot->npages);
+        /*
+        kvm_pfn_t hfn = mini_gfn_to_pfn_prot(mini, gfn, true, &writable);
+        mini_info("get hfn %lx\n", hfn);
+        phys_addr_t hpa = hfn << PAGE_SHIFT;
+        mini_info("get hpa %lx\n", hpa);
+        */
+        gfn = gpa >> (PAGE_SHIFT);
+        unsigned long hva = gfn_to_hva_memslot_prot(memslot, gfn, &writable);
+        mini_info("get hva %lx\n", hva);
+
+        /*
+        mini_info("\t[mini] gpa : 0x%x, gfn : 0x%x, hva : 0x%lx, hfn : 0x%x, hpa : 0x%x\n",
+                gpa, gfn, hva, hfn, hpa); 
+        mini_info("\t[mini] pages %d\tuser_addr 0x%lx\t id %d\n", 
+        memslot->npages, memslot->userspace_addr, memslot->id); 
+        mini_info("\t[mini] task_size %d\n", mini->mm->task_size); 
+        mini_info("\t[mini] pagetables_bytes %d\n", mini->mm->pgtables_bytes); 
+        mini_info("\t[mini] total_vm %d\n", mini->mm->total_vm); 
+        */ 
+        //mini_riscv_gstage_map(vcpu, memslot, gpa, hva, true); 
+        r = mini_riscv_gstage_map(mini, memslot, gpa, hva, true); 
+        if(r) { 
+            mini_info("map failed\n"); 
+            return r; 
+        } 
+        mini_info("map succedded\n"); 
+        //mini_release_pfn_clean(hfn); 
+        gpa += PAGE_SIZE; 
+        count ++; 
+    } // while end 
+    //mini_info("\t[mini] map_count %d\n", mini->mm->map_count); 
+    
+    return r;
+}
+
 static long mini_dev_ioctl(struct file *flip, 
             unsigned int ioctl, unsigned long arg)
 {
@@ -1824,26 +1875,25 @@ static long mini_dev_ioctl(struct file *flip,
 						sizeof(mini_userspace_mem))) {
             return r;
         }
-            //goto out;
+
+        ///////////////////////////////////////////////////////////////////////////
+        // Requested Memory Allocation
+        ///////////////////////////////////////////////////////////////////////////
+        
+        if((mini_userspace_mem.memory_size & (PAGE_SIZE - 1)) != 0) {
+            mini_info("Alignment 0x%x to 0x%x\n", mini_userspace_mem.memory_size, (mini_userspace_mem.memory_size + PAGE_SIZE -1) & ~(PAGE_SIZE-1));
+            mini_userspace_mem.memory_size = (mini_userspace_mem.memory_size + PAGE_SIZE -1) & ~(PAGE_SIZE-1);
+        }
 
         unsigned long new_page = __get_free_pages(GFP_KERNEL, mini_userspace_mem.memory_size << PAGE_SIZE);
         mini_info("page : 0x%lx\n", new_page);
         //free_pages(new_page, 1);
         mini_userspace_mem.userspace_addr = new_page;
 
+
         //mini_userspace_mem.userspace_addr = (unsigned long)kmalloc(mini_userspace_mem.memory_size, GFP_KERNEL);
         mini->mini_kva = mini_userspace_mem.userspace_addr;
         mini->memory_size = mini_userspace_mem.memory_size;
-        /*
-        mini_userspace_mem.userspace_addr = __get_free_pages(GFP_KERNEL, mini_userspace_mem.memory_size/PAGE_SIZE);
-        struct page *p = virt_to_page(mini_userspace_mem.userspace_addr);
-        */
-        /*
-        struct page *p = virt_to_page(mini_userspace_mem.userspace_addr);
-        kmap(p);
-        */
-        mini_info("[MINI] userspace_addr: 0x%lx", mini_userspace_mem.userspace_addr);
-		r = mini_vm_ioctl_set_memory_region(mini, &mini_userspace_mem);
         mini->base_gpa = mini_userspace_mem.guest_phys_addr;
         mini->mmu_page_cache.gfp_zero = __GFP_ZERO;
 
@@ -1851,53 +1901,8 @@ static long mini_dev_ioctl(struct file *flip,
         mini_info("start_brk : 0x%lx\n", current->mm->start_brk);
         mini_info("brk : 0x%lx\n", current->mm->brk);
 
-        ////////////////////////////////////////////
-        mini_info("[mini] MINI_ALLOC\n");
-
-        gpa_t gpa = mini->base_gpa;
-        gfn_t gfn = gpa >> (PAGE_SHIFT);
-        struct kvm_memory_slot *memslot = mini_gfn_to_memslot(mini, gfn);
-
-        // GPA 2 HPA mapping setup
-        bool writable = true;
-        //unsigned long vma_pagesize;
-        
-        //mini_info("\t[mini] map_count %d\n", mini->mm->map_count);
-        
-        // Create GPA 2 HPA mapping 
-        while(count < memslot->npages) { 
-            mini_info("prog : %d / %d\n", count+1, memslot->npages);
-            /*
-            kvm_pfn_t hfn = mini_gfn_to_pfn_prot(mini, gfn, true, &writable);
-            mini_info("get hfn %lx\n", hfn);
-            phys_addr_t hpa = hfn << PAGE_SHIFT;
-            mini_info("get hpa %lx\n", hpa);
-            */
-            gfn = gpa >> (PAGE_SHIFT);
-            unsigned long hva = gfn_to_hva_memslot_prot(memslot, gfn, &writable);
-            mini_info("get hva %lx\n", hva);
-
-            /*
-            mini_info("\t[mini] gpa : 0x%x, gfn : 0x%x, hva : 0x%lx, hfn : 0x%x, hpa : 0x%x\n",
-                    gpa, gfn, hva, hfn, hpa); 
-            mini_info("\t[mini] pages %d\tuser_addr 0x%lx\t id %d\n", 
-            memslot->npages, memslot->userspace_addr, memslot->id); 
-            mini_info("\t[mini] task_size %d\n", mini->mm->task_size); 
-            mini_info("\t[mini] pagetables_bytes %d\n", mini->mm->pgtables_bytes); 
-            mini_info("\t[mini] total_vm %d\n", mini->mm->total_vm); 
-            */ 
-            //mini_riscv_gstage_map(vcpu, memslot, gpa, hva, true); 
-            r = mini_riscv_gstage_map(mini, memslot, gpa, hva, true); 
-            if(r) { 
-                mini_info("map failed\n"); 
-                return r; 
-            } 
-            mini_info("map succedded\n"); 
-            //mini_release_pfn_clean(hfn); 
-            gpa += PAGE_SIZE; 
-            count ++; 
-        } // while end 
-        //mini_info("\t[mini] map_count %d\n", mini->mm->map_count); 
+        // Call mapping function
+        mini_map_gstage_pages(mini, &mini_userspace_mem);
         
         ///////////////////////////////////////////////////////////////////////////
         // Stack Allocation
@@ -1918,48 +1923,7 @@ static long mini_dev_ioctl(struct file *flip,
         mini_vm_stack.userspace_addr = stack_page;
         mini->mini_stack_base_kva = stack_page;
 
-		r = mini_vm_ioctl_set_memory_region(mini, &mini_vm_stack);
-
-        gpa = mini_vm_stack.guest_phys_addr;
-        gfn = gpa >> (PAGE_SHIFT);
-        memslot = mini_gfn_to_memslot(mini, gfn);
-
-        count = 0;
-
-        // Create GPA 2 HPA mapping 
-        while(count < memslot->npages) { 
-            mini_info("prog : %d / %d\n", count+1, memslot->npages);
-            /*
-            kvm_pfn_t hfn = mini_gfn_to_pfn_prot(mini, gfn, true, &writable);
-            mini_info("get hfn %lx\n", hfn);
-            phys_addr_t hpa = hfn << PAGE_SHIFT;
-            mini_info("get hpa %lx\n", hpa);
-            */
-            gfn = gpa >> (PAGE_SHIFT);
-            unsigned long hva = gfn_to_hva_memslot_prot(memslot, gfn, &writable);
-            mini_info("get hva %lx\n", hva);
-
-            /*
-            mini_info("\t[mini] gpa : 0x%x, gfn : 0x%x, hva : 0x%lx, hfn : 0x%x, hpa : 0x%x\n",
-                    gpa, gfn, hva, hfn, hpa); 
-            mini_info("\t[mini] pages %d\tuser_addr 0x%lx\t id %d\n", 
-            memslot->npages, memslot->userspace_addr, memslot->id); 
-            mini_info("\t[mini] task_size %d\n", mini->mm->task_size); 
-            mini_info("\t[mini] pagetables_bytes %d\n", mini->mm->pgtables_bytes); 
-            mini_info("\t[mini] total_vm %d\n", mini->mm->total_vm); 
-            */ 
-            //mini_riscv_gstage_map(vcpu, memslot, gpa, hva, true); 
-            r = mini_riscv_gstage_map(mini, memslot, gpa, hva, true); 
-            if(r) { 
-                mini_info("map failed\n"); 
-                return r; 
-            } 
-            mini_info("map succedded\n"); 
-            //mini_release_pfn_clean(hfn); 
-            gpa += PAGE_SIZE; 
-            count ++; 
-        } // while end 
-        //mini_info("\t[mini] map_count %d\n", mini->mm->map_count); 
+        mini_map_gstage_pages(mini, &mini_vm_stack);
 		break;
       }
     case MINI_FREE:
