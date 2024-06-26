@@ -20,14 +20,15 @@
 
 #define MINI_GET_VCPU_MMAP_SIZE    _IO(MINIIO,   0x04) /* in bytes */
 
-#define MINI_ALLOC          _IO(MINIIO, 0x05)
+#define VERSE_MMAP          _IOW(MINIIO, 0x05, \
+				struct kvm_userspace_memory_region)
 #define MINI_FREE           _IO(MINIIO, 0x06)
 
 #define MINI_ENTER          _IO(MINIIO, 0x09)
 #define MINI_EXIT           _IO(MINIIO, 0x0a)
 
-#define MINI_ATTACH         _IO(MINIIO, 0x0b)
-#define MINI_DETACH         _IO(MINIIO, 0x0c)
+#define VERSE_MAP_EXECUTABLE         _IO(MINIIO, 0x0b)
+#define VERSE_UNMAP_EXECUTABLE         _IO(MINIIO, 0x0c)
 
 #define MINI_CREATE_VCPU           _IO(MINIIO,   0x41)
 

@@ -789,21 +789,21 @@ int kvm_riscv_gstage_alloc_pgd(struct kvm *kvm)
 
 void kvm_riscv_gstage_free_pgd(struct kvm *kvm)
 {
-	void *pgd = NULL;
+  void *pgd = NULL;
 
-    kvm_info("[kvm] kvm_riscv_gstage_free_pgd\n");
+  kvm_info("[kvm] kvm_riscv_gstage_free_pgd\n");
 
-	spin_lock(&kvm->mmu_lock);
-	if (kvm->arch.pgd) {
-		gstage_unmap_range(kvm, 0UL, gstage_gpa_size, false);
-		pgd = READ_ONCE(kvm->arch.pgd);
-		kvm->arch.pgd = NULL;
-		kvm->arch.pgd_phys = 0;
-	}
-	spin_unlock(&kvm->mmu_lock);
-
-	if (pgd)
-		free_pages((unsigned long)pgd, get_order(gstage_pgd_size));
+  spin_lock(&kvm->mmu_lock);
+  if (kvm->arch.pgd) {
+    gstage_unmap_range(kvm, 0UL, gstage_gpa_size, false);
+    pgd = READ_ONCE(kvm->arch.pgd);
+    kvm->arch.pgd = NULL;
+    kvm->arch.pgd_phys = 0;
+  }
+  spin_unlock(&kvm->mmu_lock);
+  
+  if (pgd)
+    free_pages((unsigned long)pgd, get_order(gstage_pgd_size));
 }
 
 void kvm_riscv_gstage_update_hgatp(struct kvm_vcpu *vcpu)

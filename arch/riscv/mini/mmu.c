@@ -296,15 +296,15 @@ static void gstage_unmap_range(struct mini *mini, gpa_t start,
 	unsigned long page_size;
 	gpa_t addr = start, end = start + size;
 
-    mini_info("[mini] gstage_unmap_range\n");
-    mini_info("start : 0x%x, end : 0x%x\n", start, end);
+	//    mini_info("[mini] gstage_unmap_range\n");
+	//    mini_info("start : 0x%x, end : 0x%x\n", start, end);
 
 	while (addr < end) {
 		found_leaf = gstage_get_leaf_entry(mini, addr,
 						   &ptep, &ptep_level);
 		ret = gstage_level_to_page_size(ptep_level, &page_size);
 
-        //mini_info("\t[mini] level: %d, size : %d, addr : 0x%x, leaf : %d\n", ptep_level, ret, addr, found_leaf);
+		//        mini_info("\t[mini] level: %d, size : %d, addr : 0x%x, leaf : %d\n", ptep_level, page_size, addr, found_leaf);
         
 		if (ret)
 			break;
@@ -616,41 +616,46 @@ int mini_riscv_gstage_alloc_pgd(struct mini *mini)
 
 void mini_riscv_gstage_free_pgd(struct mini *mini)
 {
-	void *pgd = NULL;
-
-    mini_info("[mini] mini_riscv_gstage_free_pgd\n");
-
-	spin_lock(&mini->mmu_lock);
-	if (mini->arch.pgd) {
-		gstage_unmap_range(mini, 0UL, gstage_gpa_size, false);
-		pgd = READ_ONCE(mini->arch.pgd);
-		mini->arch.pgd = NULL;
-		mini->arch.pgd_phys = 0;
-	}
-	spin_unlock(&mini->mmu_lock);
-
-    pgd = mini->arch.pgd;
-	if (pgd)
-		free_pages((unsigned long)pgd, get_order(gstage_pgd_size));
+  void *pgd = NULL;
+  
+  mini_info("[mini] mini_riscv_gstage_free_pgd\n");
+  
+  spin_lock(&mini->mmu_lock);
+  
+  if (mini->arch.pgd) {
+    gstage_unmap_range(mini, 0UL, gstage_gpa_size, false);
+    pgd = READ_ONCE(mini->arch.pgd);
+    mini->arch.pgd = NULL;
+    mini->arch.pgd_phys = 0;
+  }
+  spin_unlock(&mini->mmu_lock);
+  
+  pgd = mini->arch.pgd;
+  
+  if (pgd)
+    free_pages((unsigned long)pgd, get_order(gstage_pgd_size));
 }
 
 void mini_riscv_gstage_update_hgatp(struct mini *mini)
 {
-	unsigned long hgatp = gstage_mode;
-	struct mini_arch *k = &(mini->arch);
+  unsigned long hgatp = gstage_mode;
+  struct mini_arch *k = &(mini->arch);
+  unsigned long current_hgatp = csr_read(CSR_HGATP);
 
-    mini_info("mini_riscv_gstage_update_hgatp\n");
-    mini_info("hgatp : 0x%lx\n", hgatp);
+  mini_info("mini_riscv_gstage_update_hgatp\n");
+  mini_info("current_hgatp : 0x%lx\n", current_hgatp);
 
-	hgatp |= (READ_ONCE(k->vmid.vmid) << HGATP_VMID_SHIFT) & HGATP_VMID;
-	hgatp |= (k->pgd_phys >> PAGE_SHIFT) & HGATP_PPN;
+  hgatp |= (READ_ONCE(k->vmid.vmid) << HGATP_VMID_SHIFT) & HGATP_VMID;
+  hgatp |= (k->pgd_phys >> PAGE_SHIFT) & HGATP_PPN;
 
-    mini_info("hgatp : 0x%lx\n", hgatp);
+  mini_info("hgatp : 0x%lx\n", hgatp);
 
-	csr_write(CSR_HGATP, hgatp);
+  if (current_hgatp != hgatp) {
+    csr_write(CSR_HGATP, hgatp);
 
-	if (!mini_riscv_gstage_vmid_bits())
-	    asm volatile(HFENCE_GVMA(zero, zero) : : : "memory");
+    if (!mini_riscv_gstage_vmid_bits())
+      asm volatile(HFENCE_GVMA(zero, zero) : : : "memory");
+  }
 }
 
 /*
