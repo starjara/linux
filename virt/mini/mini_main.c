@@ -604,7 +604,7 @@ static struct mini *mini_create_vm(unsigned long type, const char *fdname)
 		 task_pid_nr(current));
 
 	if (init_srcu_struct(&mini->srcu))
-        return NULL;
+	  return NULL;
 		//goto out_err_no_srcu;
 	//if (init_srcu_struct(&mini->irq_srcu))
         //return NULL;
@@ -1795,8 +1795,8 @@ static int mini_map_gstage_pages (struct mini *mini, struct kvm_userspace_memory
         mini_info("\t[mini] pagetables_bytes %d\n", mini->mm->pgtables_bytes); 
         mini_info("\t[mini] total_vm %d\n", mini->mm->total_vm); 
         */ 
-        //mini_riscv_gstage_map(vcpu, memslot, gpa, hva, true); 
         r = mini_riscv_gstage_map(mini, memslot, gpa, hva, true); 
+        //mini_riscv_gstage_map(vcpu, memslot, gpa, hva, true); 
         if(r) { 
             mini_info("map failed\n"); 
             return r; 
@@ -1814,7 +1814,7 @@ static int mini_map_gstage_pages (struct mini *mini, struct kvm_userspace_memory
 static long mini_dev_ioctl(struct file *flip, 
             unsigned int ioctl, unsigned long arg)
 {
-    int r = -EINVAL;
+    long r = -EINVAL;
     mini_info("mini_dev_ioctl, %x, %u\n", ioctl, arg);
 
     static struct mini *mini_array[1024];
@@ -1825,42 +1825,45 @@ static long mini_dev_ioctl(struct file *flip,
 
     switch(ioctl) {
     case MINI_CREATE_VM: 
-        mini_info("[mini] verse_create\n");
-        //r = mini_dev_ioctl_create_vm(arg);
-        if(mini_array[arg] != NULL) {
-            mini_info("%d is already used\n");
-            r = -EFAULT;
-        }
-        else {
-            mini_array[arg] = mini_dev_ioctl_create_vm(arg);
-            r = 0;
-        }
-
-        break;
+      mini_info("[mini] verse_create\n");
+      //r = mini_dev_ioctl_create_vm(arg);
+      if(mini_array[arg] != NULL) {
+	mini_info("%d is already used\n");
+	r = -EFAULT;
+      }
+      else {
+	mini_array[arg] = mini_dev_ioctl_create_vm(arg);
+	r = 0;
+      }
+      break;
     case MINI_DEST_VM:
-        mini_info("[mini] verse_dest\n");
-        if(mini_array[arg] == NULL) {
-            mini_info("%d is not created\n");
-            r = -EFAULT;
-        }
-        else {
-            //kfree(mini_array[arg]->mini_kva);
-            free_pages(mini_array[arg]->mini_kva, 0);
-            free_pages(mini_array[arg]->mini_stack_base_kva, 0);
-            mini_destroy_vm(mini_array[arg]);
-            mini_array[arg] = NULL;
-            r = 0;
-        }
-        break;
-	case MINI_SET_USER_MEMORY_REGION: {
-        mini_info("MINI_SET_USER_MEMORY_REGION\n");
+      mini_info("[mini] verse_dest\n");
+      if(mini_array[arg] == NULL) {
+	  mini_info("%d is not created\n", arg);
+	  r = -EFAULT;
+      }
+      else {
+	//kfree(mini_array[arg]->mini_kva);
+	
+	if(mini_array[arg]->mini_kva != NULL) {
+	  free_pages(mini_array[arg]->mini_kva, 0);
+	}
+	free_pages(mini_array[arg]->mini_stack_base_kva, 0);
+		
+	mini_destroy_vm(mini_array[arg]);
+	mini_array[arg] = NULL;
+	r = 0;
+      }
+      break;
+    case VERSE_MMAP: {
+        mini_info("VERSE_MMAP\n");
 
         if(current_mini < 0)  {
             mini_info("Need enter first\n");
             return -1;
         }
 
-		struct kvm_userspace_memory_region mini_userspace_mem;
+	struct kvm_userspace_memory_region mini_userspace_mem;
 
         void __user *argp = (void __user *)arg;
 
@@ -1870,10 +1873,10 @@ static long mini_dev_ioctl(struct file *flip,
             return -EFAULT;
         }
 
-		r = -EFAULT;
-		if (copy_from_user(&mini_userspace_mem, argp,
-						sizeof(mini_userspace_mem))) {
-            return r;
+	r = -EFAULT;
+	if (copy_from_user(&mini_userspace_mem, argp,
+			   sizeof(mini_userspace_mem))) {
+	  return r;
         }
 
         ///////////////////////////////////////////////////////////////////////////
@@ -1897,13 +1900,14 @@ static long mini_dev_ioctl(struct file *flip,
         mini->base_gpa = mini_userspace_mem.guest_phys_addr;
         mini->mmu_page_cache.gfp_zero = __GFP_ZERO;
 
-        mini_info("start_stack : 0x%lx\n", current->mm->start_stack);
-        mini_info("start_brk : 0x%lx\n", current->mm->start_brk);
-        mini_info("brk : 0x%lx\n", current->mm->brk);
-
+        
         // Call mapping function
         mini_map_gstage_pages(mini, &mini_userspace_mem);
-        
+
+	r = mini->base_gpa;
+
+	mini_info("GPA : 0x%lx\n", r);
+	
         ///////////////////////////////////////////////////////////////////////////
         // Stack Allocation
         ///////////////////////////////////////////////////////////////////////////
@@ -1924,8 +1928,8 @@ static long mini_dev_ioctl(struct file *flip,
         mini->mini_stack_base_kva = stack_page;
 
         mini_map_gstage_pages(mini, &mini_vm_stack);
-		break;
-      }
+	break;
+    }
     case MINI_FREE:
         mini_info("VERSE_MUNMAP\n");
 
@@ -1964,7 +1968,10 @@ static long mini_dev_ioctl(struct file *flip,
         } // End of while
         */
 
-        //mini_riscv_gstage_iounmap(mini, gpa, mini->memory_size);
+        mini_riscv_gstage_iounmap(mini, gpa, mini->memory_size);
+
+	free_pages(hva, 0);
+	mini->mini_kva = 0;
 
         r = 0;
 
@@ -1985,31 +1992,44 @@ static long mini_dev_ioctl(struct file *flip,
         mini_info("MINI_ENTER : 0x%x\n", csr_read(CSR_HSTATUS));
         break;
     case MINI_EXIT:
-        mini = mini_array[current_mini];
-        if(current_mini < 0) {
-            mini_info("[mini] not in enter\n");
-            return -1;
-        }
+      int isFast = arg;
 
-        mini_info("MINI_EXIT 0x%x\n", csr_read(CSR_HSTATUS));
-        mini_arch_exit(mini);
-        csr_write(CSR_HSTATUS, csr_read(CSR_HSTATUS) & !HSTATUS_HU);
+      mini = mini_array[current_mini];
+      if(current_mini < 0) {
+	mini_info("[mini] not in enter\n");
+	return -1;
+      }
 
-        current_mini = -1;
-
-        break;
-	case MINI_GET_VCPU_MMAP_SIZE:
-		if (arg)
-            return r;
-		r = PAGE_SIZE;     /* struct kvm_run */
-#ifdef CONFIG_KVM_MMIO
-		r += PAGE_SIZE;    /* coalesced mmio ring page */
-#endif
-		break;
-    default:
-        return 0;
+      mini_info("MINI_EXIT 0x%x\n", csr_read(CSR_HSTATUS));
+      csr_write(CSR_HSTATUS, csr_read(CSR_HSTATUS) & !HSTATUS_HU);
+      
+      if (isFast == 0) {
+	mini_arch_exit(mini);
+      }
+      
+      current_mini = -1;
+      
+      break;
+    case VERSE_MAP_EXECUTABLE: {
+      mini_info("VERSE_MAP_EXECUTABLE\n");
+      break;
     }
-
+    case VERSE_UNMAP_EXECUTABLE: {
+      mini_info("VERSE_UNMAP_EXECUTABLE\n");
+      break;
+    }
+    case MINI_GET_VCPU_MMAP_SIZE:
+      if (arg)
+	return r;
+      r = PAGE_SIZE;     /* struct kvm_run */
+#ifdef CONFIG_KVM_MMIO
+      r += PAGE_SIZE;    /* coalesced mmio ring page */
+#endif
+      break;
+    default:
+      return 0;
+    }
+    
     return r;
 }
 
