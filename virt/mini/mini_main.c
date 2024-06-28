@@ -1917,7 +1917,7 @@ static long mini_dev_ioctl(struct file *flip,
             1,
             0,
             (stack_start & 0xFFFFFFF000) - (PAGE_SIZE * 2),
-            PAGE_SIZE * 2,
+            PAGE_SIZE * 10,
             0 
         };
 
