@@ -1916,7 +1916,7 @@ static long mini_dev_ioctl(struct file *flip,
 		struct kvm_userspace_memory_region mini_vm_stack = {
             1,
             0,
-            (stack_start & 0xFFFFFFF000) - (PAGE_SIZE * 1),
+            (stack_start & 0xFFFFFFF000) - (PAGE_SIZE * 2),
             PAGE_SIZE * 2,
             0 
         };
