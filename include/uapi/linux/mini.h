@@ -27,7 +27,7 @@
 #define MINI_ENTER          _IO(MINIIO, 0x09)
 #define MINI_EXIT           _IO(MINIIO, 0x0a)
 
-#define VERSE_MAP_EXECUTABLE         _IO(MINIIO, 0x0b)
+#define VERSE_MAP_EXECUTABLE         _IOW(MINIIO, 0x0b, struct kvm_userspace_memory_region)
 #define VERSE_UNMAP_EXECUTABLE         _IO(MINIIO, 0x0c)
 
 #define MINI_CREATE_VCPU           _IO(MINIIO,   0x41)

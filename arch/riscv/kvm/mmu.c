@@ -142,59 +142,59 @@ static int gstage_set_pte(struct kvm *kvm, u32 level,
 			   struct kvm_mmu_memory_cache *pcache,
 			   gpa_t addr, const pte_t *new_pte)
 {
-	u32 current_level = gstage_pgd_levels - 1;
-	pte_t *next_ptep = (pte_t *)kvm->arch.pgd;
-	pte_t *ptep = &next_ptep[gstage_pte_index(addr, current_level)];
+  u32 current_level = gstage_pgd_levels - 1;
+  pte_t *next_ptep = (pte_t *)kvm->arch.pgd;
+  pte_t *ptep = &next_ptep[gstage_pte_index(addr, current_level)];
 
-    /*
+  /*
     kvm_info("[kvm] gstage_set_pte\n");
     kvm_info("\t[kvm] level: 0x%x\n", level);
     kvm_info("\t[kvm] addr : 0x%llx\n", addr);
     kvm_info("\t[kvm] pgd : 0x%llx\n", next_ptep);
     kvm_info("\t[kvm] ptep : 0x%lx : 0x%016lx\n", ptep, pte_val(*ptep));
     kvm_info("\t[kvm] new_pte : 0x%lx : 0x%016lx\n", new_pte, pte_val(*new_pte));
-    */
+  */
 
-	if (current_level < level)
-		return -EINVAL;
+  if (current_level < level)
+    return -EINVAL;
 
-	while (current_level != level) {
-        //kvm_info("\t\t[kvm] level : %d\n", current_level);
-        //kvm_info("\t\t[kvm] next ptep : 0x%lx \n", next_ptep);
-        //kvm_info("\t\t[kvm] index : %d\n", gstage_pte_index(addr, current_level));
-        //kvm_info("\t\t\t[kvm] before ptep : 0x%lx : 0x%lx\n", ptep, ptep->pte);
-		if (gstage_pte_leaf(ptep))
-			return -EEXIST;
+  while (current_level != level) {
+    //kvm_info("\t\t[kvm] level : %d\n", current_level);
+    //kvm_info("\t\t[kvm] next ptep : 0x%lx \n", next_ptep);
+    //kvm_info("\t\t[kvm] index : %d\n", gstage_pte_index(addr, current_level));
+    //kvm_info("\t\t\t[kvm] before ptep : 0x%lx : 0x%lx\n", ptep, ptep->pte);
+    if (gstage_pte_leaf(ptep))
+      return -EEXIST;
 
-		if (!pte_val(*ptep)) {
-			if (!pcache)
-				return -ENOMEM;
-			next_ptep = kvm_mmu_memory_cache_alloc(pcache);
-			if (!next_ptep)
-				return -ENOMEM;
-			*ptep = pfn_pte(PFN_DOWN(__pa(next_ptep)),
-					__pgprot(_PAGE_TABLE));
-		} else {
-			if (gstage_pte_leaf(ptep))
-				return -EEXIST;
-			next_ptep = (pte_t *)gstage_pte_page_vaddr(*ptep);
-		}
+    if (!pte_val(*ptep)) {
+      if (!pcache)
+	return -ENOMEM;
+      next_ptep = kvm_mmu_memory_cache_alloc(pcache);
+      if (!next_ptep)
+	return -ENOMEM;
+      *ptep = pfn_pte(PFN_DOWN(__pa(next_ptep)),
+		      __pgprot(_PAGE_TABLE));
+    } else {
+      if (gstage_pte_leaf(ptep))
+	return -EEXIST;
+      next_ptep = (pte_t *)gstage_pte_page_vaddr(*ptep);
+    }
 
-        //kvm_info("\t\t\t[kvm] after ptep : 0x%lx : 0x%lx\n", ptep, ptep->pte);
-		current_level--;
-		ptep = &next_ptep[gstage_pte_index(addr, current_level)];
-	}
+    //kvm_info("\t\t\t[kvm] after ptep : 0x%lx : 0x%lx\n", ptep, ptep->pte);
+    current_level--;
+    ptep = &next_ptep[gstage_pte_index(addr, current_level)];
+  }
 
-	*ptep = *new_pte;
-	if (gstage_pte_leaf(ptep))
-		gstage_remote_tlb_flush(kvm, current_level, addr);
+  *ptep = *new_pte;
+  if (gstage_pte_leaf(ptep))
+    gstage_remote_tlb_flush(kvm, current_level, addr);
 
-    //kvm_info("\t[kvm] next ptep : 0x%lx \n", next_ptep);
-    //kvm_info("\t[kvm] index : %d\n", gstage_pte_index(addr, current_level));
-    //kvm_info("\t[kvm] ptep : 0x%lx : 0x%lx\n", ptep, pte_val(*ptep));
-    //kvm_info("\t[kvm] new_pte : 0x%lx : 0x%lx\n", new_pte, pte_val(*new_pte));
+  //kvm_info("\t[kvm] next ptep : 0x%lx \n", next_ptep);
+  //kvm_info("\t[kvm] index : %d\n", gstage_pte_index(addr, current_level));
+  //kvm_info("\t[kvm] ptep : 0x%lx : 0x%lx\n", ptep, pte_val(*ptep));
+  //kvm_info("\t[kvm] new_pte : 0x%lx : 0x%lx\n", new_pte, pte_val(*new_pte));
 
-	return 0;
+  return 0;
 }
 
 static int gstage_map_page(struct kvm *kvm,
@@ -203,52 +203,52 @@ static int gstage_map_page(struct kvm *kvm,
 			   unsigned long page_size,
 			   bool page_rdonly, bool page_exec)
 {
-	int ret;
-	u32 level = 0;
-	pte_t new_pte;
-	pgprot_t prot;
+  int ret;
+  u32 level = 0;
+  pte_t new_pte;
+  pgprot_t prot;
 
-    //kvm_info("[kvm] gstage_map_page\n");
-    //kvm_info("\t[gstage_map_page] gpa : 0x%lx, hpa : 0x%lx\n", gpa, hpa);
+  //kvm_info("[kvm] gstage_map_page\n");
+  //kvm_info("\t[gstage_map_page] gpa : 0x%lx, hpa : 0x%lx\n", gpa, hpa);
 
-	ret = gstage_page_size_to_level(page_size, &level);
-	if (ret)
-		return ret;
+  ret = gstage_page_size_to_level(page_size, &level);
+  if (ret)
+    return ret;
 
-	/*
-	 * A RISC-V implementation can choose to either:
-	 * 1) Update 'A' and 'D' PTE bits in hardware
-	 * 2) Generate page fault when 'A' and/or 'D' bits are not set
-	 *    PTE so that software can update these bits.
-	 *
-	 * We support both options mentioned above. To achieve this, we
-	 * always set 'A' and 'D' PTE bits at time of creating G-stage
-	 * mapping. To support KVM dirty page logging with both options
-	 * mentioned above, we will write-protect G-stage PTEs to track
-	 * dirty pages.
-	 */
+  /*
+   * A RISC-V implementation can choose to either:
+   * 1) Update 'A' and 'D' PTE bits in hardware
+   * 2) Generate page fault when 'A' and/or 'D' bits are not set
+   *    PTE so that software can update these bits.
+   *
+   * We support both options mentioned above. To achieve this, we
+   * always set 'A' and 'D' PTE bits at time of creating G-stage
+   * mapping. To support KVM dirty page logging with both options
+   * mentioned above, we will write-protect G-stage PTEs to track
+   * dirty pages.
+   */
 
-	if (page_exec) {
-		if (page_rdonly)
-			prot = PAGE_READ_EXEC;
-		else
-			prot = PAGE_WRITE_EXEC;
-	} else {
-		if (page_rdonly)
-			prot = PAGE_READ;
-		else
-			prot = PAGE_WRITE;
-	}
-	new_pte = pfn_pte(PFN_DOWN(hpa), prot);
-	new_pte = pte_mkdirty(new_pte);
+  if (page_exec) {
+    if (page_rdonly)
+      prot = PAGE_READ_EXEC;
+    else
+      prot = PAGE_WRITE_EXEC;
+  } else {
+    if (page_rdonly)
+      prot = PAGE_READ;
+    else
+      prot = PAGE_WRITE;
+  }
+  new_pte = pfn_pte(PFN_DOWN(hpa), prot);
+  new_pte = pte_mkdirty(new_pte);
 
-	return gstage_set_pte(kvm, level, pcache, gpa, &new_pte);
+  return gstage_set_pte(kvm, level, pcache, gpa, &new_pte);
 }
 
 enum gstage_op {
-	GSTAGE_OP_NOP = 0,	/* Nothing */
-	GSTAGE_OP_CLEAR,	/* Clear/Unmap */
-	GSTAGE_OP_WP,		/* Write-protect */
+  GSTAGE_OP_NOP = 0,	/* Nothing */
+  GSTAGE_OP_CLEAR,	/* Clear/Unmap */
+  GSTAGE_OP_WP,		/* Write-protect */
 };
 
 static void gstage_op_pte(struct kvm *kvm, gpa_t addr,

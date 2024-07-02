@@ -137,49 +137,49 @@ struct mini {
     __u64 memory_size;    
     // End of custom variables
 
-	struct mutex slots_lock;
-	struct mutex slots_arch_lock;
+  struct mutex slots_lock;
+  struct mutex slots_arch_lock;
 
-	struct mm_struct *mm; /* userspace tied to this vm */
+  struct mm_struct *mm; /* userspace tied to this vm */
 
-	unsigned long nr_memslot_pages;
+  unsigned long nr_memslot_pages;
 
-	struct kvm_vm_stat stat;
-    struct mini_arch arch;
-	refcount_t users_count;
+  struct kvm_vm_stat stat;
+  struct mini_arch arch;
+  refcount_t users_count;
 
-	struct kvm_memslots __memslots[KVM_ADDRESS_SPACE_NUM][2];
-	struct kvm_memslots __rcu *memslots[KVM_ADDRESS_SPACE_NUM];
+  struct kvm_memslots __memslots[KVM_ADDRESS_SPACE_NUM][2];
+  struct kvm_memslots __rcu *memslots[KVM_ADDRESS_SPACE_NUM];
 
-	struct xarray vcpu_array;
+  struct xarray vcpu_array;
 
-	atomic_t nr_memslots_dirty_logging;
+  atomic_t nr_memslots_dirty_logging;
 
-	struct mutex lock;
+  struct mutex lock;
 
-	atomic_t online_vcpus;
-	int max_vcpus;
-	int created_vcpus;
+  atomic_t online_vcpus;
+  int max_vcpus;
+  int created_vcpus;
+  
+  spinlock_t mn_invalidate_lock;
+  unsigned long mn_active_invalidate_count;
+  struct rcuwait mn_memslots_update_rcuwait;
 
-	spinlock_t mn_invalidate_lock;
-	unsigned long mn_active_invalidate_count;
-	struct rcuwait mn_memslots_update_rcuwait;
-
-	struct srcu_struct srcu;
-
-	u64 manual_dirty_log_protect;
-
+  struct srcu_struct srcu;
+  
+  u64 manual_dirty_log_protect;
+  
 #if defined(CONFIG_MMU_NOTIFIER) && defined(KVM_ARCH_WANT_MMU_NOTIFIER)
-	struct mmu_notifier mmu_notifier;
-	unsigned long mmu_invalidate_seq;
-	long mmu_invalidate_in_progress;
-	unsigned long mmu_invalidate_range_start;
-	unsigned long mmu_invalidate_range_end;
+  struct mmu_notifier mmu_notifier;
+  unsigned long mmu_invalidate_seq;
+  long mmu_invalidate_in_progress;
+  unsigned long mmu_invalidate_range_start;
+  unsigned long mmu_invalidate_range_end;
 #endif //define(CONFIG_MMU_NOTIFIER)
 
-	bool vm_dead;
+  bool vm_dead;
 
-    char stats_id[KVM_STATS_NAME_SIZE];
+  char stats_id[KVM_STATS_NAME_SIZE];
 
 };
 
@@ -204,20 +204,20 @@ static inline void mini_arch_free_vm(struct mini *mini)
 
 static inline struct kvm_memslots *__mini_memslots(struct mini *mini, int as_id)
 {
-    //mini_info("[mini] __kvm_memslots\n");
-	as_id = array_index_nospec(as_id, KVM_ADDRESS_SPACE_NUM);
+  //mini_info("[mini] __kvm_memslots\n");
+  as_id = array_index_nospec(as_id, KVM_ADDRESS_SPACE_NUM);
 
-	//mini_info("[mini] __kvm_memslots as_id : 0x%x\n", as_id);
-	//mini_info("[mini] __kvm_memslots mini->memslots[as_id] : 0x%x\n", mini->memslots[as_id]);
+  //mini_info("[mini] __kvm_memslots as_id : 0x%x\n", as_id);
+  //mini_info("[mini] __kvm_memslots mini->memslots[as_id] : 0x%x\n", mini->memslots[as_id]);
 
-	//mini_info("[mini] __kvm_memslots: 0x%x\n", 
-    //         srcu_dereference_check(mini->memslots[as_id], &mini->srcu,
-    //			lockdep_is_held(&mini->slots_lock) ||
-    //			!refcount_read(&mini->users_count)));
+  //mini_info("[mini] __kvm_memslots: 0x%x\n", 
+  //         srcu_dereference_check(mini->memslots[as_id], &mini->srcu,
+  //			lockdep_is_held(&mini->slots_lock) ||
+  //			!refcount_read(&mini->users_count)));
 
-	return srcu_dereference_check(mini->memslots[as_id], &mini->srcu,
-			lockdep_is_held(&mini->slots_lock) ||
-			!refcount_read(&mini->users_count));
+  return srcu_dereference_check(mini->memslots[as_id], &mini->srcu,
+				lockdep_is_held(&mini->slots_lock) ||
+				!refcount_read(&mini->users_count));
 }
 
 static inline struct kvm_memslots *mini_memslots(struct mini *mini)
@@ -229,17 +229,17 @@ static inline
 struct kvm_memory_slot *mini_id_to_memslot(struct kvm_memslots *slots, int id)
 {
 
-    //mini_info("[mini] id_to_memslot\n");
-	struct kvm_memory_slot *slot;
-	int idx = slots->node_idx;
-    //mini_info("[mini] id_to_memslot %x, %x\n", idx, *slot);
+  //mini_info("[mini] id_to_memslot\n");
+  struct kvm_memory_slot *slot;
+  int idx = slots->node_idx;
+  //mini_info("[mini] id_to_memslot %x, %x\n", idx, *slot);
 
-	hash_for_each_possible(slots->id_hash, slot, id_node[idx], id) {
-		if (slot->id == id)
-			return slot;
-	}
-
-	return NULL;
+  hash_for_each_possible(slots->id_hash, slot, id_node[idx], id) {
+    if (slot->id == id)
+      return slot;
+  }
+  
+  return NULL;
 } 
 static inline struct mini_vcpu *mini_get_vcpu(struct mini *mini, int i)
 {

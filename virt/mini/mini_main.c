@@ -656,10 +656,12 @@ static void mini_destroy_vm(struct mini *mini)
 	 * last reference on KVM has been dropped, but freeing
 	 * memslots would deadlock without this manual intervention.
 	 */
+	mini_info("\t[mini] in #if\n");
+	
 	WARN_ON(rcuwait_active(&mini->mn_memslots_update_rcuwait));
 	mini->mn_active_invalidate_count = 0;
-    //mini_info("\t[mini] mmu_notifier\n");
 #else
+	mini_info("\t[mini] in #else\n");
 	mini_flush_shadow_all(mini);
 #endif
 	//mini_arch_destroy_vm(mini);
@@ -1157,7 +1159,7 @@ EXPORT_SYMBOL_GPL(mini_release_page_clean);
 void mini_release_pfn_clean(kvm_pfn_t pfn)
 {
     struct page *page;
-    mini_info("[mini] release_pfn_clean 0x%lx\n", pfn);
+    //mini_info("[mini] release_pfn_clean 0x%lx\n", pfn);
 
     if (is_error_noslot_pfn(pfn)){
         mini_info("\t[mini] pfn slot error\n");
@@ -1166,7 +1168,7 @@ void mini_release_pfn_clean(kvm_pfn_t pfn)
 
     page = mini_pfn_to_refcounted_page(pfn);
     if (!page) {
-        mini_info("\t[mini] page not founded\n");
+      //mini_info("\t[mini] page not founded\n");
         return;
     }
 
@@ -1220,144 +1222,147 @@ EXPORT_SYMBOL_GPL(mini_set_pfn_accessed);
 int __mini_set_memory_region(struct mini *mini,
 			    const struct kvm_userspace_memory_region *mem)
 {
-	struct kvm_memory_slot *old, *new;
-	struct kvm_memslots *slots;
-	enum kvm_mr_change change;
-	unsigned long npages;
-	gfn_t base_gfn;
-	int as_id, id;
-	int r;
+  struct kvm_memory_slot *old, *new;
+  struct kvm_memslots *slots;
+  enum kvm_mr_change change;
+  unsigned long npages;
+  gfn_t base_gfn;
+  int as_id, id;
+  int r;
+	
+  mini_info("[mini] __mini_set_memory_region\n");
 
-    mini_info("[mini] __mini_set_memory_region\n");
+  mini_info("\t[mini] mem->slot : 0x%x\n", mem->slot);
+  mini_info("\t[mini] mem->flags : 0x%x\n", mem->flags);
+  mini_info("\t[mini] mem->guest_phys_addr: 0x%lx\n", mem->guest_phys_addr);
+  mini_info("\t[mini] mem->memory_size : 0x%lx\n", mem->memory_size);
+  mini_info("\t[mini] mem->userspace_addr : 0x%lx\n", mem->userspace_addr);
+  
+  r = check_memory_region_flags(mem);
+  if (r)
+    return r;
+  
+  as_id = mem->slot >> 16;
+  id = (u16)mem->slot;
+  
+  //mini_info("\t[mini] mem->memory_size : %ld\n", mem->memory_size);
+  //mini_info("\t[mini] PAGE_SIZE : %ld\n", PAGE_SIZE);
+  //mini_info("\t[mini] (unsigned long) mem->memory_size : %ld\n", (unsigned long)mem->memory_size);
+  //mini_info("\t[mini] result : %d, %d\n", mem->memory_size & (PAGE_SIZE -1), mem->memory_size != (unsigned long)mem->memory_size);
+  
+  /* General sanity checks */
+  mini_info("[mini] __mini_set_memory_region_before_sanity\n");
 
-    mini_info("\t[mini] mem->slot : 0x%x\n", mem->slot);
-    mini_info("\t[mini] mem->flags : 0x%x\n", mem->flags);
-    mini_info("\t[mini] mem->guest_phys_addr: 0x%lx\n", mem->guest_phys_addr);
-    mini_info("\t[mini] mem->memory_size : 0x%lx\n", mem->memory_size);
-    mini_info("\t[mini] mem->userspace_addr : 0x%lx\n", mem->userspace_addr);
+  if ((mem->memory_size & (PAGE_SIZE - 1)) ||
+      (mem->memory_size != (unsigned long)mem->memory_size))
+    return -EINVAL;
+  mini_info("\t[mini] memory_size\n");
+  if (mem->guest_phys_addr & (PAGE_SIZE - 1))
+    return -EINVAL;
+  mini_info("\t[mini] phys_addr\n");
 
-	r = check_memory_region_flags(mem);
-	if (r)
-		return r;
+  /* We can read the guest memory with __xxx_user() later on. */
+  /*
+    if ((mem->userspace_addr & (PAGE_SIZE - 1)) ||
+    (mem->userspace_addr != untagged_addr(mem->userspace_addr)) ||
+    !access_ok((void __user *)(unsigned long)mem->userspace_addr,
+    mem->memory_size))
+    return -EINVAL;
+  mini_info("\t[mini] userspace_addr\n");
+  */
 
-	as_id = mem->slot >> 16;
-	id = (u16)mem->slot;
+  if (as_id >= KVM_ADDRESS_SPACE_NUM || id >= KVM_MEM_SLOTS_NUM)
+    return -EINVAL;
+  mini_info("\t[mini] as_id\n");
+  if (mem->guest_phys_addr + mem->memory_size < mem->guest_phys_addr)
+    return -EINVAL;
+  mini_info("\t[mini] guest_phys_addr + memory_size\n");
+  if ((mem->memory_size >> PAGE_SHIFT) > KVM_MEM_MAX_NR_PAGES)
+    return -EINVAL;
+  mini_info("\t[mini] PAGE_SHIFT\n");
+  mini_info("[mini] __mini_set_memory_region_after_sanity\n");
 
-    mini_info("[mini] __mini_set_memory_region_before_sanity\n");
-	/* General sanity checks */
-    //mini_info("\t[mini] mem->memory_size : %ld\n", mem->memory_size);
-    //mini_info("\t[mini] PAGE_SIZE : %ld\n", PAGE_SIZE);
-    //mini_info("\t[mini] (unsigned long) mem->memory_size : %ld\n", (unsigned long)mem->memory_size);
-    //mini_info("\t[mini] result : %d, %d\n", mem->memory_size & (PAGE_SIZE -1), mem->memory_size != (unsigned long)mem->memory_size);
-	if ((mem->memory_size & (PAGE_SIZE - 1)) ||
-	    (mem->memory_size != (unsigned long)mem->memory_size))
-		return -EINVAL;
-    mini_info("\t[mini] memory_size\n");
-	if (mem->guest_phys_addr & (PAGE_SIZE - 1))
-		return -EINVAL;
-    mini_info("\t[mini] phys_addr\n");
+  mini_info("[mini] mini : 0x%x\n", *mini);
+  mini_info("[mini] as_id : 0x%x\n", as_id);
+  mini_info("[mini] id : 0x%x\n", id);
 
-	/* We can read the guest memory with __xxx_user() later on. */
+  slots = __mini_memslots(mini, as_id);
+  mini_info("[mini] slots : 0x%x\n", *slots);
+
+  /*
+   * Note, the old memslot (and the pointer itself!) may be invalidated
+   * and/or destroyed by mini_set_memslot().
+   */
+  mini_info("[mini] __mini_set_memory_region_before_id_to_memslot\n");
+  old = mini_id_to_memslot(slots, id);
+  mini_info("[mini] __mini_set_memory_region_after_id_to_memslot\n");
+  mini_info("old : 0x%lx\n", (__u64) old);
+  
+  mini_info("size : %d\n", mem->memory_size);
+  if (!mem->memory_size) {
+    if (!old || !old->npages)
+      return -EINVAL;
+    if (WARN_ON_ONCE(mini->nr_memslot_pages < old->npages))
+      return -EIO;
+    return mini_set_memslot(mini, old, NULL, KVM_MR_DELETE);
+  }
+  mini_info("\t[mini] size checked\n");
+
+  base_gfn = (mem->guest_phys_addr >> PAGE_SHIFT);
+  npages = (mem->memory_size >> PAGE_SHIFT);
+
+  if (!old || !old->npages) {
+    mini_info("\t[mini] if(old)\n");
+    change = KVM_MR_CREATE;
+
     /*
-	if ((mem->userspace_addr & (PAGE_SIZE - 1)) ||
-	    (mem->userspace_addr != untagged_addr(mem->userspace_addr)) ||
-	     !access_ok((void __user *)(unsigned long)mem->userspace_addr,
-			mem->memory_size))
-		return -EINVAL;
-    */
-    mini_info("\t[mini] userspace_addr\n");
+     * To simplify KVM internals, the total number of pages across
+     * all memslots must fit in an unsigned long.
+     */
+    if ((mini->nr_memslot_pages + npages) < mini->nr_memslot_pages)
+      return -EINVAL;
+  } else { /* Modify an existing slot. */
+    mini_info("\t[mini] else\n");
+    if ((mem->userspace_addr != old->userspace_addr) ||
+	(npages != old->npages) ||
+	((mem->flags ^ old->flags) & KVM_MEM_READONLY))
+      return -EINVAL;
 
-	if (as_id >= KVM_ADDRESS_SPACE_NUM || id >= KVM_MEM_SLOTS_NUM)
-		return -EINVAL;
-    mini_info("\t[mini] as_id\n");
-	if (mem->guest_phys_addr + mem->memory_size < mem->guest_phys_addr)
-		return -EINVAL;
-    mini_info("\t[mini] guest_phys_addr + memory_size\n");
-	if ((mem->memory_size >> PAGE_SHIFT) > KVM_MEM_MAX_NR_PAGES)
-		return -EINVAL;
-    mini_info("\t[mini] PAGE_SHIFT\n");
-    mini_info("[mini] __mini_set_memory_region_after_sanity\n");
+    if (base_gfn != old->base_gfn)
+      change = KVM_MR_MOVE;
+    else if (mem->flags != old->flags)
+      change = KVM_MR_FLAGS_ONLY;
+    else /* Nothing to change. */
+      return 0;
+  }
+  mini_info("\t[mini] page checked\n");
 
-    mini_info("[mini] mini : 0x%x\n", *mini);
-    mini_info("[mini] as_id : 0x%x\n", as_id);
-    mini_info("[mini] id : 0x%x\n", id);
+  if ((change == KVM_MR_CREATE || change == KVM_MR_MOVE) &&
+      mini_check_memslot_overlap(slots, id, base_gfn, base_gfn + npages))
+    return -EEXIST;
+  mini_info("\t[mini] change checked\n");
 
-	slots = __mini_memslots(mini, as_id);
-    mini_info("[mini] slots : 0x%x\n", *slots);
+  /* Allocate a slot that will persist in the memslot. */
+  new = kzalloc(sizeof(*new), GFP_KERNEL_ACCOUNT);
+  if (!new)
+    return -ENOMEM;
+  mini_info("\t[mini] allocated\n");
 
-	/*
-	 * Note, the old memslot (and the pointer itself!) may be invalidated
-	 * and/or destroyed by mini_set_memslot().
-	 */
-    mini_info("[mini] __mini_set_memory_region_before_id_to_memslot\n");
-	old = mini_id_to_memslot(slots, id);
-    mini_info("[mini] __mini_set_memory_region_after_id_to_memslot\n");
+  new->as_id = as_id;
+  new->id = id;
+  new->base_gfn = base_gfn;
+  new->npages = npages;
+  new->flags = mem->flags;
+  new->userspace_addr = mem->userspace_addr;
 
-    mini_info("size : %d\n", mem->memory_size);
-	if (!mem->memory_size) {
-		if (!old || !old->npages)
-			return -EINVAL;
+  mini_info("\t[__mini_set_memory_region] base_gfn : 0x%lx", new->base_gfn);
+  mini_info("\t[__mini_set_memory_region] npages : 0x%lx", new->npages);
+  mini_info("\t[__mini_set_memory_region] user_space_addr : 0x%lx", new->userspace_addr);
 
-		if (WARN_ON_ONCE(mini->nr_memslot_pages < old->npages))
-			return -EIO;
-
-		return mini_set_memslot(mini, old, NULL, KVM_MR_DELETE);
-	}
-    mini_info("\t[mini] size checked\n");
-
-	base_gfn = (mem->guest_phys_addr >> PAGE_SHIFT);
-	npages = (mem->memory_size >> PAGE_SHIFT);
-
-	if (!old || !old->npages) {
-		change = KVM_MR_CREATE;
-
-		/*
-		 * To simplify KVM internals, the total number of pages across
-		 * all memslots must fit in an unsigned long.
-		 */
-		if ((mini->nr_memslot_pages + npages) < mini->nr_memslot_pages)
-			return -EINVAL;
-	} else { /* Modify an existing slot. */
-		if ((mem->userspace_addr != old->userspace_addr) ||
-		    (npages != old->npages) ||
-		    ((mem->flags ^ old->flags) & KVM_MEM_READONLY))
-			return -EINVAL;
-
-		if (base_gfn != old->base_gfn)
-			change = KVM_MR_MOVE;
-		else if (mem->flags != old->flags)
-			change = KVM_MR_FLAGS_ONLY;
-		else /* Nothing to change. */
-			return 0;
-	}
-    mini_info("\t[mini] page checked\n");
-
-	if ((change == KVM_MR_CREATE || change == KVM_MR_MOVE) &&
-	    mini_check_memslot_overlap(slots, id, base_gfn, base_gfn + npages))
-		return -EEXIST;
-    mini_info("\t[mini] change checked\n");
-
-	/* Allocate a slot that will persist in the memslot. */
-	new = kzalloc(sizeof(*new), GFP_KERNEL_ACCOUNT);
-	if (!new)
-		return -ENOMEM;
-    mini_info("\t[mini] allocated\n");
-
-	new->as_id = as_id;
-	new->id = id;
-	new->base_gfn = base_gfn;
-	new->npages = npages;
-	new->flags = mem->flags;
-	new->userspace_addr = mem->userspace_addr;
-
-    mini_info("\t[__mini_set_memory_region] base_gfn : 0x%lx", new->base_gfn);
-    mini_info("\t[__mini_set_memory_region] npages : 0x%lx", new->npages);
-    mini_info("\t[__mini_set_memory_region] user_space_addr : 0x%lx", new->userspace_addr);
-
-	r = mini_set_memslot(mini, old, new, change);
-	if (r)
-		kfree(new);
-	return r;
+  r = mini_set_memslot(mini, old, new, change);
+  if (r)
+    kfree(new);
+  return r;
 }
 EXPORT_SYMBOL_GPL(__mini_set_memory_region);
 
@@ -1727,7 +1732,10 @@ static const struct file_operations mini_vm_fops = {
 	.llseek		= noop_llseek,
 };
 
-//static int mini_dev_ioctl_create_vm(unsigned long type)
+ 
+// dev ioctl static functions
+
+// Create VM
 static struct mini *mini_dev_ioctl_create_vm(unsigned long type)
 {
     char fdname[ITOA_MAX_LEN + 1];
@@ -1760,55 +1768,78 @@ static struct mini *mini_dev_ioctl_create_vm(unsigned long type)
 
 }
 
-static int mini_map_gstage_pages (struct mini *mini, struct kvm_userspace_memory_region *map_info)
+// Map g-stage page
+static int verse_map_gstage_pages (struct mini *mini, struct kvm_userspace_memory_region *map_info)
 {
-    int r = mini_vm_ioctl_set_memory_region(mini, map_info);
-    if(r != 0) {
-        return r;
-    }
+  int r = mini_vm_ioctl_set_memory_region(mini, map_info);
+  if(r != 0) {
+    mini_info("Failed to set memory region\n");
+    return -1;
+  }
 
-    gpa_t gpa = map_info->guest_phys_addr;
-    gfn_t gfn = gpa >> (PAGE_SHIFT);
-    struct kvm_memory_slot *memslot = mini_gfn_to_memslot(mini, gfn);
-    bool writable = true;
-    int count = 0;
+  gpa_t gpa = map_info->guest_phys_addr;
+  gfn_t gfn = gpa >> (PAGE_SHIFT);
+  struct kvm_memory_slot *memslot = mini_gfn_to_memslot(mini, gfn);
+  bool writable = true;
+  int count = 0;
 
-    // Create GPA 2 HPA mapping 
-    while(count < memslot->npages) { 
-        mini_info("prog : %d / %d\n", count+1, memslot->npages);
-        /*
-        kvm_pfn_t hfn = mini_gfn_to_pfn_prot(mini, gfn, true, &writable);
-        mini_info("get hfn %lx\n", hfn);
-        phys_addr_t hpa = hfn << PAGE_SHIFT;
-        mini_info("get hpa %lx\n", hpa);
-        */
-        gfn = gpa >> (PAGE_SHIFT);
-        unsigned long hva = gfn_to_hva_memslot_prot(memslot, gfn, &writable);
-        mini_info("get hva %lx\n", hva);
+  // Create GPA 2 HPA mapping 
+  while(count < memslot->npages) { 
+    //mini_info("prog : %d / %d\n", count+1, memslot->npages);
+    /*
+      kvm_pfn_t hfn = mini_gfn_to_pfn_prot(mini, gfn, true, &writable);
+      mini_info("get hfn %lx\n", hfn);
+      phys_addr_t hpa = hfn << PAGE_SHIFT;
+      mini_info("get hpa %lx\n", hpa);
+    */
+    gfn = gpa >> (PAGE_SHIFT);
+    unsigned long hva = gfn_to_hva_memslot_prot(memslot, gfn, &writable);
+    //mini_info("get hva %lx\n", hva);
 
-        /*
-        mini_info("\t[mini] gpa : 0x%x, gfn : 0x%x, hva : 0x%lx, hfn : 0x%x, hpa : 0x%x\n",
-                gpa, gfn, hva, hfn, hpa); 
-        mini_info("\t[mini] pages %d\tuser_addr 0x%lx\t id %d\n", 
-        memslot->npages, memslot->userspace_addr, memslot->id); 
-        mini_info("\t[mini] task_size %d\n", mini->mm->task_size); 
-        mini_info("\t[mini] pagetables_bytes %d\n", mini->mm->pgtables_bytes); 
-        mini_info("\t[mini] total_vm %d\n", mini->mm->total_vm); 
-        */ 
-        r = mini_riscv_gstage_map(mini, memslot, gpa, hva, true); 
-        //mini_riscv_gstage_map(vcpu, memslot, gpa, hva, true); 
-        if(r) { 
-            mini_info("map failed\n"); 
-            return r; 
-        } 
-        mini_info("map succedded\n"); 
-        //mini_release_pfn_clean(hfn); 
-        gpa += PAGE_SIZE; 
-        count ++; 
-    } // while end 
+    /*
+      mini_info("\t[mini] gpa : 0x%x, gfn : 0x%x, hva : 0x%lx, hfn : 0x%x, hpa : 0x%x\n",
+      gpa, gfn, hva, hfn, hpa); 
+      mini_info("\t[mini] pages %d\tuser_addr 0x%lx\t id %d\n", 
+      memslot->npages, memslot->userspace_addr, memslot->id); 
+      mini_info("\t[mini] task_size %d\n", mini->mm->task_size); 
+      mini_info("\t[mini] pagetables_bytes %d\n", mini->mm->pgtables_bytes); 
+      mini_info("\t[mini] total_vm %d\n", mini->mm->total_vm); 
+    */ 
+    r = mini_riscv_gstage_map(mini, memslot, gpa, hva, true); 
+    //mini_riscv_gstage_map(vcpu, memslot, gpa, hva, true); 
+    if(r) { 
+      mini_info("map failed\n"); 
+      return r; 
+    } 
+    //mini_info("map succedded\n"); 
+    //mini_release_pfn_clean(hfn); 
+    gpa += PAGE_SIZE; 
+    count ++; 
+  } // while end 
     //mini_info("\t[mini] map_count %d\n", mini->mm->map_count); 
     
-    return r;
+  return r;
+}
+
+// Unmap g-stage page
+static int verse_unmap_gstage_pages(void)
+{
+  mini_info("veres_unmap_gstage_pages\n");
+  return 0;
+}
+
+// Map g-stage pages to host virtaul address for JIT code excution
+static int verse_map_executable_pages(void)
+{
+  mini_info("verse_map_executable_pages\n");
+  return 0;
+}
+
+// Unmap g-stage pages from host virtual address
+static int verse_unmap_executable_pages(void)
+{
+  mini_info("verse_unmap_executable_pages\n");
+  return 0;
 }
 
 static long mini_dev_ioctl(struct file *flip, 
@@ -1838,22 +1869,24 @@ static long mini_dev_ioctl(struct file *flip,
       break;
     case MINI_DEST_VM:
       mini_info("[mini] verse_dest\n");
+      
+      // Not created
       if(mini_array[arg] == NULL) {
-	  mini_info("%d is not created\n", arg);
+	  mini_info("[mini] %d th verse is not created\n", arg);
 	  r = -EFAULT;
       }
-      else {
-	//kfree(mini_array[arg]->mini_kva);
+      //kfree(mini_array[arg]->mini_kva);
 	
-	if(mini_array[arg]->mini_kva != NULL) {
-	  free_pages(mini_array[arg]->mini_kva, 0);
-	}
-	free_pages(mini_array[arg]->mini_stack_base_kva, 0);
-		
-	mini_destroy_vm(mini_array[arg]);
-	mini_array[arg] = NULL;
-	r = 0;
+      if(mini_array[arg]->mini_kva != NULL) {
+	mini_info("[mini] free vm pages\n");
+	free_pages(mini_array[arg]->mini_kva, get_order(mini_array[arg]->memory_size));
       }
+      mini_info("[mini] free stack pages\n");
+      free_pages(mini_array[arg]->mini_stack_base_kva, 10);
+
+      //mini_destroy_vm(mini_array[arg]);
+      mini_array[arg] = NULL;
+      r = 0;
       break;
     case VERSE_MMAP: {
         mini_info("VERSE_MMAP\n");
@@ -1888,9 +1921,8 @@ static long mini_dev_ioctl(struct file *flip,
             mini_userspace_mem.memory_size = (mini_userspace_mem.memory_size + PAGE_SIZE -1) & ~(PAGE_SIZE-1);
         }
 
-        unsigned long new_page = __get_free_pages(GFP_KERNEL, mini_userspace_mem.memory_size << PAGE_SIZE);
+        unsigned long new_page = __get_free_pages(GFP_KERNEL, get_order(mini_userspace_mem.memory_size));
         mini_info("page : 0x%lx\n", new_page);
-        //free_pages(new_page, 1);
         mini_userspace_mem.userspace_addr = new_page;
 
 
@@ -1902,7 +1934,7 @@ static long mini_dev_ioctl(struct file *flip,
 
         
         // Call mapping function
-        mini_map_gstage_pages(mini, &mini_userspace_mem);
+        verse_map_gstage_pages(mini, &mini_userspace_mem);
 
 	r = mini->base_gpa;
 
@@ -1911,9 +1943,15 @@ static long mini_dev_ioctl(struct file *flip,
         ///////////////////////////////////////////////////////////////////////////
         // Stack Allocation
         ///////////////////////////////////////////////////////////////////////////
-        unsigned long stack_start = current->mm->start_stack;
         mini_info("[mini] MINI_STACK_ALLOC\n");
-		struct kvm_userspace_memory_region mini_vm_stack = {
+
+	if (mini->mini_stack_base_kva != NULL) {
+	  mini_info("[mini] stack already allocated\n");
+	  return 0;
+	}
+	unsigned long stack_start = current->mm->start_stack;
+	
+	struct kvm_userspace_memory_region mini_vm_stack = {
             1,
             0,
             (stack_start & 0xFFFFFFF000) - (PAGE_SIZE * 512),
@@ -1923,15 +1961,16 @@ static long mini_dev_ioctl(struct file *flip,
 
         mini_info("[mini] START_STACK = 0x%016lx,\tGPA_START = 0x%016lx\n", stack_start, mini_vm_stack.guest_phys_addr);
 
-        unsigned long stack_page = __get_free_pages(GFP_KERNEL, mini_vm_stack.memory_size << PAGE_SIZE);
+        unsigned long stack_page = __get_free_pages(GFP_KERNEL, get_order(mini_vm_stack.memory_size));
         mini_vm_stack.userspace_addr = stack_page;
         mini->mini_stack_base_kva = stack_page;
 
-        mini_map_gstage_pages(mini, &mini_vm_stack);
+        verse_map_gstage_pages(mini, &mini_vm_stack);
 	break;
     }
-    case MINI_FREE:
+    case MINI_FREE: {
         mini_info("VERSE_MUNMAP\n");
+	verse_unmap_gstage_pages();
 
         r = -EFAULT;
 
@@ -1950,6 +1989,7 @@ static long mini_dev_ioctl(struct file *flip,
 
         mini_info("\tVariables\n");
 
+	// Modify the PTEs and free the pages
         /*
         while(count < memslot->npages) { 
             mini_info("prog : %d / %d\n", count+1, memslot->npages);
@@ -1976,7 +2016,8 @@ static long mini_dev_ioctl(struct file *flip,
         r = 0;
 
         break;
-    case MINI_ENTER:
+    }
+    case MINI_ENTER: {
         current_mini = arg;
 
         if(mini_array[current_mini] == NULL) {
@@ -1991,17 +2032,18 @@ static long mini_dev_ioctl(struct file *flip,
         csr_write(CSR_HSTATUS, csr_read(CSR_HSTATUS) | HSTATUS_HU);
         mini_info("MINI_ENTER : 0x%x\n", csr_read(CSR_HSTATUS));
         break;
-    case MINI_EXIT:
+    }
+    case MINI_EXIT: {
       int isFast = arg;
 
-      mini = mini_array[current_mini];
       if(current_mini < 0) {
 	mini_info("[mini] not in enter\n");
 	return -1;
       }
+      mini = mini_array[current_mini];
 
-      mini_info("MINI_EXIT 0x%x\n", csr_read(CSR_HSTATUS));
       csr_write(CSR_HSTATUS, csr_read(CSR_HSTATUS) & !HSTATUS_HU);
+      mini_info("MINI_EXIT 0x%x\n", csr_read(CSR_HSTATUS));
       
       if (isFast == 0) {
 	mini_arch_exit(mini);
@@ -2010,8 +2052,40 @@ static long mini_dev_ioctl(struct file *flip,
       current_mini = -1;
       
       break;
+    }
     case VERSE_MAP_EXECUTABLE: {
+      struct kvm_userspace_memory_region mini_userspace_mem;
+      struct vm_area_struct *vma;
+      void __user *argp = (void __user *)arg;
+
       mini_info("VERSE_MAP_EXECUTABLE\n");
+
+      if(current_mini < 0) {
+	mini_info("[mini] Need enter first\n");
+	return -1;
+      }
+
+      mini = mini_array[current_mini];
+      
+      if(mini == NULL) {
+	mini_err("Can't find %dth\n", current_mini);
+	return -EFAULT;
+      }
+
+      r = -EFAULT;
+      if (copy_from_user(&mini_userspace_mem, argp,
+			 sizeof(mini_userspace_mem))) {
+	return r;
+      }
+      mini_info("[mini] copy_from_user\n");
+
+      vma = vma_lookup(current->mm, mini_userspace_mem.userspace_addr);
+      mini_info("[mini] vma_lookup 0x%lx to 0x%lx\n", vma->vm_start, vma->vm_end);
+      // gpa_to_gfn, gfn_to_hva
+      mini_info("[mini] pfn : 0x%x\n", virt_to_pfn(mini->mini_kva));
+      remap_pfn_range(vma, mini_userspace_mem.userspace_addr, virt_to_pfn(mini->mini_kva), mini_userspace_mem.memory_size, vma->vm_page_prot);
+      //verse_map_executable_pages();
+      
       break;
     }
     case VERSE_UNMAP_EXECUTABLE: {

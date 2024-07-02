@@ -130,57 +130,59 @@ static int gstage_set_pte(struct mini *mini, u32 level,
 			   struct kvm_mmu_memory_cache *pcache,
 			   gpa_t addr, const pte_t *new_pte)
 {
-	u32 current_level = gstage_pgd_levels - 1;
-	pte_t *next_ptep = (pte_t *)mini->arch.pgd;
-	pte_t *ptep = &next_ptep[gstage_pte_index(addr, current_level)];
+  u32 current_level = gstage_pgd_levels - 1;
+  pte_t *next_ptep = (pte_t *)mini->arch.pgd;
+  pte_t *ptep = &next_ptep[gstage_pte_index(addr, current_level)];
 
-    mini_info("[mini] gstage_set_pte\n");
-    mini_info("\t[mini] level: 0x%x\n", level);
-    mini_info("\t[mini] addr : 0x%llx\n", addr);
-    mini_info("\t[mini] pgd : 0x%llx\n", next_ptep);
-    mini_info("\t[mini] ptep : 0x%lx : 0x%016lx\n", ptep, pte_val(*ptep));
-    mini_info("\t[mini] new_pte : 0x%lx : 0x%016lx\n", new_pte, pte_val(*new_pte));
-	if (current_level < level)
-		return -EINVAL;
+  /* mini_info("[mini] gstage_set_pte\n"); */
+  /* mini_info("\t[mini] level: 0x%x\n", level); */
+  /* mini_info("\t[mini] addr : 0x%llx\n", addr); */
+  /* mini_info("\t[mini] pgd : 0x%llx\n", next_ptep); */
+  /* mini_info("\t[mini] ptep : 0x%lx : 0x%016lx\n", ptep, pte_val(*ptep)); */
+  /* mini_info("\t[mini] new_pte : 0x%lx : 0x%016lx\n", new_pte, pte_val(*new_pte)); */
 
-	while (current_level != level) {
-        mini_info("\t\t[mini] level : %d\n", current_level);
-        mini_info("\t\t[mini] next ptep : 0x%lx \n", next_ptep);
-        mini_info("\t\t[mini] index : %d\n", gstage_pte_index(addr, current_level));
-        mini_info("\t\t\t[mini] before ptep : 0x%lx : 0x%lx\n", ptep, ptep->pte);
-		if (gstage_pte_leaf(ptep))
-			return -EEXIST;
+  if (current_level < level)
+    return -EINVAL;
 
-		if (!pte_val(*ptep)) {
-			if (!pcache)
-				return -ENOMEM;
-			next_ptep = mini_mmu_memory_cache_alloc(pcache);
-			if (!next_ptep)
-				return -ENOMEM;
-			*ptep = pfn_pte(PFN_DOWN(__pa(next_ptep)),
-					__pgprot(_PAGE_TABLE));
-		} else {
-			if (gstage_pte_leaf(ptep))
-				return -EEXIST;
-			next_ptep = (pte_t *)gstage_pte_page_vaddr(*ptep);
-		}
+  while (current_level != level) {
+    /* mini_info("\t\t[mini] level : %d\n", current_level); */
+    /* mini_info("\t\t[mini] next ptep : 0x%lx \n", next_ptep); */
+    /* mini_info("\t\t[mini] index : %d\n", gstage_pte_index(addr, current_level)); */
+    /* mini_info("\t\t\t[mini] before ptep : 0x%lx : 0x%lx\n", ptep, ptep->pte); */
+    if (gstage_pte_leaf(ptep))
+      return -EEXIST;
 
-        mini_info("\t\t\t[mini] after ptep : 0x%lx : 0x%lx\n", ptep, ptep->pte);
-		current_level--;
-		ptep = &next_ptep[gstage_pte_index(addr, current_level)];
-	}
+    if (!pte_val(*ptep)) {
+      if (!pcache)
+	return -ENOMEM;
+      next_ptep = mini_mmu_memory_cache_alloc(pcache);
+      if (!next_ptep)
+	return -ENOMEM;
+      *ptep = pfn_pte(PFN_DOWN(__pa(next_ptep)),
+		      __pgprot(_PAGE_TABLE));
+    } else {
+      if (gstage_pte_leaf(ptep))
+	return -EEXIST;
+      next_ptep = (pte_t *)gstage_pte_page_vaddr(*ptep);
+    }
 
-	*ptep = *new_pte;
-	if (gstage_pte_leaf(ptep))
-		gstage_remote_tlb_flush(mini, current_level, addr);
+    /* mini_info("\t\t\t[mini] after ptep : 0x%lx : 0x%lx\n", ptep, ptep->pte); */
+    
+    current_level--;
+    ptep = &next_ptep[gstage_pte_index(addr, current_level)];
+  }
 
-    mini_info("\t[mini] level : %d\n", current_level);
-    mini_info("\t[mini] next ptep : 0x%lx \n", next_ptep);
-    mini_info("\t[mini] index : %d\n", gstage_pte_index(addr, current_level));
-    mini_info("\t[mini] ptep : 0x%lx : 0x%lx\n", ptep, pte_val(*ptep));
-    mini_info("\t[mini] new_pte : 0x%lx : 0x%lx\n", new_pte, pte_val(*new_pte));
+  *ptep = *new_pte;
+  if (gstage_pte_leaf(ptep))
+    gstage_remote_tlb_flush(mini, current_level, addr);
 
-	return 0;
+  /* mini_info("\t[mini] level : %d\n", current_level); */
+  /* mini_info("\t[mini] next ptep : 0x%lx \n", next_ptep); */
+  /* mini_info("\t[mini] index : %d\n", gstage_pte_index(addr, current_level)); */
+  /* mini_info("\t[mini] ptep : 0x%lx : 0x%lx\n", ptep, pte_val(*ptep)); */
+  /* mini_info("\t[mini] new_pte : 0x%lx : 0x%lx\n", new_pte, pte_val(*new_pte)); */
+
+  return 0;
 }
 
 static int gstage_map_page(struct mini *mini,
@@ -189,47 +191,47 @@ static int gstage_map_page(struct mini *mini,
 			   unsigned long page_size,
 			   bool page_rdonly, bool page_exec)
 {
-	int ret;
-	u32 level = 0;
-	pte_t new_pte;
-	pgprot_t prot;
+  int ret;
+  u32 level = 0;
+  pte_t new_pte;
+  pgprot_t prot;
 
-    mini_info("[mini] gstage_map_page\n");
-    mini_info("\t[gstage_map_page] gpa : 0x%lx, hpa : 0x%lx\n", gpa, hpa);
+  /* mini_info("[mini] gstage_map_page\n"); */
+  /* mini_info("\t[gstage_map_page] gpa : 0x%lx, hpa : 0x%lx\n", gpa, hpa); */
 
-	ret = gstage_page_size_to_level(page_size, &level);
-    mini_info("\t[gstage_map_page] ret : %d page_size: %d, level: %d\n", ret, page_size, level);
-	if (ret)
-		return ret;
+  ret = gstage_page_size_to_level(page_size, &level);
+  /* mini_info("\t[gstage_map_page] ret : %d page_size: %d, level: %d\n", ret, page_size, level); */
+  if (ret)
+    return ret;
 
-	/*
-	 * A RISC-V implementation can choose to either:
-	 * 1) Update 'A' and 'D' PTE bits in hardware
-	 * 2) Generate page fault when 'A' and/or 'D' bits are not set
-	 *    PTE so that software can update these bits.
-	 *
-	 * We support both options mentioned above. To achieve this, we
-	 * always set 'A' and 'D' PTE bits at time of creating G-stage
-	 * mapping. To support MINI dirty page logging with both options
-	 * mentioned above, we will write-protect G-stage PTEs to track
-	 * dirty pages.
-	 */
+  /*
+   * A RISC-V implementation can choose to either:
+   * 1) Update 'A' and 'D' PTE bits in hardware
+   * 2) Generate page fault when 'A' and/or 'D' bits are not set
+   *    PTE so that software can update these bits.
+   *
+   * We support both options mentioned above. To achieve this, we
+   * always set 'A' and 'D' PTE bits at time of creating G-stage
+   * mapping. To support MINI dirty page logging with both options
+   * mentioned above, we will write-protect G-stage PTEs to track
+   * dirty pages.
+   */
 
-	if (page_exec) {
-		if (page_rdonly)
-			prot = PAGE_READ_EXEC;
-		else
-			prot = PAGE_WRITE_EXEC;
-	} else {
-		if (page_rdonly)
-			prot = PAGE_READ;
-		else
-			prot = PAGE_WRITE;
-	}
-	new_pte = pfn_pte(PFN_DOWN(hpa), prot);
-	new_pte = pte_mkdirty(new_pte);
+  if (page_exec) {
+    if (page_rdonly)
+      prot = PAGE_READ_EXEC;
+    else
+      prot = PAGE_WRITE_EXEC;
+  } else {
+    if (page_rdonly)
+      prot = PAGE_READ;
+    else
+      prot = PAGE_WRITE;
+  }
+  new_pte = pfn_pte(PFN_DOWN(hpa), prot);
+  new_pte = pte_mkdirty(new_pte);
 
-	return gstage_set_pte(mini, level, pcache, gpa, &new_pte);
+  return gstage_set_pte(mini, level, pcache, gpa, &new_pte);
 }
 
 enum gstage_op {
@@ -588,40 +590,38 @@ bool mini_unmap_gfn_range(struct mini *mini, struct mini_gfn_range *range)
 
 int mini_riscv_gstage_alloc_pgd(struct mini *mini)
 {
-	struct page *pgd_page;
+  struct page *pgd_page;
 
-    mini_info("mini_riscv_gstage_alloc_pgd\n");
+  mini_info("mini_riscv_gstage_alloc_pgd\n");
 
-	if (mini->arch.pgd != NULL) {
-		mini_err("mini_arch already initialized?\n");
-		return -EINVAL;
-	}
+  if (mini->arch.pgd != NULL) {
+    mini_err("mini_arch already initialized?\n");
+    return -EINVAL;
+  }
 
-	pgd_page = alloc_pages(GFP_KERNEL | __GFP_ZERO,
-				get_order(gstage_pgd_size));
-	if (!pgd_page)
-		return -ENOMEM;
-	mini->arch.pgd = page_to_virt(pgd_page);
-	mini->arch.pgd_phys = page_to_phys(pgd_page);
+  pgd_page = alloc_pages(GFP_KERNEL | __GFP_ZERO,
+			 get_order(gstage_pgd_size));
+  if (!pgd_page)
+    return -ENOMEM;
+  mini->arch.pgd = page_to_virt(pgd_page);
+  mini->arch.pgd_phys = page_to_phys(pgd_page);
 
-    mini_info("\t[mini_riscv_gstage_alloc_pgd] pgd_page : 0x%lx\n", pgd_page);
-    mini_info("\t[mini_riscv_gstage_alloc_pgd] pgd_virt : 0x%lx\n", mini->arch.pgd);
-    mini_info("\t[mini_riscv_gstage_alloc_pgd] pgd_phys : 0x%lx\n", mini->arch.pgd_phys);
+  mini_info("\t[mini_riscv_gstage_alloc_pgd] pgd_page : 0x%lx\n", pgd_page);
+  mini_info("\t[mini_riscv_gstage_alloc_pgd] pgd_virt : 0x%lx\n", mini->arch.pgd);
+  mini_info("\t[mini_riscv_gstage_alloc_pgd] pgd_phys : 0x%lx\n", mini->arch.pgd_phys);
     
-    mini_info("\t[mini_riscv_gstage_alloc_pgd] pgd_page : 0x%lx\n", *pgd_page);
-    mini_info("\t[mini_riscv_gstage_alloc_pgd] pgd_virt : 0x%lx\n", *mini->arch.pgd);
+  mini_info("\t[mini_riscv_gstage_alloc_pgd] pgd_page : 0x%lx\n", *pgd_page);
+  mini_info("\t[mini_riscv_gstage_alloc_pgd] pgd_virt : 0x%lx\n", *mini->arch.pgd);
 
-    return 0;
+  return 0;
 }
 
 void mini_riscv_gstage_free_pgd(struct mini *mini)
 {
   void *pgd = NULL;
   
-  mini_info("[mini] mini_riscv_gstage_free_pgd\n");
-  
   spin_lock(&mini->mmu_lock);
-  
+
   if (mini->arch.pgd) {
     gstage_unmap_range(mini, 0UL, gstage_gpa_size, false);
     pgd = READ_ONCE(mini->arch.pgd);
@@ -629,7 +629,7 @@ void mini_riscv_gstage_free_pgd(struct mini *mini)
     mini->arch.pgd_phys = 0;
   }
   spin_unlock(&mini->mmu_lock);
-  
+
   pgd = mini->arch.pgd;
   
   if (pgd)
@@ -667,37 +667,37 @@ int mini_riscv_gstage_map(struct mini *mini,
 			 struct kvm_memory_slot *memslot,
 			 gpa_t gpa, unsigned long hva, bool is_write)
 {
-	int ret;
-	kvm_pfn_t hfn;
-	bool writable;
-	short vma_pageshift;
-	gfn_t gfn = gpa >> PAGE_SHIFT;
-	struct vm_area_struct *vma;
-	//struct mini *mini = vcpu->mini;
-	//struct kvm_mmu_memory_cache *pcache = &vcpu->arch.mmu_page_cache;
-	struct kvm_mmu_memory_cache *pcache = &mini->mmu_page_cache;
-	bool logging = (memslot->dirty_bitmap &&
-			!(memslot->flags & MINI_MEM_READONLY)) ? true : false;
-	unsigned long vma_pagesize, mmu_seq;
+  int ret;
+  kvm_pfn_t hfn;
+  bool writable;
+  short vma_pageshift;
+  gfn_t gfn = gpa >> PAGE_SHIFT;
+  struct vm_area_struct *vma;
+  //struct mini *mini = vcpu->mini;
+  //struct kvm_mmu_memory_cache *pcache = &vcpu->arch.mmu_page_cache;
+  struct kvm_mmu_memory_cache *pcache = &mini->mmu_page_cache;
+  bool logging = (memslot->dirty_bitmap &&
+		  !(memslot->flags & MINI_MEM_READONLY)) ? true : false;
+  unsigned long vma_pagesize, mmu_seq;
 
-    mini_info("[mini] mini_riscv_gstage_map\n");
-    mini_info("[mini] gpa : 0x%lx, hva : 0x%lx\n", gpa, hva);
+  /* mini_info("[mini] mini_riscv_gstage_map\n"); */
+  /* mini_info("[mini] gpa : 0x%lx, hva : 0x%lx\n", gpa, hva); */
 
-	/* We need minimum second+third level pages */
-	ret = kvm_mmu_topup_memory_cache(pcache, gstage_pgd_levels);
-	if (ret) {
-		mini_err("Failed to topup G-stage cache\n");
-		return ret;
-	}
+  /* We need minimum second+third level pages */
+  ret = kvm_mmu_topup_memory_cache(pcache, gstage_pgd_levels);
+  if (ret) {
+    mini_err("Failed to topup G-stage cache\n");
+    return ret;
+  }
 
-    unsigned long phys_addr = virt_to_phys(hva);
-    mini_info("[mini] hpa : 0x%lx\n", phys_addr);
+  unsigned long phys_addr = virt_to_phys(hva);
+  /* mini_info("[mini] hpa : 0x%lx\n", phys_addr); */
 
 
-    /**********************************
+  /**********************************
 
 	mmap_read_lock(current->mm);
-    //mini_info("[mini] curren->mm->next : 0x%x prev : 0x%x\n", current->mm->next);
+	//mini_info("[mini] curren->mm->next : 0x%x prev : 0x%x\n", current->mm->next);
 
 	vma = vma_lookup(current->mm, hva);
     
@@ -729,18 +729,18 @@ int mini_riscv_gstage_map(struct mini *mini,
 
     mini_info("Set vma_pagesize\n");
 
-    ****************************/
+  ****************************/
 
-	/*
-	 * Read mmu_invalidate_seq so that MINI can detect if the results of
-	 * vma_lookup() or gfn_to_pfn_prot() become stale priort to acquiring
-	 * mini->mmu_lock.
-	 *
-	 * Rely on mmap_read_unlock() for an implicit smp_rmb(), which pairs
-	 * with the smp_wmb() in mini_mmu_invalidate_end().
-	 */
+  /*
+   * Read mmu_invalidate_seq so that MINI can detect if the results of
+   * vma_lookup() or gfn_to_pfn_prot() become stale priort to acquiring
+   * mini->mmu_lock.
+   *
+   * Rely on mmap_read_unlock() for an implicit smp_rmb(), which pairs
+   * with the smp_wmb() in mini_mmu_invalidate_end().
+   */
 
-    /**************************************
+  /**************************************
 	mmu_seq = mini->mmu_invalidate_seq;
 	mmap_read_unlock(current->mm);
 	//mmap_read_unlock(p->mm);
@@ -751,90 +751,90 @@ int mini_riscv_gstage_map(struct mini *mini,
 		mini_err("Invalid VMA page size 0x%lx\n", vma_pagesize);
 		return -EFAULT;
 	}
-    ****************************************/
+  ****************************************/
 
-    vma_pagesize = PAGE_SIZE;
+  vma_pagesize = PAGE_SIZE;
 
-	//hfn = mini_gfn_to_pfn_prot(mini, gfn, is_write, &writable);
-    //hfn = virt_to_pfn(hva);
-    //if(hfn == KVM_PFN_NOSLOT) {
-    if(phys_addr == KVM_PFN_NOSLOT) {
-        mini_info("[mini] can't find hfn\n");
-        return -EFAULT;
-    }
-	//if (hfn == KVM_PFN_ERR_HWPOISON) {
-	if (phys_addr == KVM_PFN_ERR_HWPOISON) {
-		send_sig_mceerr(BUS_MCEERR_AR, (void __user *)hva,
-				vma_pageshift, current);
-		return 0;
-	}
+  //hfn = mini_gfn_to_pfn_prot(mini, gfn, is_write, &writable);
+  //hfn = virt_to_pfn(hva);
+  //if(hfn == KVM_PFN_NOSLOT) {
+  if(phys_addr == KVM_PFN_NOSLOT) {
+    mini_info("[mini] can't find hfn\n");
+    return -EFAULT;
+  }
+  //if (hfn == KVM_PFN_ERR_HWPOISON) {
+  if (phys_addr == KVM_PFN_ERR_HWPOISON) {
+    send_sig_mceerr(BUS_MCEERR_AR, (void __user *)hva,
+		    vma_pageshift, current);
+    return 0;
+  }
 
-    //mini_info("\t[gstage_map] hfn : %lx\n", hfn);
+  //mini_info("\t[gstage_map] hfn : %lx\n", hfn);
 
-    /*
-	if (is_error_noslot_pfn(hfn))
-		return -EFAULT;
+  /*
+    if (is_error_noslot_pfn(hfn))
+    return -EFAULT;
     mini_info("\t[gstage_map] noslot\n");
-    */
+  */
 
-	/*
-	 * If logging is active then we allow writable pages only
-	 * for write faults.
-	 */
-	if (logging && !is_write)
-		writable = false;
+  /*
+   * If logging is active then we allow writable pages only
+   * for write faults.
+   */
+  if (logging && !is_write)
+    writable = false;
 
-	spin_lock(&mini->mmu_lock);
+  spin_lock(&mini->mmu_lock);
 
-	if (mini_mmu_invalidate_retry(mini, mmu_seq))
-		goto out_unlock;
-    mini_info("\t[gstage_map] invalidate_retry\n");
+  if (mini_mmu_invalidate_retry(mini, mmu_seq))
+    goto out_unlock;
+  /* mini_info("\t[gstage_map] invalidate_retry\n"); */
 
-    /*
+  /*
     unsigned long pfn = virt_to_phys(hva >> PAGE_SHIFT);
     mini_info("\t[gstage_map] pfn : %lx\n", pfn);
-    */
+  */
 
-	if (writable) {
-        mini_info("\t[gstage_map] write_able\n");
-		//mini_set_pfn_dirty(hfn);
-		//mark_page_dirty(mini, gfn);
-        /*
-		ret = gstage_map_page(mini, pcache, gpa, hfn << PAGE_SHIFT,
-				      vma_pagesize, false, true);
-                      */
-		ret = gstage_map_page(mini, pcache, gpa, phys_addr,
-				      vma_pagesize, false, true);
-	} else {
-        mini_info("\t[gstage_map] non-write_able\n");
-        /*
-		ret = gstage_map_page(mini, pcache, gpa, hfn << PAGE_SHIFT, //hfn
-				      vma_pagesize, true, true);
-                      */
-		ret = gstage_map_page(mini, pcache, gpa, phys_addr,
-				      vma_pagesize, false, true);
-	}
-
-    //mini_info("\t[mini] kmem_cache : %p\n", pcache->kmem_cache);
-    //mini_info("\t[mini] size: %u\n", (pcache->kmem_cache)->size);
-
-	if (ret)
-		mini_err("Failed to map in G-stage\n");
-
+  if (writable) {
+    //mini_info("\t[gstage_map] write_able\n");
+    //mini_set_pfn_dirty(hfn);
+    //mark_page_dirty(mini, gfn);
     /*
+      ret = gstage_map_page(mini, pcache, gpa, hfn << PAGE_SHIFT,
+      vma_pagesize, false, true);
+    */
+    ret = gstage_map_page(mini, pcache, gpa, phys_addr,
+			  vma_pagesize, false, true);
+  } else {
+    //mini_info("\t[gstage_map] non-write_able\n");
+    /*
+      ret = gstage_map_page(mini, pcache, gpa, hfn << PAGE_SHIFT, //hfn
+      vma_pagesize, true, true);
+    */
+    ret = gstage_map_page(mini, pcache, gpa, phys_addr,
+			  vma_pagesize, false, true);
+  }
+
+  //mini_info("\t[mini] kmem_cache : %p\n", pcache->kmem_cache);
+  //mini_info("\t[mini] size: %u\n", (pcache->kmem_cache)->size);
+
+  if (ret)
+    mini_err("Failed to map in G-stage\n");
+
+  /*
     struct page *p = virt_to_page(hva);
     mini_info("ref count = %d\n", page_ref_count(p));
     page_ref_inc(p);
     mini_info("ref count = %d\n", page_ref_count(p));
-    */
+  */
 
 
-out_unlock:
-	spin_unlock(&mini->mmu_lock);
-	//mini_set_pfn_accessed(hfn);
-	//mini_release_pfn_clean(hfn);
-	mini_set_pfn_accessed(phys_addr);
-	mini_release_pfn_clean(phys_addr);
+ out_unlock:
+  spin_unlock(&mini->mmu_lock);
+  //mini_set_pfn_accessed(hfn);
+  //mini_release_pfn_clean(hfn);
+  mini_set_pfn_accessed(phys_addr);
+  mini_release_pfn_clean(phys_addr);
 
-	return ret;
+  return ret;
 }
