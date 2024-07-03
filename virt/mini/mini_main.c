@@ -2083,7 +2083,8 @@ static long mini_dev_ioctl(struct file *flip,
       mini_info("[mini] vma_lookup 0x%lx to 0x%lx\n", vma->vm_start, vma->vm_end);
       // gpa_to_gfn, gfn_to_hva
       mini_info("[mini] pfn : 0x%x\n", virt_to_pfn(mini->mini_kva));
-      remap_pfn_range(vma, mini_userspace_mem.userspace_addr, virt_to_pfn(mini->mini_kva), mini_userspace_mem.memory_size, vma->vm_page_prot);
+      // remap_pfn_range(vma, mini_userspace_mem.userspace_addr, virt_to_pfn(mini->mini_kva), mini_userspace_mem.memory_size, vma->vm_page_prot);
+      remap_pfn_range(vma, vma->vm_start, virt_to_pfn(mini->mini_kva), mini_userspace_mem.memory_size, vma->vm_page_prot);
       //verse_map_executable_pages();
       
       break;
