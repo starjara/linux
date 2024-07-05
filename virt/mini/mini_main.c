@@ -1884,7 +1884,7 @@ static long mini_dev_ioctl(struct file *flip,
       mini_info("[mini] free stack pages\n");
       free_pages(mini_array[arg]->mini_stack_base_kva, 10);
 
-      //mini_destroy_vm(mini_array[arg]);
+      mini_destroy_vm(mini_array[arg]);
       mini_array[arg] = NULL;
       r = 0;
       break;
@@ -2084,7 +2084,12 @@ static long mini_dev_ioctl(struct file *flip,
       // gpa_to_gfn, gfn_to_hva
       mini_info("[mini] pfn : 0x%x\n", virt_to_pfn(mini->mini_kva));
       // remap_pfn_range(vma, mini_userspace_mem.userspace_addr, virt_to_pfn(mini->mini_kva), mini_userspace_mem.memory_size, vma->vm_page_prot);
-      remap_pfn_range(vma, vma->vm_start, virt_to_pfn(mini->mini_kva), mini_userspace_mem.memory_size, vma->vm_page_prot);
+      r = remap_pfn_range(vma, vma->vm_start, virt_to_pfn(mini->mini_kva), mini_userspace_mem.memory_size, vma->vm_page_prot);
+      if (r < 0) {
+	mini_info("[mini] Remap failed\n");
+	break;
+      }
+      mini_info("[mini] Remap succeed\n");
       //verse_map_executable_pages();
       
       break;
