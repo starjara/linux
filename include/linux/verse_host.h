@@ -38,13 +38,14 @@ static inline void verse_arch_free_vm(struct verse *verse)
 }
 
 // Functions
-
 // Architecture dependent functions
 void verse_arch_destroy_vm(struct verse *verse);
 int verse_arch_init_vm(struct verse *verse);
 void verse_arch_flush_shadow_all(struct verse *verse);
 void verse_arch_enter_vm(struct verse *verse);
 void verse_arch_exit_vm(void);
+int verse_arch_gstage_map(struct verse *verse, struct verse_memory_region *verse_mem);
+int verse_arch_gstage_unmap(struct verse *verse, struct verse_memory_region *verse_mem);
 
 // Module functions
 // create and destroy
@@ -63,8 +64,8 @@ static int verse_dev_ioctl_enter_vm(int index);
 static int verse_dev_ioctl_exit_vm(bool isFast);
 
 // mmap and munmap
-static int verse_dev_ioctl_mmap(void);
-static int verse_dev_ioctl_munmap(void);
+static int verse_dev_ioctl_mmap(unsigned long arg);
+static int verse_dev_ioctl_munmap(unsigned long arg);
 static int verse_dev_ioctl_mprotect(void);
 
 

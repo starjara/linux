@@ -15,4 +15,11 @@
 #define VERSE_MUNMAP _IO(VERSEIO, 0x22)
 #define VERSE_MPROTECT _IO(VERSEIO, 0x23)
 
+struct verse_memory_region {
+  __u64 guest_phys_addr;
+  __u64 memory_size;
+  __u64 userspace_addr;
+  __u32 prot;
+};
+
 #endif // __LINUX_VERSE_H__

@@ -22,10 +22,59 @@ static struct verse **verse_array;
 // =====================================================
 // Verse mmap, munmap, and mprotect
 // =====================================================
-static int verse_dev_ioctl_mmap(void)
+static int verse_dev_ioctl_mmap(unsigned long arg)
 {
-  verse_info("\t[verse] mmap\n");
-  return 0;
+  struct verse *verse;
+  struct verse_memory_region verse_mem;
+  void __user *argp = (void __user *) arg;
+  unsigned long new_page;
+  
+  verse_info("\t[verse] verse_dev_ioctl_mmap\n");
+
+  if (current_index < 0) {
+    verse_error("\t[verse] Need enter first\n");
+    return -EINVAL;
+  }
+  
+  verse = verse_array[current_index];
+  if (verse == NULL) {
+    verse_error("\t[verse] Failed to get verse struct\n");
+    return -EINVAL;
+  }
+
+  if (copy_from_user(&verse_mem, argp, sizeof(verse_mem))) {
+    verse_error("\t[verse] Falied to get the input args from user\n");
+    return -EINVAL;
+  }
+
+  return verse_arch_gstage_map(verse, &verse_mem);
+}
+
+static int verse_dev_ioctl_munmap(unsigned long arg)
+{
+  struct verse *verse;
+  struct verse_memory_region verse_mem;
+  void __user *argp = (void __user *) arg;
+
+  verse_info("\t[verse] verse_dev_ioctl_munmap\n");
+
+  if (current_index < 0) {
+    verse_error("\t[verse] Need enter first\n");
+    return -EINVAL;
+  }
+
+  verse = verse_array[current_index];
+  if (verse == NULL) {
+    verse_error("\t[verse] Failed to get the verse struct\n");
+    return -EINVAL;
+  }
+
+  if (copy_from_user(&verse_mem, argp, sizeof(verse_mem))) {
+    verse_error("\t[verse] Failed to get the input args from user\n");
+    return -EINVAL;
+  }
+
+  return verse_arch_gstage_unmap(verse, &verse_mem);
 }
 
 // =====================================================
@@ -75,22 +124,24 @@ static int verse_dev_ioctl_exit_vm(bool isFast)
 // Create a new verse
 static struct verse *verse_create_vm(void)
 {
-  struct verse *ret = verse_arch_alloc_vm();
+  struct verse *verse = verse_arch_alloc_vm();
   int r;
 
-  if(ret == NULL) {
+  if(verse == NULL) {
     verse_error("\t\t[verse] Failed memory allocate for the new verse\n");
     return NULL;
   }
 
-  VERSE_MMU_LOCK_INIT(ret);
+  VERSE_MMU_LOCK_INIT(verse);
 
-  r = verse_arch_init_vm(ret);
+  r = verse_arch_init_vm(verse);
   if (r != 0) {
     verse_error("\t\t[verse] Failed to init the new verse\n");
+    verse_arch_free_vm(verse);
+    verse = NULL;
   }
   
-  return ret;
+  return verse;
 }
 
 static int verse_dev_ioctl_create_vm(int index)
@@ -103,6 +154,7 @@ static int verse_dev_ioctl_create_vm(int index)
   }
 
   new_verse = verse_create_vm();
+  
   if(new_verse == NULL) {
     verse_error("\t[verse] Failed to create a new verse\n");
     return -EINVAL;
@@ -161,11 +213,12 @@ static long verse_dev_ioctl(struct file *flip,
   }
   case VERSE_MMAP: {
     verse_info("[verse] VERSE_MMAP\n");
-    r = verse_dev_ioctl_mmap();
+    r = verse_dev_ioctl_mmap(arg);
     break;
   }
   case VERSE_MUNMAP: {
     verse_info("[verse] VERSE_MUNMAP\n");
+    r = verse_dev_ioctl_munmap(arg);
     break;
   }
   case VERSE_MPROTECT: {
@@ -187,7 +240,7 @@ int verse_init(int length, struct module *module)
 {
   verse_info("[verse] verse_init\n");
 
-  verse_array = kmalloc(sizeof(struct verse *) * length, GFP_KERNEL);
+  verse_array = kzalloc(sizeof(struct verse *) * length, GFP_KERNEL);
   if(verse_array == NULL) {
     verse_error("[verse] verse array creation failed\n");
     return -1;
@@ -213,7 +266,7 @@ EXPORT_SYMBOL_GPL(verse_init);
 void verse_exit(void)
 {
   verse_info("[verse] verse_exit\n");
-  kfree(verse_array);
+  kvfree(verse_array);
   return ;
 }
 EXPORT_SYMBOL_GPL(verse_exit);
