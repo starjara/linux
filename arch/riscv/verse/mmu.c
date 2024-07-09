@@ -304,8 +304,6 @@ static struct verse_riscv_memregion *verse_riscv_create_new_region(struct verse 
   int order = get_order(verse_mem->memory_size);
   int i;
   
-  verse_info("\t\t[verse_arch] verse_riscv_create_new_region\n");
-
   // Get physical pages in kernel memory
   new_page = alloc_pages(GFP_KERNEL, order);
   if (new_page < 0) {
@@ -410,8 +408,6 @@ int verse_arch_gstage_map (struct verse *verse, struct verse_memory_region *vers
   unsigned long page_size = PAGE_SIZE;
   int i = 0;
   
-  verse_info("\t\t[verse_arch] verse_arch_gstage_map\n");
-
   new_region = verse_riscv_create_new_region(verse, verse_mem);
   
   if (new_region == NULL) {
@@ -449,7 +445,7 @@ int verse_arch_gstage_unmap(struct verse *verse, struct verse_memory_region *ver
   
   for(i=0; i<MAX_REGION_COUNT; i++) {
     struct verse_riscv_memregion *region = verse->arch.regions[i];
-    if(region->guest_phys_addr == verse_mem->guest_phys_addr &&
+    if(region != NULL && region->guest_phys_addr == verse_mem->guest_phys_addr &&
        region->memory_size == verse_mem->memory_size) {
       if (region->userspace_virtual_addr != 0) {
 	verse_error("\t\t[verse_arch] This region has been mapped to the userspace\n");
