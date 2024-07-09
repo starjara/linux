@@ -22,6 +22,7 @@ struct verse_riscv_memregion {
   __u64 userspace_virtual_addr;
   __u64 kernel_virtual_addr;
   __u64 phys_addr;
+  struct mm_struct *mm;
 };
 
 struct verse_arch {

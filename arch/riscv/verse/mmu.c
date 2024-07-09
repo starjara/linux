@@ -1,6 +1,9 @@
 #include <linux/module.h>
 #include <linux/verse_host.h>
 #include <asm/page.h>
+#include <linux/mm.h>
+#include <linux/fs.h>
+#include <linux/slab.h>
 
 // Macros
 
@@ -345,6 +348,29 @@ static struct verse_riscv_memregion *verse_riscv_create_new_region(struct verse 
   return verse->arch.regions[index];
 }
 
+static int verse_riscv_gstage_mprotect(struct verse *verse, struct verse_riscv_memregion *region, __u64 userspace_virtual_addr)
+{
+  struct vm_area_struct *vma;
+  int i;
+  int r = -EINVAL;
+
+  verse_info("\t\t[verse_arch] verse_riscv_gstage_mprotect %s\n", region->kernel_virtual_addr);
+  
+  vma = vma_lookup(current->mm, userspace_virtual_addr);
+  if (vma == NULL) {
+    verse_error("\t\t[verse_arch] Failed to find vma for 0x%lx\n", userspace_virtual_addr);
+    return r;
+  }
+
+  r = remap_pfn_range(vma, vma->vm_start, phys_to_pfn(region->phys_addr), region->memory_size, vma->vm_page_prot);
+  
+  if(r < 0) {
+    verse_error("\t\t[verse_arch] Failed to remap\n");
+  }
+
+  return r;
+}
+
 // =================================================================
 // pgd and hgatp
 // =================================================================
@@ -410,12 +436,13 @@ int verse_arch_gstage_map (struct verse *verse, struct verse_memory_region *vers
   phys_addr_t hpa;
   unsigned long page_size = PAGE_SIZE;
   int i = 0;
+  int r = -EINVAL;
   
   new_region = verse_riscv_create_new_region(verse, verse_mem);
-  
+
   if (new_region == NULL) {
     verse_error("\t\t[verse_arch] Failed to create a new region\n");
-    return -EINVAL;
+    return r;
   }
 
   // get permission
@@ -438,14 +465,14 @@ int verse_arch_gstage_map (struct verse *verse, struct verse_memory_region *vers
     i++;
   }
   
-  return 0;
+  r = (new_region->guest_phys_addr) >> PAGE_SHIFT;
+  return r;
 }
 
 int verse_arch_gstage_unmap(struct verse *verse, struct verse_memory_region *verse_mem)
 {
-  int i;
-  int r;
-  
+  int i, r = 0;
+    
   for(i=0; i<MAX_REGION_COUNT; i++) {
     struct verse_riscv_memregion *region = verse->arch.regions[i];
     if(region != NULL && region->guest_phys_addr == verse_mem->guest_phys_addr &&
@@ -467,6 +494,30 @@ int verse_arch_gstage_unmap(struct verse *verse, struct verse_memory_region *ver
     r = -EINVAL;
   }
   
+  return r;
+}
+
+int verse_arch_gstage_mprotect(struct verse *verse, struct verse_memory_region *verse_mem)
+{
+  int i;
+  int r = -EINVAL;
+
+  verse_info("0x%lx\n", verse_mem->userspace_addr);
+  
+  for(i=0; i<MAX_REGION_COUNT; i++) {
+    struct verse_riscv_memregion *region = verse->arch.regions[i];
+    if(region != NULL && region->guest_phys_addr == verse_mem->guest_phys_addr &&
+			 region->memory_size == verse_mem->memory_size && region->mm == NULL) {
+      r = verse_riscv_gstage_mprotect(verse, region, verse_mem->userspace_addr);
+      break;
+    }
+  }
+
+  if (i >= MAX_REGION_COUNT) {
+    verse_error("\t\t[verse_arch] Failed to find the region\n");
+    return -EINVAL;
+  }
+
   return r;
 }
 

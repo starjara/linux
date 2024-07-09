@@ -55,26 +55,59 @@ static int verse_dev_ioctl_munmap(unsigned long arg)
   struct verse *verse;
   struct verse_memory_region verse_mem;
   void __user *argp = (void __user *) arg;
+  int r = -EINVAL;
 
   verse_info("\t[verse] verse_dev_ioctl_munmap\n");
 
   if (current_index < 0) {
     verse_error("\t[verse] Need enter first\n");
-    return -EINVAL;
+    return r;
   }
 
   verse = verse_array[current_index];
   if (verse == NULL) {
     verse_error("\t[verse] Failed to get the verse struct\n");
-    return -EINVAL;
+    return r;
   }
 
   if (copy_from_user(&verse_mem, argp, sizeof(verse_mem))) {
     verse_error("\t[verse] Failed to get the input args from user\n");
-    return -EINVAL;
+    return r;
   }
 
-  return verse_arch_gstage_unmap(verse, &verse_mem);
+  r = verse_arch_gstage_unmap(verse, &verse_mem);
+
+  return r;
+}
+
+static int verse_dev_ioctl_mprotect(unsigned long arg)
+{
+  struct verse *verse;
+  struct verse_memory_region verse_mem;
+  void __user *argp = (void __user *) arg;
+  int r = -EINVAL;
+
+  verse_info("\t[verse] verse_dev_ioctl_mprotect\n");
+  
+  if (current_index < 0) {
+    verse_error("\t[verse] Need enter first\n");
+    return r;
+  }
+
+  verse = verse_array[current_index];
+  if (verse == NULL) {
+    verse_error("\t[verse] Failed to get the verse struct\n");
+    return r;
+  }
+
+  if (copy_from_user(&verse_mem, argp, sizeof(verse_mem))) {
+    verse_error("\t[verse] Failed to get the input args from user\n");
+    return r;
+  }
+
+  r = verse_arch_gstage_mprotect(verse, &verse_mem);
+  
+  return r;
 }
 
 // =====================================================
@@ -223,6 +256,7 @@ static long verse_dev_ioctl(struct file *flip,
   }
   case VERSE_MPROTECT: {
     verse_info("[verse] VERSE_MPROTECT\n");
+    r = verse_dev_ioctl_mprotect(arg);
     break;
   }
   }
