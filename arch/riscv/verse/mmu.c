@@ -212,8 +212,6 @@ static int gstage_set_pte(struct verse *verse, u32 level,
   pte_t *next_ptep = (pte_t *)verse->arch.pgd;
   pte_t *ptep = &next_ptep[gstage_pte_index(addr, current_level)];
 
-  verse_info("\t\t[verse_arch] gstage_set_pte\n");
-
   if(current_level < level) {
     verse_error("\t\t[verse_arch] level error\n");
     return -EINVAL;
@@ -264,8 +262,6 @@ static int gstage_map_page(struct verse *verse, gpa_t gpa, phys_addr_t hpa,
   pte_t new_pte;
   pgprot_t prot;
 
-  verse_info("\t\t[verse_arch] gstage_map_page\n");
-
   ret = gstage_page_size_to_level(page_size, &level);
   if(ret) {
     return ret;
@@ -302,7 +298,26 @@ static struct verse_riscv_memregion *verse_riscv_create_new_region(struct verse 
   struct verse_riscv_memregion *new_region;
   struct page *new_page;
   int order = get_order(verse_mem->memory_size);
-  int i;
+  int i, index = -1;
+
+  // Check memory overlapping and candidate index
+  for(i=0; i<MAX_REGION_COUNT; i++) {
+    if(verse->arch.regions[i] == NULL) {
+      index = index == -1 ? i : index;
+    }
+    else {
+      if(verse->arch.regions[i]->guest_phys_addr <= verse_mem->guest_phys_addr &&
+	 verse_mem->guest_phys_addr < verse->arch.regions[i]->guest_phys_addr + verse->arch.regions[i]->memory_size) {
+	verse_error("\t\t[verse_arch] Memory is overlapped\n");
+	return NULL;
+      }
+    }
+  }
+
+  if(index < 0 || index >= MAX_REGION_COUNT) {
+    verse_error("\t\t[verse_arch] Region list is already full\n");
+    return NULL;
+  }
   
   // Get physical pages in kernel memory
   new_page = alloc_pages(GFP_KERNEL, order);
@@ -325,21 +340,9 @@ static struct verse_riscv_memregion *verse_riscv_create_new_region(struct verse 
   new_region->kernel_virtual_addr = (unsigned long)page_to_virt(new_page);
   new_region->phys_addr = page_to_phys(new_page);
 
-  // Add a new mem region
-  while (verse->arch.regions[i] != NULL) {
-    i++;
-  }
+  verse->arch.regions[index] = new_region;
 
-  if (i >= MAX_REGION_COUNT) {
-    verse_error("\t\t[verse_arch] Memregion list is aready full\n");
-    free_pages(new_region->kernel_virtual_addr, order);
-    kvfree(new_region);
-    return NULL;
-  }
-
-  verse->arch.regions[i] = new_region;
-
-  return verse->arch.regions[i];
+  return verse->arch.regions[index];
 }
 
 // =================================================================
