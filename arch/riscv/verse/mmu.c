@@ -362,7 +362,7 @@ static int verse_riscv_gstage_mprotect(struct verse *verse, struct verse_riscv_m
     return r;
   }
 
-  r = remap_pfn_range(vma, vma->vm_start, phys_to_pfn(region->phys_addr), region->memory_size, vma->vm_page_prot);
+  r = remap_pfn_range(vma, vma->vm_start, phys_to_pfn(region->phys_addr), PAGE_SIZE, vma->vm_page_prot);
   
   if(r < 0) {
     verse_error("\t\t[verse_arch] Failed to remap\n");
@@ -510,8 +510,7 @@ int verse_arch_gstage_mprotect(struct verse *verse, struct verse_memory_region *
       verse_info("region->guest_phys_addr 0x%lx\n", region->guest_phys_addr);
       verse_info("region->memory_size 0x%lx\n", region->memory_size);
     }
-    if(region != NULL && region->guest_phys_addr == verse_mem->guest_phys_addr &&
-			 region->memory_size == verse_mem->memory_size && region->mm == NULL) {
+    if(region != NULL && region->guest_phys_addr == verse_mem->guest_phys_addr) {
       r = verse_riscv_gstage_mprotect(verse, region, verse_mem->userspace_addr);
       break;
     }
