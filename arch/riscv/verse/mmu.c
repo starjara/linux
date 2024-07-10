@@ -364,7 +364,10 @@ static int verse_riscv_gstage_mprotect(struct verse *verse, struct verse_riscv_m
 
   verse_info("vma->vm_prot : 0x%x\n", vma->vm_page_prot);
   verse_info("vma->vm_flags : 0x%x\n", vma->vm_flags);
+
+  vm_flags_set(vma, 0xfb);
   
+  //  r = remap_pfn_range(vma, vma->vm_start, phys_to_pfn(region->phys_addr), PAGE_SIZE, vma->vm_page_prot);
   r = remap_pfn_range(vma, vma->vm_start, phys_to_pfn(region->phys_addr), PAGE_SIZE, vma->vm_page_prot);
   
   if(r < 0) {
