@@ -506,6 +506,10 @@ int verse_arch_gstage_mprotect(struct verse *verse, struct verse_memory_region *
   
   for(i=0; i<MAX_REGION_COUNT; i++) {
     struct verse_riscv_memregion *region = verse->arch.regions[i];
+    if(region != NULL) {
+      verse_info("region->guest_phys_addr 0x%lx\n", region->guest_phys_addr);
+      verse_info("region->memory_size 0x%lx\n", region->memory_size);
+    }
     if(region != NULL && region->guest_phys_addr == verse_mem->guest_phys_addr &&
 			 region->memory_size == verse_mem->memory_size && region->mm == NULL) {
       r = verse_riscv_gstage_mprotect(verse, region, verse_mem->userspace_addr);
