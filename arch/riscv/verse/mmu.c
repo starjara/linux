@@ -566,18 +566,19 @@ int verse_arch_gstage_map_from_user(struct verse *verse, struct verse_memory_reg
   page_size = PAGE_SIZE;
 
   verse_info("\t\t[verse_arch] virt_to_phys about hva : 0x%lx\n", hpa);
-  pte_t *new_pte = verse_riscv_print_pgtable(verse, verse_mem->userspace_addr, 0);
   
 
   spin_lock(&verse->mmu_lock);
   for(i=0; i<page_count; i++) {
+    pte_t *new_pte = verse_riscv_print_pgtable(verse, verse_mem->userspace_addr, 0);
+    
     if(gstage_set_pte(verse, 0, gpa, new_pte)) {
       spin_unlock(&verse->mmu_lock);
       verse_error("\t\t[verse_arch] Failed to map gstage page from hva\n");
       return r;
     }
     gpa += PAGE_SIZE;
-    hpa = page_to_phys(virt_to_page(verse_mem->userspace_addr + PAGE_SIZE));
+    verse_mem->userspace_addr += PAGE_SIZE;
   }
   spin_unlock(&verse->mmu_lock);
 
