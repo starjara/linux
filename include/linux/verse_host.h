@@ -45,6 +45,7 @@ void verse_arch_flush_shadow_all(struct verse *verse);
 void verse_arch_enter_vm(struct verse *verse);
 void verse_arch_exit_vm(void);
 int verse_arch_gstage_map(struct verse *verse, struct verse_memory_region *verse_mem);
+int verse_arch_gstage_map_from_user(struct verse *verse, struct verse_memory_region *verse_mem);
 int verse_arch_gstage_unmap(struct verse *verse, struct verse_memory_region *verse_mem);
 int verse_arch_gstage_mprotect(struct verse *verse, struct verse_memory_region *verse_mem);
 

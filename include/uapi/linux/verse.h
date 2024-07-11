@@ -11,7 +11,7 @@
 #define VERSE_ENTER _IO(VERSEIO, 0x11)
 #define VERSE_EXIT _IO(VERSEIO, 0x12)
 
-#define VERSE_MMAP _IO(VERSEIO, 0x21)
+#define VERSE_MMAP _IOW(VERSEIO, 0x21, struct verse_memory_region)
 #define VERSE_MUNMAP _IO(VERSEIO, 0x22)
 #define VERSE_MPROTECT _IO(VERSEIO, 0x23)
 

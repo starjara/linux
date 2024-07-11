@@ -16,6 +16,7 @@ MODULE_LICENSE("GPL");
 static int major;
 static int current_index;
 static struct class *cls;
+static struct device *device;
 static struct file_operations verse_chardev_ops;
 static struct verse **verse_array;
 
@@ -47,7 +48,12 @@ static int verse_dev_ioctl_mmap(unsigned long arg)
     return -EINVAL;
   }
 
-  return verse_arch_gstage_map(verse, &verse_mem);
+  if (verse_mem.userspace_addr <= 0) {
+    return verse_arch_gstage_map(verse, &verse_mem);
+  }
+  else {
+    return  verse_arch_gstage_map_from_user(verse, &verse_mem);
+  }
 }
 
 static int verse_dev_ioctl_munmap(unsigned long arg)
@@ -289,7 +295,7 @@ int verse_init(int length, struct module *module)
   verse_info("[verse] Assigned major number : %d\n", major);
 
   cls = class_create(DEVICE_NAME);
-  device_create(cls, NULL, MKDEV(major, 0), NULL, DEVICE_NAME);
+  device = device_create(cls, NULL, MKDEV(major, 0), NULL, DEVICE_NAME);
 
   current_index = -1;
 
@@ -301,6 +307,9 @@ void verse_exit(void)
 {
   verse_info("[verse] verse_exit\n");
   kvfree(verse_array);
+  device_destroy(cls, MKDEV(major, 0));
+  class_destroy(cls);
+  unregister_chrdev(major, DEVICE_NAME); 
   return ;
 }
 EXPORT_SYMBOL_GPL(verse_exit);
