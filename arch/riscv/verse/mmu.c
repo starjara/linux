@@ -582,8 +582,8 @@ int verse_arch_gstage_map_from_user(struct verse *verse, struct verse_memory_reg
   }
   spin_unlock(&verse->mmu_lock);
 
-  verse_riscv_print_pgtable(verse, verse_mem->userspace_addr, 1);
-  verse_riscv_print_pgtable(verse, verse_mem->userspace_addr, 0);
+  //verse_riscv_print_pgtable(verse, verse_mem->userspace_addr, 1);
+  //verse_riscv_print_pgtable(verse, verse_mem->userspace_addr, 0);
   
   return (new_region->guest_phys_addr) >> PAGE_SHIFT;
 }
