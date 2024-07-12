@@ -4,7 +4,7 @@
 #include <linux/verse.h>
 #include <linux/verse_types.h>
 
-#define MAX_REGION_COUNT 10
+#define MAX_REGION_COUNT 1024
 
 // Structs
 struct verse_vmid {
