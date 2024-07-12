@@ -598,11 +598,12 @@ int verse_arch_gstage_unmap(struct verse *verse, struct verse_memory_region *ver
     if(region != NULL && region->guest_phys_addr == verse_mem->guest_phys_addr &&
        region->memory_size == verse_mem->memory_size) {
       if (region->userspace_virtual_addr != 0) {
-	verse_error("\t\t[verse_arch] This region has been mapped to the userspace\n");
-	r = -EINVAL;
-	break;
+	// Cleaning PTE
+	
       }
-      free_pages(region->kernel_virtual_addr, get_order(region->memory_size));
+      else {
+	free_pages(region->kernel_virtual_addr, get_order(region->memory_size));
+      }
       kvfree(region);
       verse->arch.regions[i] = NULL;
       break;
