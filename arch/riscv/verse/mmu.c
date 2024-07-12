@@ -204,7 +204,7 @@ static void gstage_op_pte(struct verse *verse, gpa_t addr,
       set_pte(ptep, __pte(0));
     else if (op == GSTAGE_OP_WP)
       set_pte(ptep, __pte(pte_val(*ptep) & ~_PAGE_WRITE));
-    asm volatile(HFENCE_GVMA(zero, zero) : : : "memory");
+    //asm volatile(HFENCE_GVMA(zero, zero) : : : "memory");
     //gstage_remote_tlb_flush(verse, ptep_level, addr);
   }
 }
@@ -461,7 +461,7 @@ void verse_riscv_gstage_update_hgatp(struct verse *verse)
   if (current_hgatp != hgatp) {
     csr_write(CSR_HGATP, hgatp);
     if(!verse_riscv_gstage_vmid_bits()){
-      asm volatile(HFENCE_GVMA(zero, zero) : : : "memory");
+      //asm volatile(HFENCE_GVMA(zero, zero) : : : "memory");
     }
   }
 }
