@@ -164,7 +164,11 @@ static int verse_dev_ioctl_exit_vm(bool isFast)
 static struct verse *verse_create_vm(void)
 {
   struct verse *verse = verse_arch_alloc_vm();
+  struct verse_memory_region stack_region;
+  struct vm_area_struct *vma;
   int r;
+  unsigned long stack_start = current->mm->start_stack;
+  unsigned long stack_end = current->mm->brk;
 
   if(verse == NULL) {
     verse_error("\t\t[verse] Failed memory allocate for the new verse\n");
@@ -179,7 +183,25 @@ static struct verse *verse_create_vm(void)
     verse_arch_free_vm(verse);
     verse = NULL;
   }
+
+  // Get stack region
+  vma = vma_lookup(current->mm, current->mm->start_stack);
+  verse_info("0x%lx, 0x%lx\n", vma->vm_start, vma->vm_end);
+
+  stack_region.guest_phys_addr = stack_start;
+  stack_region.memory_size = vma->vm_end - vma->vm_start;
+  stack_region.prot = 0x3;
   
+
+  if(!verse_arch_gstage_map(verse, &stack_region)) {
+    verse_error("\t\t[verse] stack_region allocation failed\n");
+    verse_arch_free_vm(verse);
+    r = NULL;
+  }
+
+  verse->start_stack = vma->vm_end;
+  verse->stack_size = stack_region.memory_size;
+
   return verse;
 }
 

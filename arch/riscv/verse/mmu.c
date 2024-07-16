@@ -59,25 +59,25 @@ static pte_t *verse_riscv_print_pgtable(struct verse *verse, unsigned long addr,
   pte_t *next_pte;
   int current_level = gstage_pgd_levels - 1;;
 
-  verse_info("[verse] print page table entries for 0x%lx ", addr);
+  //verse_info("[verse] print page table entries for 0x%lx ", addr);
   
   if(guest != 0) {
     //pgd = phys_to_virt((csr_read(CSR_HGATP) & 0xFFFFF) << PAGE_SHIFT);
     pgd = (pte_t *)verse->arch.pgd;
-    verse_info("in guest machine\n");
+    //verse_info("in guest machine\n");
   }
   else {
     pgd = phys_to_virt((csr_read(CSR_SATP) & 0xFFFFF) << PAGE_SHIFT);
-    verse_info("in host machine\n");
+    //verse_info("in host machine\n");
   }
 
-  pte = &pgd[gstage_pte_index(addr, current_level)];
-  verse_info("[verse] [%d] pgd 0x%lx\t0x%lx\n", current_level--, pgd, *pte);
+  pte = &pgd[gstage_pte_index(addr, current_level--)];
+  //verse_info("[verse] [%d] pgd 0x%lx\t0x%lx\n", current_level+1, pgd, *pte);
 
   while(current_level >= 0) {
     next_pte = (pte_t *)gstage_pte_page_vaddr(*pte);
-    pte = &next_pte[gstage_pte_index(addr, current_level)];
-    verse_info("[verse] [%d] pte 0x%lx\t0x%lx\n", current_level--, next_pte, *pte);
+    pte = &next_pte[gstage_pte_index(addr, current_level--)];
+    //verse_info("[verse] [%d] pte 0x%lx\t0x%lx\n", current_level+1, next_pte, *pte);
   }
 
   return pte;
@@ -204,7 +204,7 @@ static void gstage_op_pte(struct verse *verse, gpa_t addr,
       set_pte(ptep, __pte(0));
     else if (op == GSTAGE_OP_WP)
       set_pte(ptep, __pte(pte_val(*ptep) & ~_PAGE_WRITE));
-    //asm volatile(HFENCE_GVMA(zero, zero) : : : "memory");
+    asm volatile(HFENCE_GVMA(zero, zero) : : : "memory");
     //gstage_remote_tlb_flush(verse, ptep_level, addr);
   }
 }
@@ -252,15 +252,12 @@ static int gstage_set_pte(struct verse *verse, u32 level,
   pte_t *next_ptep = (pte_t *)verse->arch.pgd;
   pte_t *ptep = &next_ptep[gstage_pte_index(addr, current_level)];
 
-  verse_info("\t\t[verse_arch] gstage_set_pte\n");
-
   if(current_level < level) {
     verse_error("\t\t[verse_arch] level error\n");
     return -EINVAL;
   }
 
   while (current_level != level) {
-    verse_info("\t\t[verse_arch] level : %d\n", current_level);
     if(gstage_pte_leaf(ptep)) {
       verse_error("\t\t[verse_arch] PTE alraedy exist\n");
       return -EEXIST;
@@ -289,7 +286,6 @@ static int gstage_set_pte(struct verse *verse, u32 level,
   }
 
   *ptep = *new_pte;
-  verse_info("\t\t[verse_arch] pte : 0x%lx\n", *ptep);
 
   if(gstage_pte_leaf(ptep)) {
       asm volatile("sfence.vma" ::: "memory");
@@ -306,8 +302,6 @@ static int gstage_map_page(struct verse *verse, gpa_t gpa, phys_addr_t hpa,
   pte_t new_pte;
   pgprot_t prot;
 
-  verse_info("\t\t[verse_arch] gstage_map_page\n");
-  
   ret = gstage_page_size_to_level(page_size, &level);
   if(ret) {
     return ret;
@@ -332,8 +326,6 @@ static int gstage_map_page(struct verse *verse, gpa_t gpa, phys_addr_t hpa,
 
   new_pte = pfn_pte(PFN_DOWN(hpa), prot);
   new_pte = pte_mkdirty(new_pte);
-
-  verse_info("\t\tnew_pte : 0x%lx\n", new_pte);
 
   return gstage_set_pte(verse, level, gpa, &new_pte);
 }
@@ -461,7 +453,7 @@ void verse_riscv_gstage_update_hgatp(struct verse *verse)
   if (current_hgatp != hgatp) {
     csr_write(CSR_HGATP, hgatp);
     if(!verse_riscv_gstage_vmid_bits()){
-      //asm volatile(HFENCE_GVMA(zero, zero) : : : "memory");
+      asm volatile(HFENCE_GVMA(zero, zero) : : : "memory");
     }
   }
 }
@@ -504,7 +496,6 @@ int verse_arch_gstage_map (struct verse *verse, struct verse_memory_region *vers
 
   // map new page
   page_count = 1 << get_order(new_region->memory_size);
-  verse_info("\t\t[verse_arch] page_count : 0x%x\n", page_count);
   while (i < page_count) {
     gpa = new_region->guest_phys_addr + (i * page_size);
     hpa = new_region->phys_addr + (i * page_size);
@@ -533,11 +524,12 @@ int verse_arch_gstage_map_from_user(struct verse *verse, struct verse_memory_reg
   bool exec, write, read;
   int r = -EINVAL;
 
-  char *buffer = kmalloc(4096, GFP_KERNEL);
+  /*
   verse_info("\t\t[verse_arch] verse_arch_gstage_map_from_user\n");
   copy_from_user(buffer, (char __user *)verse_mem->userspace_addr, 4096);
   verse_info("\t\t\t%s", buffer);
   kfree(buffer);
+  */
 
   new_region = verse_riscv_create_new_region(verse, verse_mem);
   if(new_region == NULL) {
@@ -546,13 +538,12 @@ int verse_arch_gstage_map_from_user(struct verse *verse, struct verse_memory_reg
   }
 
   vma = vma_lookup(current->mm, verse_mem->userspace_addr);
-  if(vma == NULL) {
+  if(vma == NULL || access_ok(verse_mem->userspace_addr, verse_mem->memory_size) != 1) {
     verse_error("\t\t[veres_arch] Failed to lookup vma for 0x%lx\n", verse_mem->userspace_addr);
     return r;
   }
 
-  verse_info("\t\t[verse_arch] vma->vm_start : 0x%lx\n", vma->vm_start);
-  verse_info("\t\t[verse_arch] access_ok : 0x%x\n", access_ok(verse_mem->userspace_addr, verse_mem->memory_size));
+  //verse_info("\t\t[verse_arch] access_ok : 0x%x\n", access_ok(verse_mem->userspace_addr, verse_mem->memory_size));
 
   // get permission
   exec = (verse_mem->prot & 0x4) >> 2;
@@ -564,9 +555,6 @@ int verse_arch_gstage_map_from_user(struct verse *verse, struct verse_memory_reg
   gpa = new_region->guest_phys_addr;
   hpa = virt_to_phys(verse_mem->userspace_addr);
   page_size = PAGE_SIZE;
-
-  verse_info("\t\t[verse_arch] virt_to_phys about hva : 0x%lx\n", hpa);
-  
 
   spin_lock(&verse->mmu_lock);
   for(i=0; i<page_count; i++) {
@@ -656,6 +644,7 @@ void verse_arch_flush_shadow_all(struct verse *verse)
       free_pages(region->kernel_virtual_addr, get_order(region->memory_size));
       kvfree(region);
       verse->arch.regions[i] = NULL;
+      verse_info("\t\t[verse_arch] Free successfully\n");
     }
   }
   

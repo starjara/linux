@@ -21,10 +21,10 @@ struct verse {
   // MMU spin lock 
   spinlock_t mmu_lock;
 
-  struct mm_struct *mm; // Userspace tied to this vm
-
   struct verse_arch arch;
   
+  __u64 start_stack;
+  __u64 stack_size;
 };
 
 // static functions
