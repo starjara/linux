@@ -188,10 +188,11 @@ static struct verse *verse_create_vm(void)
   vma = vma_lookup(current->mm, current->mm->start_stack);
   verse_info("0x%lx, 0x%lx\n", vma->vm_start, vma->vm_end);
 
-  stack_region.guest_phys_addr = vma->vm_start;
-  stack_region.memory_size = vma->vm_end - vma->vm_start;
+  stack_region.guest_phys_addr = vma->vm_start - (512*PAGE_SIZE);
+  stack_region.memory_size = (1024*PAGE_SIZE);
   stack_region.prot = 0x3;
   
+  /*
 
   if(!verse_arch_gstage_map(verse, &stack_region)) {
     verse_error("\t\t[verse] stack_region allocation failed\n");
@@ -199,6 +200,7 @@ static struct verse *verse_create_vm(void)
     r = NULL;
   }
 
+  */
   verse->start_stack = vma->vm_end;
   verse->stack_size = stack_region.memory_size;
 
