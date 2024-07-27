@@ -77,8 +77,8 @@ struct verse_arch {
   struct verse_riscv_memregion *regions[MAX_REGION_COUNT];
 
   // Register contexts
-  struct verse_cpu_context host_context;
-  struct verse_cpu_context guest_context;
+  // struct verse_cpu_context host_context;
+  // struct verse_cpu_context guest_context;
 };
 
 

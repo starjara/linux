@@ -9,6 +9,8 @@
 
 #include <linux/uaccess.h>
 // Macros
+// #define LOG_E verse_info("\t[riscv/mmu.c] Enter: %s\n", __func__);
+#define LOG_E 
 
 #ifdef CONFIG_64BIT
 static unsigned long gstage_mode __ro_after_init = (HGATP_MODE_SV39X4 << HGATP_MODE_SHIFT);
@@ -219,6 +221,8 @@ static void gstage_unmap_range(struct verse *verse, gpa_t start,
   unsigned long page_size;
   gpa_t addr = start, end = start + size;
 
+  LOG_E
+  
   while (addr < end) {
     found_leaf = gstage_get_leaf_entry(verse, addr,
 				       &ptep, &ptep_level);
@@ -259,12 +263,14 @@ static int gstage_set_pte(struct verse *verse, u32 level,
 
   while (current_level != level) {
     if(gstage_pte_leaf(ptep)) {
-      verse_error("\t\t[verse_arch] PTE alraedy exist\n");
+      verse_error("\t\t[verse_arch] Leaf PTE alraedy exist 0x%lx\n", *ptep);
       return -EEXIST;
     }
 
     if(!pte_val(*ptep)) {
-      next_ptep = __get_free_page(GFP_ATOMIC | __GFP_ACCOUNT);
+      //next_ptep = __get_free_page(GFP_ATOMIC | __GFP_ACCOUNT);
+      //next_ptep = page_to_virt(alloc_page(GFP_ATOMIC | __GFP_ACCOUNT));
+      next_ptep = get_zeroed_page(GFP_ATOMIC | __GFP_ACCOUNT);
       
       if (!next_ptep) {
 	verse_error("\t\t[verse_arch] Failed to get a new page\n");
@@ -274,7 +280,7 @@ static int gstage_set_pte(struct verse *verse, u32 level,
     }
     else {
       if(gstage_pte_leaf(ptep)) {
-	verse_error("\t\t[verse_arch] PTE alraedy exist\n");
+	verse_error("\t\t[verse_arch] PTE alraedy exist 0x%lx\n", *ptep);
 	return -EEXIST;
       }
 
@@ -288,7 +294,8 @@ static int gstage_set_pte(struct verse *verse, u32 level,
   *ptep = *new_pte;
 
   if(gstage_pte_leaf(ptep)) {
-      asm volatile("sfence.vma" ::: "memory");
+      asm volatile(HFENCE_GVMA(zero, zero) : : : "memory");
+      //asm volatile("sfence.vma" ::: "memory");
   }
   
   return 0;
@@ -382,7 +389,7 @@ static int verse_riscv_gstage_mprotect(struct verse *verse, struct verse_riscv_m
   int i;
   int r = -EINVAL;
 
-  verse_info("\t\t[verse_arch] verse_riscv_gstage_mprotect %s\n", region->kernel_virtual_addr);
+  // verse_info("\t\t[verse_arch] verse_riscv_gstage_mprotect %s\n", region->kernel_virtual_addr);
   
   vma = vma_lookup(current->mm, userspace_virtual_addr);
   if (vma == NULL) {
@@ -495,19 +502,22 @@ int verse_arch_gstage_map (struct verse *verse, struct verse_memory_region *vers
   read = verse_mem->prot & 0x1;
 
   // map new page
+  spin_lock(&verse->mmu_lock);
   page_count = 1 << get_order(new_region->memory_size);
   while (i < page_count) {
     gpa = new_region->guest_phys_addr + (i * page_size);
     hpa = new_region->phys_addr + (i * page_size);
     
     if (gstage_map_page(verse, gpa, hpa, page_size, exec, write, read)) {
+      spin_unlock(&verse->mmu_lock);
       verse_error("\t\t[verse_arch] Failed to map the page\n");
-      break;
+      return r;
     }
     i++;
   }
+  spin_unlock(&verse->mmu_lock);
 
-  verse_riscv_print_pgtable(verse, gpa, 1);
+  // verse_riscv_print_pgtable(verse, gpa, 1);
   
   r = (new_region->guest_phys_addr) >> PAGE_SHIFT;
   return r;
@@ -580,23 +590,28 @@ int verse_arch_gstage_map_from_user(struct verse *verse, struct verse_memory_reg
 int verse_arch_gstage_unmap(struct verse *verse, struct verse_memory_region *verse_mem)
 {
   int i, r = 0;
-    
+
+  LOG_E
+
+  spin_lock(&verse->mmu_lock);
   for(i=0; i<MAX_REGION_COUNT; i++) {
     struct verse_riscv_memregion *region = verse->arch.regions[i];
     if(region != NULL && region->guest_phys_addr == verse_mem->guest_phys_addr &&
        region->memory_size == verse_mem->memory_size) {
       if (region->userspace_virtual_addr != 0) {
 	// Cleaning PTE
-	
+	gstage_unmap_range(verse, region->guest_phys_addr, region->memory_size, false);
       }
       else {
-	free_pages(region->kernel_virtual_addr, get_order(region->memory_size));
+	struct page *p = phys_to_page(region->phys_addr);
+	__free_pages(p, get_order(region->memory_size));
       }
       kvfree(region);
       verse->arch.regions[i] = NULL;
       break;
     }
   }
+  spin_unlock(&verse->mmu_lock);
 
   if(i >= MAX_REGION_COUNT) {
     verse_error("\t\t[verse_arch] Failed to find the region\n");
@@ -611,13 +626,13 @@ int verse_arch_gstage_mprotect(struct verse *verse, struct verse_memory_region *
   int i;
   int r = -EINVAL;
 
-  verse_info("0x%lx\n", verse_mem->userspace_addr);
+  // verse_info("0x%lx\n", verse_mem->userspace_addr);
   
   for(i=0; i<MAX_REGION_COUNT; i++) {
     struct verse_riscv_memregion *region = verse->arch.regions[i];
     if(region != NULL) {
-      verse_info("region->guest_phys_addr 0x%lx\n", region->guest_phys_addr);
-      verse_info("region->memory_size 0x%lx\n", region->memory_size);
+      // verse_info("region->guest_phys_addr 0x%lx\n", region->guest_phys_addr);
+      // verse_info("region->memory_size 0x%lx\n", region->memory_size);
     }
     if(region != NULL && region->guest_phys_addr == verse_mem->guest_phys_addr) {
       r = verse_riscv_gstage_mprotect(verse, region, verse_mem->userspace_addr);
@@ -626,7 +641,7 @@ int verse_arch_gstage_mprotect(struct verse *verse, struct verse_memory_region *
   }
 
   if (i >= MAX_REGION_COUNT) {
-    verse_error("\t\t[verse_arch] Failed to find the region\n");
+    // verse_error("\t\t[verse_arch] Failed to find the region\n");
     return -EINVAL;
   }
 
@@ -640,11 +655,11 @@ void verse_arch_flush_shadow_all(struct verse *verse)
   for(i=0; i<MAX_REGION_COUNT; i++) {
     struct verse_riscv_memregion *region = verse->arch.regions[i];
     if(region != NULL) {
-      verse_info("\t\t[verse_arch] Found a not freeed region [%d]\n");
+      // verse_info("\t\t[verse_arch] Found a not freeed region [%d]\n");
       free_pages(region->kernel_virtual_addr, get_order(region->memory_size));
       kvfree(region);
       verse->arch.regions[i] = NULL;
-      verse_info("\t\t[verse_arch] Free successfully\n");
+      // verse_info("\t\t[verse_arch] Free successfully\n");
     }
   }
   

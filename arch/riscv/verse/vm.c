@@ -5,7 +5,7 @@ int verse_arch_init_vm(struct verse *verse)
 {
   int r;
 
-  verse_info("\t[verse] verse_arch_init_vm\n");
+  // verse_info("\t[verse] verse_arch_init_vm\n");
 
   r = verse_riscv_gstage_alloc_pgd(verse);
   if(r)

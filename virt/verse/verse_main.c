@@ -7,6 +7,9 @@
 // UAPI
 #include <linux/verse.h>
 
+// #define LOG_E verse_info("[virt/verse-main.c] Enter: %s\n", __func__);
+#define LOG_E
+
 #define DEVICE_NAME "verse"
 
 MODULE_AUTHOR("JARA");
@@ -19,6 +22,7 @@ static struct class *cls;
 static struct device *device;
 static struct file_operations verse_chardev_ops;
 static struct verse **verse_array;
+static struct mutex hgatp_mutex;
 
 // =====================================================
 // Verse mmap, munmap, and mprotect
@@ -29,31 +33,34 @@ static int verse_dev_ioctl_mmap(unsigned long arg)
   struct verse_memory_region verse_mem;
   void __user *argp = (void __user *) arg;
   unsigned long new_page;
+  int r = -EINVAL;
   
-  verse_info("\t[verse] verse_dev_ioctl_mmap\n");
+  LOG_E
 
   if (current_index < 0) {
     verse_error("\t[verse] Need enter first\n");
-    return -EINVAL;
+    return r;
   }
   
   verse = verse_array[current_index];
   if (verse == NULL) {
     verse_error("\t[verse] Failed to get verse struct\n");
-    return -EINVAL;
+    return r;
   }
 
   if (copy_from_user(&verse_mem, argp, sizeof(verse_mem))) {
     verse_error("\t[verse] Falied to get the input args from user\n");
-    return -EINVAL;
+    return r;
   }
 
   if (verse_mem.userspace_addr <= 0) {
-    return verse_arch_gstage_map(verse, &verse_mem);
+    r = verse_arch_gstage_map(verse, &verse_mem);
   }
   else {
-    return  verse_arch_gstage_map_from_user(verse, &verse_mem);
+    r = verse_arch_gstage_map_from_user(verse, &verse_mem);
   }
+
+  return r;
 }
 
 static int verse_dev_ioctl_munmap(unsigned long arg)
@@ -63,7 +70,7 @@ static int verse_dev_ioctl_munmap(unsigned long arg)
   void __user *argp = (void __user *) arg;
   int r = -EINVAL;
 
-  verse_info("\t[verse] verse_dev_ioctl_munmap\n");
+  LOG_E
 
   if (current_index < 0) {
     verse_error("\t[verse] Need enter first\n");
@@ -93,7 +100,7 @@ static int verse_dev_ioctl_mprotect(unsigned long arg)
   void __user *argp = (void __user *) arg;
   int r = -EINVAL;
 
-  verse_info("\t[verse] verse_dev_ioctl_mprotect\n");
+  LOG_E
   
   if (current_index < 0) {
     verse_error("\t[verse] Need enter first\n");
@@ -122,12 +129,18 @@ static int verse_dev_ioctl_mprotect(unsigned long arg)
 static int verse_dev_ioctl_enter_vm(int index)
 {
   struct verse *verse;
+
+  LOG_E 
   
   if(verse_array[index] == NULL) {
     verse_error("\t[verse] %d th verse is not exist, need create first\n", index);
     return -EINVAL;
   }
 
+  if(mutex_is_locked(&hgatp_mutex)) {
+    verse_error("\t[verse] Already entered %d\n", current_index);
+  }
+  
   verse = verse_array[index];
 
   verse_arch_enter_vm(verse);
@@ -135,12 +148,16 @@ static int verse_dev_ioctl_enter_vm(int index)
   csr_write(CSR_HSTATUS, csr_read(CSR_HSTATUS) | HSTATUS_HU);
     
   current_index = index;
+    
+  mutex_lock(&hgatp_mutex);
 
   return 0;
 }
 
 static int verse_dev_ioctl_exit_vm(bool isFast)
 {
+  LOG_E 
+
   if(current_index < 0) {
     verse_error("\t[verse] Not in the enter state\n");
     return -EINVAL;
@@ -153,6 +170,8 @@ static int verse_dev_ioctl_exit_vm(bool isFast)
   }
   
   current_index = -1;
+
+  mutex_unlock(&hgatp_mutex);
 
   return 0;
 }
@@ -169,6 +188,8 @@ static struct verse *verse_create_vm(void)
   int r;
   unsigned long stack_start = current->mm->start_stack;
   unsigned long stack_end = current->mm->brk;
+
+  LOG_E
 
   if(verse == NULL) {
     verse_error("\t\t[verse] Failed memory allocate for the new verse\n");
@@ -188,19 +209,18 @@ static struct verse *verse_create_vm(void)
   vma = vma_lookup(current->mm, current->mm->start_stack);
   verse_info("0x%lx, 0x%lx\n", vma->vm_start, vma->vm_end);
 
-  stack_region.guest_phys_addr = vma->vm_start - (512*PAGE_SIZE);
-  stack_region.memory_size = (1024*PAGE_SIZE);
+  // stack_region.guest_phys_addr = vma->vm_start (512*PAGE_SIZE);
+  stack_region.guest_phys_addr = vma->vm_start;// (512*PAGE_SIZE);
+  // stack_region.memory_size = (1024*PAGE_SIZE);
+  stack_region.memory_size = vma->vm_end - vma->vm_start;
   stack_region.prot = 0x3;
   
-  /*
-
   if(!verse_arch_gstage_map(verse, &stack_region)) {
     verse_error("\t\t[verse] stack_region allocation failed\n");
     verse_arch_free_vm(verse);
     r = NULL;
   }
 
-  */
   verse->start_stack = vma->vm_end;
   verse->stack_size = stack_region.memory_size;
 
@@ -210,6 +230,8 @@ static struct verse *verse_create_vm(void)
 static int verse_dev_ioctl_create_vm(int index)
 {
   struct verse *new_verse;
+
+  LOG_E
   
   if(verse_array[index] != NULL) {
     verse_error("\t[verse] The index %d th verse already exist\n");
@@ -233,6 +255,8 @@ static void verse_dev_ioctl_destroy_vm(int index)
 {
   struct verse *target = verse_array[index];
 
+  LOG_E
+
   if(target == NULL) {
     verse_error("\t[verse] Target %d is not existing\n", index);
     return ;
@@ -255,37 +279,37 @@ static long verse_dev_ioctl(struct file *flip,
 
   switch(ioctl) {
   case VERSE_CREATE: {
-    verse_info("[verse] VERSE_CREATE, id : %d\n", arg);
+    // verse_info("[verse] VERSE_CREATE, id : %d\n", arg);
     r = verse_dev_ioctl_create_vm(arg);
     break;
   }
   case VERSE_DESTROY: {
-    verse_info("[verse] VERSE_DESTROY, id : %d\n", arg);
+    // verse_info("[verse] VERSE_DESTROY, id : %d\n", arg);
     verse_dev_ioctl_destroy_vm(arg);
     break;
   }
   case VERSE_ENTER: {
-    verse_info("[verse] VERSE_ENTER, id : %d\n", arg);
+    // verse_info("[verse] VERSE_ENTER, id : %d\n", arg);
     r = verse_dev_ioctl_enter_vm(arg);
     break;
   }
   case VERSE_EXIT: {
-    verse_info("[verse] VERSE_EXIT, id : %d\n", arg);
+    // verse_info("[verse] VERSE_EXIT, id : %d\n", arg);
     r = verse_dev_ioctl_exit_vm(arg);
     break;
   }
   case VERSE_MMAP: {
-    verse_info("[verse] VERSE_MMAP\n");
+    // verse_info("[verse] VERSE_MMAP\n");
     r = verse_dev_ioctl_mmap(arg);
     break;
   }
   case VERSE_MUNMAP: {
-    verse_info("[verse] VERSE_MUNMAP\n");
+    // verse_info("[verse] VERSE_MUNMAP\n");
     r = verse_dev_ioctl_munmap(arg);
     break;
   }
   case VERSE_MPROTECT: {
-    verse_info("[verse] VERSE_MPROTECT\n");
+    // verse_info("[verse] VERSE_MPROTECT\n");
     r = verse_dev_ioctl_mprotect(arg);
     break;
   }
@@ -302,7 +326,7 @@ static struct file_operations verse_chardev_ops = {
 // Module init and exit
 int verse_init(int length, struct module *module)
 {
-  verse_info("[verse] verse_init\n");
+   verse_info("[verse] verse_init\n");
 
   verse_array = kzalloc(sizeof(struct verse *) * length, GFP_KERNEL);
   if(verse_array == NULL) {
@@ -322,6 +346,8 @@ int verse_init(int length, struct module *module)
   device = device_create(cls, NULL, MKDEV(major, 0), NULL, DEVICE_NAME);
 
   current_index = -1;
+
+  mutex_init(&hgatp_mutex);
 
   return 0;
 }
