@@ -7,7 +7,7 @@ static int __init riscv_verse_init(void)
 
   verse_info("[verse_arch] riscv_verse_init\n");
 
-  rc = verse_init(10, THIS_MODULE);
+  rc = verse_init(1024, THIS_MODULE);
 
   return rc;
 }

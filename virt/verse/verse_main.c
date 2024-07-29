@@ -207,7 +207,7 @@ static struct verse *verse_create_vm(void)
 
   // Get stack region
   vma = vma_lookup(current->mm, current->mm->start_stack);
-  verse_info("0x%lx, 0x%lx\n", vma->vm_start, vma->vm_end);
+  // verse_info("0x%lx, 0x%lx\n", vma->vm_start, vma->vm_end);
 
   // stack_region.guest_phys_addr = vma->vm_start (512*PAGE_SIZE);
   stack_region.guest_phys_addr = vma->vm_start;// (512*PAGE_SIZE);
