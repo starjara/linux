@@ -82,6 +82,14 @@ static pte_t *verse_riscv_print_pgtable(struct verse *verse, unsigned long addr,
     //verse_info("[verse] [%d] pte 0x%lx\t0x%lx\n", current_level+1, next_pte, *pte);
   }
 
+  if(guest == 0) {
+    //pte->pte = pte->pte & 0xFFFFFFFFFFFFFFFB;
+    //set_pte(pte, pte->pte);
+    set_pte(pte, __pte(pte_val(*pte) & ~_PAGE_WRITE));
+    //set_pte(ptep, __pte(pte_val(*ptep) & ~_PAGE_WRITE));
+  }
+  
+
   return pte;
 }
 
@@ -556,8 +564,8 @@ int verse_arch_gstage_map_from_user(struct verse *verse, struct verse_memory_reg
   //verse_info("\t\t[verse_arch] access_ok : 0x%x\n", access_ok(verse_mem->userspace_addr, verse_mem->memory_size));
 
   // get permission
-  exec = (verse_mem->prot & 0x4) >> 2;
-  write = (verse_mem->prot & 0x2) >> 1;
+  exec = (verse_mem->prot & 0x4);
+  write = (verse_mem->prot & 0x2);
   read = verse_mem->prot & 0x1;
 
   
@@ -568,9 +576,11 @@ int verse_arch_gstage_map_from_user(struct verse *verse, struct verse_memory_reg
 
   spin_lock(&verse->mmu_lock);
   for(i=0; i<page_count; i++) {
-    pte_t *new_pte = verse_riscv_print_pgtable(verse, verse_mem->userspace_addr, 0);
+    pte_t new_pte;
+    new_pte.pte = verse_riscv_print_pgtable(verse, verse_mem->userspace_addr, 0)->pte;
+    new_pte.pte = new_pte.pte | (verse_mem->prot) << 1;
     
-    if(gstage_set_pte(verse, 0, gpa, new_pte)) {
+    if(gstage_set_pte(verse, 0, gpa, &new_pte)) {
       spin_unlock(&verse->mmu_lock);
       verse_error("\t\t[verse_arch] Failed to map gstage page from hva\n");
       return r;
@@ -583,6 +593,8 @@ int verse_arch_gstage_map_from_user(struct verse *verse, struct verse_memory_reg
   //verse_riscv_print_pgtable(verse, verse_mem->userspace_addr, 1);
   //verse_riscv_print_pgtable(verse, verse_mem->userspace_addr, 0);
   
+  asm volatile("sfence.vma x0, x0" ::: "memory");
+
   return (new_region->guest_phys_addr) >> PAGE_SHIFT;
 }
 
