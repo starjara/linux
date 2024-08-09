@@ -82,12 +82,14 @@ static pte_t *verse_riscv_print_pgtable(struct verse *verse, unsigned long addr,
     //verse_info("[verse] [%d] pte 0x%lx\t0x%lx\n", current_level+1, next_pte, *pte);
   }
 
+  /*
   if(guest == 0) {
     //pte->pte = pte->pte & 0xFFFFFFFFFFFFFFFB;
     //set_pte(pte, pte->pte);
     set_pte(pte, __pte(pte_val(*pte) & ~_PAGE_WRITE));
     //set_pte(ptep, __pte(pte_val(*ptep) & ~_PAGE_WRITE));
   }
+  */
   
 
   return pte;
