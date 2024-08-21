@@ -18,6 +18,7 @@ MODULE_LICENSE("GPL");
 // Global static variables
 static int major;
 static int current_index;
+static int last_index;
 static struct class *cls;
 static struct device *device;
 static struct file_operations verse_chardev_ops;
@@ -130,21 +131,43 @@ static int verse_dev_ioctl_enter_vm(int index)
 {
   struct verse *verse;
 
-  LOG_E 
+  LOG_E; 
+ 
+  if(mutex_is_locked(&hgatp_mutex)) {
+    verse_error("\t[verse] Already entered %d\n", current_index);
+    return -EINVAL;
+  }
   
+  if(index == -1) {
+    if(last_index == -1) {
+      verse_error("\t[verse] There is no last accessed domain\n", index);
+      return -EINVAL;
+    }
+    if(verse_array[last_index]->pid != current->pid) {
+      verse_error("\t[verse] Not for this task %d\n", last_index);
+      return -EINVAL;
+    }
+    verse_info("[verse] Enter last domain %d\n", last_index);
+    index = last_index;
+    goto ENTER;
+  }
+    
   if(verse_array[index] == NULL) {
     verse_error("\t[verse] %d th verse is not exist, need create first\n", index);
     return -EINVAL;
   }
-
-  if(mutex_is_locked(&hgatp_mutex)) {
-    verse_error("\t[verse] Already entered %d\n", current_index);
-  }
-  
+ 
   verse = verse_array[index];
+
+  if(verse->pid != current->pid) {
+    verse_error("\t[verse] Not for this task %d\n", index);
+    verse = NULL;
+    return -EINVAL;
+  }
 
   verse_arch_enter_vm(verse);
 
+ ENTER:
   csr_write(CSR_HSTATUS, csr_read(CSR_HSTATUS) | HSTATUS_HU);
     
   current_index = index;
@@ -154,7 +177,8 @@ static int verse_dev_ioctl_enter_vm(int index)
   return 0;
 }
 
-static int verse_dev_ioctl_exit_vm(bool isFast)
+//static int verse_dev_ioctl_exit_vm(bool isFast)
+static int verse_dev_ioctl_exit_vm(void)
 {
   LOG_E 
 
@@ -165,10 +189,13 @@ static int verse_dev_ioctl_exit_vm(bool isFast)
 
   csr_write(CSR_HSTATUS, csr_read(CSR_HSTATUS) & (~HSTATUS_HU));
 
+  /*
   if(isFast != 1) {
     verse_arch_exit_vm();
   }
-  
+  */
+
+  last_index = current_index;
   current_index = -1;
 
   mutex_unlock(&hgatp_mutex);
@@ -186,8 +213,10 @@ static struct verse *verse_create_vm(void)
   struct verse_memory_region stack_region;
   struct vm_area_struct *vma;
   int r;
+  /*
   unsigned long stack_start = current->mm->start_stack;
   unsigned long stack_end = current->mm->brk;
+  */
 
   LOG_E
 
@@ -197,6 +226,7 @@ static struct verse *verse_create_vm(void)
   }
 
   VERSE_MMU_LOCK_INIT(verse);
+  verse->pid = current->pid;
 
   r = verse_arch_init_vm(verse);
   if (r != 0) {
@@ -205,6 +235,7 @@ static struct verse *verse_create_vm(void)
     verse = NULL;
   }
 
+  /*
   // Get stack region
   vma = vma_lookup(current->mm, current->mm->start_stack);
   // verse_info("0x%lx, 0x%lx\n", vma->vm_start, vma->vm_end);
@@ -223,6 +254,7 @@ static struct verse *verse_create_vm(void)
 
   verse->start_stack = vma->vm_end;
   verse->stack_size = stack_region.memory_size;
+  */
 
   return verse;
 }
@@ -295,7 +327,8 @@ static long verse_dev_ioctl(struct file *flip,
   }
   case VERSE_EXIT: {
     // verse_info("[verse] VERSE_EXIT, id : %d\n", arg);
-    r = verse_dev_ioctl_exit_vm(arg);
+    //r = verse_dev_ioctl_exit_vm(arg);
+    r = verse_dev_ioctl_exit_vm();
     break;
   }
   case VERSE_MMAP: {
@@ -346,6 +379,7 @@ int verse_init(int length, struct module *module)
   device = device_create(cls, NULL, MKDEV(major, 0), NULL, DEVICE_NAME);
 
   current_index = -1;
+  last_index = -1;
 
   mutex_init(&hgatp_mutex);
 
