@@ -22,9 +22,13 @@ struct verse {
   spinlock_t mmu_lock;
 
   struct verse_arch arch;
+
+  pid_t pid;
   
+  /*
   __u64 start_stack;
   __u64 stack_size;
+  */
 };
 
 // static functions
@@ -63,7 +67,8 @@ static void verse_dev_ioctl_destroy_vm(int index);
 
 // enter and exit
 static int verse_dev_ioctl_enter_vm(int index);
-static int verse_dev_ioctl_exit_vm(bool isFast);
+//static int verse_dev_ioctl_exit_vm(bool isFast);
+static int verse_dev_ioctl_exit_vm(void);
 
 // mmap and munmap
 static int verse_dev_ioctl_mmap(unsigned long arg);
