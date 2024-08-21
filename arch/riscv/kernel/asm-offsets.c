@@ -72,6 +72,11 @@ void asm_offsets(void)
 	OFFSET(TASK_THREAD_F30, task_struct, thread.fstate.f[30]);
 	OFFSET(TASK_THREAD_F31, task_struct, thread.fstate.f[31]);
 	OFFSET(TASK_THREAD_FCSR, task_struct, thread.fstate.fcsr);
+
+	/* JARA: Add for h-extension CSRs */
+	// OFFSET(TASK_THREAD_HGATP, task_struct, thread.hgatp);
+	// OFFSET(TASK_THREAD_HSTATUS, task_struct, thread.hstatus);
+	/* JARA End */
 #ifdef CONFIG_STACKPROTECTOR
 	OFFSET(TSK_STACK_CANARY, task_struct, stack_canary);
 #endif
@@ -288,6 +293,16 @@ void asm_offsets(void)
 		  offsetof(struct task_struct, thread.sp)
 		- offsetof(struct task_struct, thread.ra)
 	);
+	/* JARA: HGATP and HSTATUS backup and restore offset */
+	DEFINE(TASK_THREAD_HGATP_RA,
+		  offsetof(struct task_struct, thread.hgatp)
+		- offsetof(struct task_struct, thread.ra)
+	);
+	DEFINE(TASK_THREAD_HSTATUS_RA,
+		  offsetof(struct task_struct, thread.hstatus)
+		- offsetof(struct task_struct, thread.ra)
+	);
+	/* JARA End */
 	DEFINE(TASK_THREAD_S0_RA,
 		  offsetof(struct task_struct, thread.s[0])
 		- offsetof(struct task_struct, thread.ra)
@@ -336,7 +351,6 @@ void asm_offsets(void)
 		  offsetof(struct task_struct, thread.s[11])
 		- offsetof(struct task_struct, thread.ra)
 	);
-
 	DEFINE(TASK_THREAD_F0_F0,
 		  offsetof(struct task_struct, thread.fstate.f[0])
 		- offsetof(struct task_struct, thread.fstate.f[0])

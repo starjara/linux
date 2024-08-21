@@ -74,6 +74,9 @@ extern struct task_struct *__switch_to(struct task_struct *,
 
 #define switch_to(prev, next, last)			\
 do {							\
+        /* JARA: task switching debug */                \
+  /*pr_info("task switched\n");	*/			\
+	/* JARA End */                                  \
 	struct task_struct *__prev = (prev);		\
 	struct task_struct *__next = (next);		\
 	if (has_fpu())					\

@@ -285,6 +285,12 @@ SYM_FUNC_START(__switch_to)
 	add   a4, a1, a4
 	REG_S ra,  TASK_THREAD_RA_RA(a3)
 	REG_S sp,  TASK_THREAD_SP_RA(a3)
+	/* JARA: Add for hgatp and hstatus back up */
+	csrr ra, CSR_HGATP 
+	REG_S ra, TASK_THREAD_HGATP_RA(a3)
+	csrr ra, CSR_HSTATUS
+	REG_S ra, TASK_THREAD_HSTATUS_RA(a3)
+	/* JARA End */
 	REG_S s0,  TASK_THREAD_S0_RA(a3)
 	REG_S s1,  TASK_THREAD_S1_RA(a3)
 	REG_S s2,  TASK_THREAD_S2_RA(a3)
@@ -300,6 +306,12 @@ SYM_FUNC_START(__switch_to)
 	/* Restore context from next->thread */
 	REG_L ra,  TASK_THREAD_RA_RA(a4)
 	REG_L sp,  TASK_THREAD_SP_RA(a4)
+	/* JARA: Add for hgatp and hstatus back up */
+	REG_L s0, TASK_THREAD_HGATP_RA(a4)
+	csrw CSR_HGATP, s0
+	REG_L s0, TASK_THREAD_HSTATUS_RA(a4)
+	csrw CSR_HSTATUS, s0
+	/* JARA End */
 	REG_L s0,  TASK_THREAD_S0_RA(a4)
 	REG_L s1,  TASK_THREAD_S1_RA(a4)
 	REG_L s2,  TASK_THREAD_S2_RA(a4)
@@ -312,6 +324,7 @@ SYM_FUNC_START(__switch_to)
 	REG_L s9,  TASK_THREAD_S9_RA(a4)
 	REG_L s10, TASK_THREAD_S10_RA(a4)
 	REG_L s11, TASK_THREAD_S11_RA(a4)
+	/* Restore context from next->thread */
 	/* The offset of thread_info in task_struct is zero. */
 	move tp, a1
 	ret
