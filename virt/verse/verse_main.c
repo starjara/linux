@@ -147,7 +147,7 @@ static int verse_dev_ioctl_enter_vm(int index)
       verse_error("\t[verse] Not for this task %d\n", last_index);
       return -EINVAL;
     }
-    verse_info("[verse] Enter last domain %d\n", last_index);
+    // verse_info("[verse] Enter last domain %d\n", last_index);
     index = last_index;
     goto ENTER;
   }

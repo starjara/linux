@@ -467,7 +467,7 @@ void verse_riscv_gstage_update_hgatp(struct verse *verse)
   hgatp |= (READ_ONCE(k->vmid.vmid) << HGATP_VMID_SHIFT) & HGATP_VMID;
   hgatp |= (k->pgd_phys >> PAGE_SHIFT) & HGATP_PPN;
   
-  verse_info("hgatp: 0x%lx\n", hgatp);
+  // verse_info("hgatp: 0x%lx\n", hgatp);
 
   if (current_hgatp != hgatp) {
     csr_write(CSR_HGATP, hgatp);
