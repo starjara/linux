@@ -23,7 +23,6 @@ static struct class *cls;
 static struct device *device;
 static struct file_operations verse_chardev_ops;
 static struct verse **verse_array;
-static struct mutex hgatp_mutex;
 
 // =====================================================
 // Verse mmap, munmap, and mprotect
@@ -133,14 +132,14 @@ static int verse_dev_ioctl_enter_vm(int index)
 
   LOG_E; 
  
-  if(mutex_is_locked(&hgatp_mutex)) {
-    verse_error("\t[verse] Already entered %d\n", current_index);
+  if(current_index != -1) {
+    verse_error("\t[verse] Already in enter state %d\n", current_index);
     return -EINVAL;
   }
-  
+
   if(index == -1) {
     if(last_index == -1) {
-      verse_error("\t[verse] There is no last accessed domain\n", index);
+      verse_error("\t[verse] There is no last accessed domain\n");
       return -EINVAL;
     }
     if(verse_array[last_index]->pid != current->pid) {
@@ -172,8 +171,6 @@ static int verse_dev_ioctl_enter_vm(int index)
     
   current_index = index;
     
-  mutex_lock(&hgatp_mutex);
-
   return 0;
 }
 
@@ -197,8 +194,6 @@ static int verse_dev_ioctl_exit_vm(void)
 
   last_index = current_index;
   current_index = -1;
-
-  mutex_unlock(&hgatp_mutex);
 
   return 0;
 }
@@ -380,8 +375,6 @@ int verse_init(int length, struct module *module)
 
   current_index = -1;
   last_index = -1;
-
-  mutex_init(&hgatp_mutex);
 
   return 0;
 }
