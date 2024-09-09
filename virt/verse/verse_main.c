@@ -24,6 +24,22 @@ static struct device *device;
 static struct file_operations verse_chardev_ops;
 static struct verse **verse_array;
 
+/* Trap vector test */
+// void (*privious_handler)(void);
+unsigned long privious_stvec;
+
+static inline void write_stvec(unsigned long addr)
+{
+  asm volatile("csrw stvec, %0" :: "r"(addr));
+}
+
+static void new_handler(void)
+{
+  verse_info("New trap handler\n");
+  //privious_handler();
+}
+/* Trap vector test end */
+
 // =====================================================
 // Verse mmap, munmap, and mprotect
 // =====================================================
@@ -282,6 +298,8 @@ static void verse_dev_ioctl_destroy_vm(int index)
 {
   struct verse *target = verse_array[index];
 
+  verse_info("pid: %d\n", target->pid);
+  
   LOG_E
 
   if(target == NULL) {
@@ -294,6 +312,7 @@ static void verse_dev_ioctl_destroy_vm(int index)
   verse_arch_destroy_vm(target);
   verse_arch_free_vm(target);
 
+  target = NULL;
   verse_array[index] = NULL;
 }
 
@@ -311,7 +330,7 @@ static long verse_dev_ioctl(struct file *flip,
     break;
   }
   case VERSE_DESTROY: {
-    // verse_info("[verse] VERSE_DESTROY, id : %d\n", arg);
+    //verse_info("[verse] VERSE_DESTROY, id : %d\n", arg);
     verse_dev_ioctl_destroy_vm(arg);
     break;
   }
@@ -375,6 +394,12 @@ int verse_init(int length, struct module *module)
 
   current_index = -1;
   last_index = -1;
+
+  /* Trap handler init */
+  asm volatile("csrr %0, stvec" : "=r"(privious_stvec));
+  csr_write(CSR_VSTVEC, privious_stvec);
+  asm volatile("csrr %0, vstvec" : "=r"(privious_stvec));
+  /* Trap handler init end */
 
   return 0;
 }

@@ -619,6 +619,7 @@ int verse_arch_gstage_unmap(struct verse *verse, struct verse_memory_region *ver
 	gstage_unmap_range(verse, region->guest_phys_addr, region->memory_size, false);
       }
       else {
+	gstage_unmap_range(verse, region->guest_phys_addr, region->memory_size, false);
 	struct page *p = phys_to_page(region->phys_addr);
 	__free_pages(p, get_order(region->memory_size));
       }
