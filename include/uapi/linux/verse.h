@@ -15,6 +15,9 @@
 #define VERSE_MUNMAP _IO(VERSEIO, 0x22)
 #define VERSE_MPROTECT _IO(VERSEIO, 0x23)
 
+#define VERSE_BULK_WRITE _IOW(VERSEIO, 0x31, struct verse_memory_region)
+#define VERSE_BULK_READ _IOW(VERSEIO, 0x32, struct verse_memory_region)
+
 struct verse_memory_region {
   __u64 guest_phys_addr;
   __u64 memory_size;

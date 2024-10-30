@@ -316,6 +316,108 @@ static void verse_dev_ioctl_destroy_vm(int index)
   verse_array[index] = NULL;
 }
 
+// Bulk write
+static int verse_dev_ioctl_bulk_write(unsigned long arg)
+{
+  struct verse *verse;
+  struct verse_memory_region verse_mem;
+  void __user *argp = (void __user *) arg;
+  char *buffer;
+  int r = -EINVAL;
+  int i;
+
+  if(current_index < 0) {
+    verse_error("\t[verse] Need enter first\n");
+  }
+
+  verse = verse_array[current_index];
+  if(verse == NULL) {
+    verse_error("\t[veres] Failed to get verse struct\n");
+    return r;
+  }
+
+  if(copy_from_user(&verse_mem, argp, sizeof(verse_mem))) {
+    verse_error("\t[verse] Failed to get the input args from user\n");
+    return r;
+  }
+
+  verse_info("Do copy from HVA to GPA\n");
+  
+  // Test code
+  char temp[100];
+  copy_from_user(&temp, verse_mem.userspace_addr, sizeof(char) * verse_mem.memory_size);
+  verse_info("%s", temp);
+
+  // Get domain memory region
+  /* To Do */
+
+  // Copy user space data to kernel space
+  buffer= page_to_virt(phys_to_page(verse->arch.regions[0]->phys_addr));
+  if(buffer == NULL) {
+    verse_error("\t[verse] Failed to get the buffer\n");
+    return r;
+  }
+  copy_from_user(buffer, verse_mem.userspace_addr, sizeof(char) * verse_mem.memory_size);
+  
+  r = 0;
+
+  verse_info("%s", buffer);
+
+  return r;
+}
+
+// Bulk Read
+static int verse_dev_ioctl_bulk_read(unsigned long arg)
+{
+  struct verse *verse;
+  struct verse_memory_region verse_mem;
+  void __user *argp = (void __user *) arg;
+  char *buffer;
+  int r = -EINVAL;
+  int i;
+
+  if(current_index < 0) {
+    verse_error("\t[verse] Need enter first\n");
+  }
+
+  verse = verse_array[current_index];
+  if(verse == NULL) {
+    verse_error("\t[veres] Failed to get verse struct\n");
+    return r;
+  }
+
+  if(copy_from_user(&verse_mem, argp, sizeof(verse_mem))) {
+    verse_error("\t[verse] Failed to get the input args from user\n");
+    return r;
+  }
+
+  verse_info("Do copy from GPA to HVA\n");
+
+  // Get domain memory region
+  /* To Do */
+
+  // Copy user space data to kernel space
+  buffer= page_to_virt(phys_to_page(verse->arch.regions[0]->phys_addr));
+
+  verse_info("%s", buffer);
+
+  if(buffer == NULL) {
+    verse_error("\t[verse] Failed to get the buffer\n");
+    return r;
+  }
+  copy_to_user(verse_mem.userspace_addr, buffer, sizeof(char) * verse_mem.memory_size);
+  
+  r = 0;
+
+  // Test code
+  char temp[100];
+  copy_from_user(&temp, verse_mem.userspace_addr, sizeof(char) * verse_mem.memory_size);
+  verse_info("%s", temp);
+  
+  return r;
+
+}
+
 
 // ioctl syscall handler
 static long verse_dev_ioctl(struct file *flip,
@@ -358,6 +460,14 @@ static long verse_dev_ioctl(struct file *flip,
   case VERSE_MPROTECT: {
     // verse_info("[verse] VERSE_MPROTECT\n");
     r = verse_dev_ioctl_mprotect(arg);
+    break;
+  }
+  case VERSE_BULK_WRITE: {
+    r = verse_dev_ioctl_bulk_write(arg);
+    break;
+  }
+  case VERSE_BULK_READ: {
+    r = verse_dev_ioctl_bulk_read(arg);
     break;
   }
   }
