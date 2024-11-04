@@ -321,6 +321,7 @@ static int verse_dev_ioctl_bulk_write(unsigned long arg)
 {
   struct verse *verse;
   struct verse_memory_region verse_mem;
+  int domain = 0;
   void __user *argp = (void __user *) arg;
   char *buffer;
   int r = -EINVAL;
@@ -344,15 +345,30 @@ static int verse_dev_ioctl_bulk_write(unsigned long arg)
   verse_info("Do copy from HVA to GPA\n");
   
   // Test code
+  /*
   char temp[100];
   copy_from_user(&temp, verse_mem.userspace_addr, sizeof(char) * verse_mem.memory_size);
   verse_info("%s", temp);
+  */
 
   // Get domain memory region
-  /* To Do */
+  while(domain < MAX_REGION_COUNT) {
+    if ( (verse->arch.regions[domain]->guest_phys_addr) <= (verse_mem.guest_phys_addr) &&
+	 (verse_mem.guest_phys_addr + verse_mem.memory_size) <=
+	 ((verse->arch.regions[domain]->guest_phys_addr) + (verse->arch.regions[domain]->memory_size))) {
+      break;
+    }
+    domain ++;
+  }
+  
+  if(domain >= MAX_REGION_COUNT) {
+    verse_error("\t[verse] Failed to get the domain region\n");
+    return r;
+  }
+  
 
   // Copy user space data to kernel space
-  buffer= page_to_virt(phys_to_page(verse->arch.regions[0]->phys_addr));
+  buffer = page_to_virt(phys_to_page(verse->arch.regions[domain]->phys_addr));
   if(buffer == NULL) {
     verse_error("\t[verse] Failed to get the buffer\n");
     return r;
@@ -372,6 +388,7 @@ static int verse_dev_ioctl_bulk_read(unsigned long arg)
   struct verse *verse;
   struct verse_memory_region verse_mem;
   void __user *argp = (void __user *) arg;
+  int domain = 0;
   char *buffer;
   int r = -EINVAL;
   int i;
@@ -394,12 +411,25 @@ static int verse_dev_ioctl_bulk_read(unsigned long arg)
   verse_info("Do copy from GPA to HVA\n");
 
   // Get domain memory region
-  /* To Do */
+  while(domain < MAX_REGION_COUNT) {
+    if ( (verse->arch.regions[domain]->guest_phys_addr) <= (verse_mem.guest_phys_addr) &&
+	 (verse_mem.guest_phys_addr + verse_mem.memory_size) <=
+	 ((verse->arch.regions[domain]->guest_phys_addr) + (verse->arch.regions[domain]->memory_size))) {
+      break;
+    }
+    domain ++;
+  }
+  
+  if(domain >= MAX_REGION_COUNT) {
+    verse_error("\t[verse] Failed to get the domain region\n");
+    return r;
+  }
+ 
 
   // Copy user space data to kernel space
-  buffer= page_to_virt(phys_to_page(verse->arch.regions[0]->phys_addr));
+  buffer= page_to_virt(phys_to_page(verse->arch.regions[domain]->phys_addr));
 
-  verse_info("%s", buffer);
+  //verse_info("%s", buffer);
 
   if(buffer == NULL) {
     verse_error("\t[verse] Failed to get the buffer\n");
