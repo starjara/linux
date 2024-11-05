@@ -440,9 +440,11 @@ static int verse_dev_ioctl_bulk_read(unsigned long arg)
   r = 0;
 
   // Test code
+  /*
   char temp[100];
   copy_from_user(&temp, verse_mem.userspace_addr, sizeof(char) * verse_mem.memory_size);
   verse_info("%s", temp);
+  */
   
   return r;
 
