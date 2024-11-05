@@ -298,7 +298,7 @@ static void verse_dev_ioctl_destroy_vm(int index)
 {
   struct verse *target = verse_array[index];
 
-  verse_info("pid: %d\n", target->pid);
+  //verse_info("pid: %d\n", target->pid);
   
   LOG_E
 
@@ -342,7 +342,7 @@ static int verse_dev_ioctl_bulk_write(unsigned long arg)
     return r;
   }
 
-  verse_info("Do copy from HVA to GPA\n");
+  //verse_info("Do copy from HVA to GPA\n");
   
   // Test code
   /*
@@ -377,7 +377,7 @@ static int verse_dev_ioctl_bulk_write(unsigned long arg)
   
   r = 0;
 
-  verse_info("%s", buffer);
+  //verse_info("%s", buffer);
 
   return r;
 }
@@ -408,7 +408,7 @@ static int verse_dev_ioctl_bulk_read(unsigned long arg)
     return r;
   }
 
-  verse_info("Do copy from GPA to HVA\n");
+  //verse_info("Do copy from GPA to HVA\n");
 
   // Get domain memory region
   while(domain < MAX_REGION_COUNT) {
