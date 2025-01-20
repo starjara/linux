@@ -561,6 +561,15 @@ u32 aarch32_insn_mcr_extract_crm(u32 insn);
 typedef bool (pstate_check_t)(unsigned long);
 extern pstate_check_t * const aarch32_opcode_cond_checks[16];
 
+/* JARA: gen MSR instr */
+enum aarch64_insn_sysreg_type {
+  AARCH64_INSN_MRS, /* Read from sysreg */
+  AARCH64_INSN_MSR, /* Write to sysreg */
+};
+u32 aarch64_insn_gen_sysreg(enum aarch64_insn_sysreg_type type,
+			  enum aarch64_insn_register Rt);
+/* End JARA */
+
 #endif /* __ASSEMBLY__ */
 
 #endif	/* __ASM_INSN_H */

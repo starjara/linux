@@ -219,4 +219,7 @@
 #define A64_BTI_J  A64_HINT(AARCH64_INSN_HINT_BTIJ)
 #define A64_BTI_JC A64_HINT(AARCH64_INSN_HINT_BTIJC)
 
+/* JARA: Gen MSR instruction */
+#define A64_SYSREG(type, Rt) aarch64_insn_gen_sysreg(type, Rt)
+
 #endif /* _BPF_JIT_H */

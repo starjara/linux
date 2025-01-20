@@ -1456,3 +1456,26 @@ u32 aarch64_insn_gen_extr(enum aarch64_insn_variant variant,
 	insn = aarch64_insn_encode_register(AARCH64_INSN_REGTYPE_RN, insn, Rn);
 	return aarch64_insn_encode_register(AARCH64_INSN_REGTYPE_RM, insn, Rm);
 }
+
+u32 aarch64_insn_gen_sysreg(enum aarch64_insn_sysreg_type type,
+			  enum aarch64_insn_register Rt)
+{
+  u32 insn;
+
+  // Set instruction 
+  switch (type) {
+  case AARCH64_INSN_MRS:
+    insn = aarch64_insn_get_mrs_value();
+    insn = aarch64_insn_encode_register(AARCH64_INSN_REGTYPE_RT, insn, Rt);
+    break;
+  case AARCH64_INSN_MSR:
+    insn = aarch64_insn_get_msr_reg_value();
+    insn = aarch64_insn_encode_register(AARCH64_INSN_REGTYPE_RT, insn, Rt);
+    break;
+  }
+  // Set Op, CRn, and CRm fields, these field are eaual in both MSR and MRS
+  insn |= 0x00082020;
+  // Set Rt register field
+
+  return insn;
+}

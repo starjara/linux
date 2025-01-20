@@ -198,6 +198,11 @@ static int build_prologue(struct jit_ctx *ctx, bool ebpf_from_cbpf)
 	const int idx0 = ctx->idx;
 	int cur_offset;
 
+	/* JARA: Register variable */
+	const u8 ttbr = bpf2a64[TMP_REG_1];
+
+	/* End JARA */
+
 	/*
 	 * BPF prog stack layout
 	 *
@@ -221,6 +226,13 @@ static int build_prologue(struct jit_ctx *ctx, bool ebpf_from_cbpf)
 	 *
 	 */
 
+	/* JARA: Instruction format Print */
+	// Test print
+	pr_info("A64_PUSH(A64_FP, A64_LR, A64_SP): 0x%lx\n",  A64_PUSH(A64_FP, A64_LR, A64_SP));
+	pr_info("A64_MOV(1, A64_FP, A64_SP): 0x%lx\n", A64_MOV(1, A64_FP, A64_SP));
+	pr_info("mrs_r9: 0x%lx\n", A64_SYSREG(AARCH64_INSN_MRS, r9));
+	pr_info("msr_r9: 0x%lx\n", A64_SYSREG(AARCH64_INSN_MSR, r9));
+	
 	/* BTI landing pad */
 	if (IS_ENABLED(CONFIG_ARM64_BTI_KERNEL))
 		emit(A64_BTI_C, ctx);
@@ -258,6 +270,11 @@ static int build_prologue(struct jit_ctx *ctx, bool ebpf_from_cbpf)
 
 	/* Set up function call stack */
 	emit(A64_SUB_I(1, A64_SP, A64_SP, ctx->stack_size), ctx);
+
+	// Test emit
+	emit(A64_SYSREG(AARCH64_INSN_MRS, ttbr), ctx);
+	/* End JARA */
+
 	return 0;
 }
 
