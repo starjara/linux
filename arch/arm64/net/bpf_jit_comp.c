@@ -273,6 +273,7 @@ static int build_prologue(struct jit_ctx *ctx, bool ebpf_from_cbpf)
 
 	// Test emit
 	emit(A64_SYSREG(AARCH64_INSN_MRS, ttbr), ctx);
+	emit(A64_SYSREG(AARCH64_INSN_MSR, ttbr), ctx);
 	/* End JARA */
 
 	return 0;

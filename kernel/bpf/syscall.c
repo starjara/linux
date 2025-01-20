@@ -32,6 +32,10 @@
 #include <linux/rcupdate_trace.h>
 #include <linux/memcontrol.h>
 
+/* JARA: Custom header */
+#include <linux/sec_bpf.h>
+/* End JARA */
+
 #define IS_FD_ARRAY(map) ((map)->map_type == BPF_MAP_TYPE_PERF_EVENT_ARRAY || \
 			  (map)->map_type == BPF_MAP_TYPE_CGROUP_ARRAY || \
 			  (map)->map_type == BPF_MAP_TYPE_ARRAY_OF_MAPS)
@@ -2304,6 +2308,10 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr)
 	err = bpf_check(&prog, attr, uattr);
 	if (err < 0)
 		goto free_used_maps;
+
+	/* JARA: Alloc pgd */
+	alloc_bpf_pgd(prog);
+	/* End JARA */
 
 	prog = bpf_prog_select_runtime(prog, &err);
 	if (err < 0)

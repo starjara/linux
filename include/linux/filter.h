@@ -561,6 +561,9 @@ struct bpf_prog_stats {
 } __aligned(2 * sizeof(u64));
 
 struct bpf_prog {
+  /* JARA: BPF prog pgd */
+  pgd_t *pgd;
+  /* End JARA */
 	u16			pages;		/* Number of allocated pages */
 	u16			jited:1,	/* Is our filter JIT'ed? */
 				jit_requested:1,/* archs need to JIT the prog */
