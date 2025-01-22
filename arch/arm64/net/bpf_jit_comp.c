@@ -21,6 +21,10 @@
 
 #include "bpf_jit.h"
 
+/* JARA: prog type */
+//#include <linux/bpf.h>
+/* End JARA */
+
 #define TMP_REG_1 (MAX_BPF_JIT_REG + 0)
 #define TMP_REG_2 (MAX_BPF_JIT_REG + 1)
 #define TCALL_CNT (MAX_BPF_JIT_REG + 2)
@@ -199,8 +203,11 @@ static int build_prologue(struct jit_ctx *ctx, bool ebpf_from_cbpf)
 	int cur_offset;
 
 	/* JARA: Register variable */
+	unsigned long long ttbr1 = read_sysreg(ttbr1_el1);
+	pgd_t *kern_pgd = (pgd_t *)phys_to_virt(ttbr1);
+	
 	const u8 ttbr = bpf2a64[TMP_REG_1];
-
+	u32 new_ttbr = virt_to_phys(prog->pgd);
 	/* End JARA */
 
 	/*
@@ -232,6 +239,7 @@ static int build_prologue(struct jit_ctx *ctx, bool ebpf_from_cbpf)
 	pr_info("A64_MOV(1, A64_FP, A64_SP): 0x%lx\n", A64_MOV(1, A64_FP, A64_SP));
 	pr_info("mrs_r9: 0x%lx\n", A64_SYSREG(AARCH64_INSN_MRS, r9));
 	pr_info("msr_r9: 0x%lx\n", A64_SYSREG(AARCH64_INSN_MSR, r9));
+	/* End JARA */
 	
 	/* BTI landing pad */
 	if (IS_ENABLED(CONFIG_ARM64_BTI_KERNEL))
@@ -265,16 +273,45 @@ static int build_prologue(struct jit_ctx *ctx, bool ebpf_from_cbpf)
 			emit(A64_BTI_J, ctx);
 	}
 
+	/* JARA: Test emit */
+	/*
+	if(memcmp(prog->pgd, kern_pgd, sizeof(PAGE_SIZE)) == 0) {
+	  pr_info("Copy successfully\n");
+	}
+	else {
+	  pr_info("Copy failed\n");
+	}
+	*/
+	
+	pr_info("new TTBR value: 0x%x\n", new_ttbr);
+	emit(A64_SYSREG(AARCH64_INSN_MRS, ttbr), ctx);
+	//emit(A64_PUSH(ttbr, r9, A64_SP), ctx);
+
+	if(prog->type == BPF_PROG_TYPE_TRACEPOINT ||
+	   prog->type == BPF_PROG_TYPE_SYSCALL) {
+
+	  emit(A64_EOR(1, ttbr, ttbr, ttbr), ctx);
+	  
+	  // ASID
+	  emit(A64_ADD_I(1, ttbr, ttbr, ttbr1  >> 48), ctx);
+	  emit(A64_LSL(1, ttbr, ttbr, 28), ctx);
+	  
+	  emit(A64_ADD_I(1, ttbr, ttbr, (new_ttbr >> 20)), ctx);
+	  emit(A64_LSL(1, ttbr, ttbr, 12), ctx);
+	  emit(A64_ADD_I(1, ttbr, ttbr, (new_ttbr << 12) >> 20), ctx);
+	  emit(A64_LSL(1, ttbr, ttbr, 8), ctx);
+	
+	  emit(A64_SYSREG(AARCH64_INSN_MSR, ttbr), ctx);
+	}
+	/* End JARA */
+
+
+
 	/* Stack must be multiples of 16B */
 	ctx->stack_size = round_up(prog->aux->stack_depth, 16);
 
 	/* Set up function call stack */
 	emit(A64_SUB_I(1, A64_SP, A64_SP, ctx->stack_size), ctx);
-
-	// Test emit
-	emit(A64_SYSREG(AARCH64_INSN_MRS, ttbr), ctx);
-	emit(A64_SYSREG(AARCH64_INSN_MSR, ttbr), ctx);
-	/* End JARA */
 
 	return 0;
 }
