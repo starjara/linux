@@ -11,7 +11,7 @@ unsigned long verse_riscv_gstage_vmid_bits(void)
 
 int verse_riscv_gstage_vmid_init(struct verse *verse)
 {
-  verse->arch.vmid.vmid_version = 0;
+  verse->arch.vmid.vmid_version = 512;
   verse->arch.vmid.vmid = vmidindex ++;
 
   return 0;

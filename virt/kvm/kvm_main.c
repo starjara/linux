@@ -2970,12 +2970,12 @@ static void kvm_set_page_accessed(struct page *page)
 
 void kvm_release_page_clean(struct page *page)
 {
-    kvm_info("[kvm] before kvm_release_page_clean ref : %d\n", page->_refcount);
+  //kvm_info("[kvm] before kvm_release_page_clean ref : %d\n", page->_refcount);
 	WARN_ON(is_error_page(page));
 
 	kvm_set_page_accessed(page);
 	put_page(page);
-    kvm_info("[kvm] after kvm_release_page_clean ref : %d\n", page->_refcount);
+	// kvm_info("[kvm] after kvm_release_page_clean ref : %d\n", page->_refcount);
 }
 EXPORT_SYMBOL_GPL(kvm_release_page_clean);
 

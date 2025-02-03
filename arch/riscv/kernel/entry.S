@@ -290,6 +290,9 @@ SYM_FUNC_START(__switch_to)
 	REG_S ra, TASK_THREAD_HGATP_RA(a3)
 	csrr ra, CSR_HSTATUS
 	REG_S ra, TASK_THREAD_HSTATUS_RA(a3)
+	;; /* JARA: VSATP? */
+	;; // csrr ra, CSR_VSATP
+	;; // REG_S ra, TASK_THREAD_VSATP_RA(a3)
 	/* JARA End */
 	REG_S s0,  TASK_THREAD_S0_RA(a3)
 	REG_S s1,  TASK_THREAD_S1_RA(a3)
@@ -304,13 +307,17 @@ SYM_FUNC_START(__switch_to)
 	REG_S s10, TASK_THREAD_S10_RA(a3)
 	REG_S s11, TASK_THREAD_S11_RA(a3)
 	/* Restore context from next->thread */
+
 	REG_L ra,  TASK_THREAD_RA_RA(a4)
 	REG_L sp,  TASK_THREAD_SP_RA(a4)
-	/* JARA: Add for hgatp and hstatus back up */
+	;; /* JARA: Add for hgatp and hstatus back up */
 	REG_L s0, TASK_THREAD_HGATP_RA(a4)
 	csrw CSR_HGATP, s0
 	REG_L s0, TASK_THREAD_HSTATUS_RA(a4)
 	csrw CSR_HSTATUS, s0
+	;; /* JARA: VSATP? */
+	;; // REG_L s0, TASK_THREAD_VSATP_RA(a4)
+	;; // csrw CSR_VSATP, s0
 	/* JARA End */
 	REG_L s0,  TASK_THREAD_S0_RA(a4)
 	REG_L s1,  TASK_THREAD_S1_RA(a4)

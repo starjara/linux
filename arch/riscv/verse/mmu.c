@@ -635,6 +635,9 @@ int verse_arch_gstage_unmap(struct verse *verse, struct verse_memory_region *ver
     r = -EINVAL;
   }
   
+  /* JARA: TLB flushing */
+  asm volatile(HFENCE_GVMA(zero, zero) : : : "memory");
+
   return r;
 }
 

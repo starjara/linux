@@ -293,6 +293,7 @@ void asm_offsets(void)
 		  offsetof(struct task_struct, thread.sp)
 		- offsetof(struct task_struct, thread.ra)
 	);
+	
 	/* JARA: HGATP and HSTATUS backup and restore offset */
 	DEFINE(TASK_THREAD_HGATP_RA,
 		  offsetof(struct task_struct, thread.hgatp)
@@ -302,7 +303,12 @@ void asm_offsets(void)
 		  offsetof(struct task_struct, thread.hstatus)
 		- offsetof(struct task_struct, thread.ra)
 	);
+	/* DEFINE(TASK_THREAD_VSATP_RA, */
+	/* 	  offsetof(struct task_struct, thread.vsatp) */
+	/* 	- offsetof(struct task_struct, thread.ra) */
+	/* ); */
 	/* JARA End */
+	
 	DEFINE(TASK_THREAD_S0_RA,
 		  offsetof(struct task_struct, thread.s[0])
 		- offsetof(struct task_struct, thread.ra)

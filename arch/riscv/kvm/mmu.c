@@ -259,7 +259,7 @@ static void gstage_op_pte(struct kvm *kvm, gpa_t addr,
 	u32 next_ptep_level;
 	unsigned long next_page_size, page_size;
 
-    kvm_info("[kvm] gstage_op_pte %d\n", op);
+	//kvm_info("[kvm] gstage_op_pte %d\n", op);
 
 	ret = gstage_level_to_page_size(ptep_level, &page_size);
 	if (ret)
@@ -304,8 +304,8 @@ static void gstage_unmap_range(struct kvm *kvm, gpa_t start,
 	unsigned long page_size;
 	gpa_t addr = start, end = start + size;
 
-    kvm_info("[kvm] gstage_unmap_range\n");
-    kvm_info("start : 0x%x, end : 0x%x\n", start, end);
+	//kvm_info("[kvm] gstage_unmap_range\n");
+	//kvm_info("start : 0x%x, end : 0x%x\n", start, end);
 
 	while (addr < end) {
 		found_leaf = gstage_get_leaf_entry(kvm, addr,
@@ -342,7 +342,7 @@ static void gstage_wp_range(struct kvm *kvm, gpa_t start, gpa_t end)
 	gpa_t addr = start;
 	unsigned long page_size;
 
-    kvm_info("[kvm] gstage_wp_range\n");
+	//kvm_info("[kvm] gstage_wp_range\n");
 	while (addr < end) {
 		found_leaf = gstage_get_leaf_entry(kvm, addr,
 						   &ptep, &ptep_level);
@@ -369,7 +369,7 @@ static void gstage_wp_memory_region(struct kvm *kvm, int slot)
 	phys_addr_t start = memslot->base_gfn << PAGE_SHIFT;
 	phys_addr_t end = (memslot->base_gfn + memslot->npages) << PAGE_SHIFT;
 
-    kvm_info("[kvm] gstage_wp_memory_region\n");
+	//kvm_info("[kvm] gstage_wp_memory_region\n");
 	spin_lock(&kvm->mmu_lock);
 	gstage_wp_range(kvm, start, end);
 	spin_unlock(&kvm->mmu_lock);
@@ -389,7 +389,7 @@ int kvm_riscv_gstage_ioremap(struct kvm *kvm, gpa_t gpa,
 		.gfp_zero = __GFP_ZERO,
 	};
 
-    kvm_info("[kvm] kvm_riscv_gstage_ioremap\n");
+	//kvm_info("[kvm] kvm_riscv_gstage_ioremap\n");
 
 	end = (gpa + size + PAGE_SIZE - 1) & PAGE_MASK;
 	pfn = __phys_to_pfn(hpa);
@@ -476,7 +476,7 @@ void kvm_arch_commit_memory_region(struct kvm *kvm,
 				const struct kvm_memory_slot *new,
 				enum kvm_mr_change change)
 {
-    kvm_info("[kvm] kvm_arch_commit_memory_region\n");
+  //kvm_info("[kvm] kvm_arch_commit_memory_region\n");
 	/*
 	 * At this point memslot has been committed and there is an
 	 * allocated dirty_bitmap[], dirty pages will be tracked while
@@ -496,7 +496,7 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
 	bool writable;
 	int ret = 0;
 
-    kvm_info("[kvm] kvm_arch_prepare_memory_region\n");
+	//kvm_info("[kvm] kvm_arch_prepare_memory_region\n");
 
 	if (change != KVM_MR_CREATE && change != KVM_MR_MOVE &&
 			change != KVM_MR_FLAGS_ONLY)
@@ -516,9 +516,9 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
 	base_gpa = new->base_gfn << PAGE_SHIFT;
 	writable = !(new->flags & KVM_MEM_READONLY);
 
-    kvm_info("\t[kvm] hva : 0x%lx\n", hva);
-    kvm_info("\t[kvm] size : 0x%lx\n", size);
-    kvm_info("\t[kvm] base_gpa : 0x%lx\n", base_gpa);
+    /* kvm_info("\t[kvm] hva : 0x%lx\n", hva); */
+    /* kvm_info("\t[kvm] size : 0x%lx\n", size); */
+    /* kvm_info("\t[kvm] base_gpa : 0x%lx\n", base_gpa); */
 
 	mmap_read_lock(current->mm);
 
@@ -553,8 +553,8 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
 		/* Take the intersection of this VMA with the memory region */
 		vm_start = max(hva, vma->vm_start);
 		vm_end = min(reg_end, vma->vm_end);
-        kvm_info("vm_start : 0x%lx\n", vm_start);
-        kvm_info("vm_end : 0x%lx\n", vm_end);
+		//kvm_info("vm_start : 0x%lx\n", vm_start);
+		//kvm_info("vm_end : 0x%lx\n", vm_end);
 
 		if (vma->vm_flags & VM_PFNMAP) {
 			gpa_t gpa = base_gpa + (vm_start - hva);
@@ -591,7 +591,7 @@ out:
 
 bool kvm_unmap_gfn_range(struct kvm *kvm, struct kvm_gfn_range *range)
 {
-    kvm_info("[kvm] kvm_unmap_gfn_range %d\n", range->slot->npages);
+  //kvm_info("[kvm] kvm_unmap_gfn_range %d\n", range->slot->npages);
 	if (!kvm->arch.pgd)
 		return false;
 
@@ -673,7 +673,7 @@ int kvm_riscv_gstage_map(struct kvm_vcpu *vcpu,
 			!(memslot->flags & KVM_MEM_READONLY)) ? true : false;
 	unsigned long vma_pagesize, mmu_seq;
 
-    kvm_info("[kvm] kvm_riscv_gstage_map\n");
+	//kvm_info("[kvm] kvm_riscv_gstage_map\n");
     //kvm_info("[kvm] gpa : 0x%lx, hva : 0x%lx\n", gpa, hva);
 
 	/* We need minimum second+third level pages */
@@ -766,7 +766,7 @@ int kvm_riscv_gstage_alloc_pgd(struct kvm *kvm)
 {
 	struct page *pgd_page;
 
-    kvm_info("[kvm] kvm_riscv_gstage_alloc_pgd\n");
+	//kvm_info("[kvm] kvm_riscv_gstage_alloc_pgd\n");
 
 	if (kvm->arch.pgd != NULL) {
 		kvm_err("kvm_arch already initialized?\n");
@@ -780,9 +780,9 @@ int kvm_riscv_gstage_alloc_pgd(struct kvm *kvm)
 	kvm->arch.pgd = page_to_virt(pgd_page);
 	kvm->arch.pgd_phys = page_to_phys(pgd_page);
 
-    kvm_info("\t[kvm_riscv_gstage_alloc_pgd] pgd_page : 0x%lx\n", pgd_page);
-    kvm_info("\t[kvm_riscv_gstage_alloc_pgd] pgd_virt : 0x%lx\n", kvm->arch.pgd);
-    kvm_info("\t[kvm_riscv_gstage_alloc_pgd] pgd_phys : 0x%lx\n", kvm->arch.pgd_phys);
+    /* kvm_info("\t[kvm_riscv_gstage_alloc_pgd] pgd_page : 0x%lx\n", pgd_page); */
+    /* kvm_info("\t[kvm_riscv_gstage_alloc_pgd] pgd_virt : 0x%lx\n", kvm->arch.pgd); */
+    /* kvm_info("\t[kvm_riscv_gstage_alloc_pgd] pgd_phys : 0x%lx\n", kvm->arch.pgd_phys); */
 
 	return 0;
 }
@@ -791,7 +791,7 @@ void kvm_riscv_gstage_free_pgd(struct kvm *kvm)
 {
   void *pgd = NULL;
 
-  kvm_info("[kvm] kvm_riscv_gstage_free_pgd\n");
+  //kvm_info("[kvm] kvm_riscv_gstage_free_pgd\n");
 
   spin_lock(&kvm->mmu_lock);
   if (kvm->arch.pgd) {

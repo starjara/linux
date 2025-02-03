@@ -40,6 +40,7 @@ struct thread_struct {
   /* JARA: Hypervisor context CSRs */
   unsigned long hgatp;
   unsigned long hstatus;
+  // unsigned long vsatp;
   /* JARA End */
 
 	unsigned long s[12];	/* s[0]: frame pointer */
