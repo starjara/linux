@@ -2173,7 +2173,7 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr)
 	int err;
 	char license[128];
 	bool is_gpl;
-
+	
 	if (CHECK_ATTR(BPF_PROG_LOAD))
 		return -EINVAL;
 
@@ -2310,7 +2310,9 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr)
 		goto free_used_maps;
 
 	/* JARA: Alloc pgd */
-	alloc_bpf_pgd(prog);
+	if(alloc_bpf_pgd(prog) == -1) {
+	  goto free_used_maps;
+	}
 	/* End JARA */
 
 	prog = bpf_prog_select_runtime(prog, &err);

@@ -25,18 +25,31 @@ int alloc_bpf_pgd(struct bpf_prog *prog)
     return -1;
   }
   
-  //prog->pgd = (pgd_t *)__get_free_page(GFP_PGTABLE_USER);
-  prog->pgd = (pgd_t *)__get_free_page(GFP_PGTABLE_KERNEL);
+  prog->pgd = (pgd_t *)__get_free_page(GFP_PGTABLE_USER);
+  //prog->pgd = (pgd_t *)__get_free_page(GFP_PGTABLE_KERNEL);
+  
+  if(prog->pgd == NULL) {
+    SEC_PRINT("PGD Alloc failed");
+    return -1;
+  }
 
   SEC_PRINT("TTBR0_EL1: 0x%lx\n", ttbr0);
   SEC_PRINT("TTBR1_EL1: 0x%lx\n", ttbr1);
+  SEC_PRINT("TTBR1_EL1_BASE: 0x%lx\n", ((ttbr1) & 0x0000FFFFFFFFFFFF));
+  SEC_PRINT("TTBR1_EL1_VIRT: 0x%lx\n", kern_pgd);
+  SEC_PRINT("NEW_PGD_VIRT: 0x%lx\n", prog->pgd);
+  SEC_PRINT("NEW_PGD_PHYS: 0x%lx\n", virt_to_phys(prog->pgd));
+  SEC_PRINT("TCR_EL1: 0x%lx\n", read_sysreg(tcr_el1));
+  SEC_PRINT("SPSel: 0x%lx\n", read_sysreg(spsel));
+   
+  memcpy(prog->pgd, kern_pgd, PAGE_SIZE);
   
-  memcpy(prog->pgd, kern_pgd, sizeof(PAGE_SIZE));
-  if(memcmp(prog->pgd, kern_pgd, sizeof(PAGE_SIZE)) == 0) {
+  if(memcmp(prog->pgd, kern_pgd, PAGE_SIZE) == 0) {
     SEC_PRINT("Copy successfully\n");
   }
   else {
     SEC_PRINT("Copy failed\n");
+    return -1;
   }
 
   return 0;

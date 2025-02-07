@@ -203,11 +203,9 @@ static int build_prologue(struct jit_ctx *ctx, bool ebpf_from_cbpf)
 	int cur_offset;
 
 	/* JARA: Register variable */
-	unsigned long long ttbr1 = read_sysreg(ttbr1_el1);
-	pgd_t *kern_pgd = (pgd_t *)phys_to_virt(ttbr1);
-	
+	u64 ttbr1 = read_sysreg(ttbr1_el1);
 	const u8 ttbr = bpf2a64[TMP_REG_1];
-	u32 new_ttbr = virt_to_phys(prog->pgd);
+	u32 new_ttbr = phys_to_ttbr(virt_to_phys(prog->pgd));
 	/* End JARA */
 
 	/*
@@ -274,14 +272,6 @@ static int build_prologue(struct jit_ctx *ctx, bool ebpf_from_cbpf)
 	}
 
 	/* JARA: Test emit */
-	/*
-	if(memcmp(prog->pgd, kern_pgd, sizeof(PAGE_SIZE)) == 0) {
-	  pr_info("Copy successfully\n");
-	}
-	else {
-	  pr_info("Copy failed\n");
-	}
-	*/
 	
 	pr_info("new TTBR value: 0x%x\n", new_ttbr);
 	emit(A64_SYSREG(AARCH64_INSN_MRS, ttbr), ctx);
