@@ -206,7 +206,9 @@ static int build_prologue(struct jit_ctx *ctx, bool ebpf_from_cbpf)
 	u64 ttbr1 = read_sysreg(ttbr1_el1);
 	const u8 ttbr = bpf2a64[TMP_REG_1];
 	u32 new_ttbr = phys_to_ttbr(virt_to_phys(prog->pgd));
+
 	/* End JARA */
+
 
 	/*
 	 * BPF prog stack layout
@@ -292,6 +294,18 @@ static int build_prologue(struct jit_ctx *ctx, bool ebpf_from_cbpf)
 	  emit(A64_LSL(1, ttbr, ttbr, 8), ctx);
 	
 	  emit(A64_SYSREG(AARCH64_INSN_MSR, ttbr), ctx);
+
+	  /*
+	  emit(0xD538400A, ctx);
+	  emit_a64_mov_i64(r9, 1 << 21, ctx);
+	  //emit(A64_LSL(1, r9, r9, 23), ctx);
+	  emit(A64_ORR(1, ttbr, ttbr, r9), ctx);
+	  emit(0xD518400A, ctx);
+	  emit(0xD5033FDF, ctx);
+	  */
+
+	  
+
 	}
 	/* End JARA */
 
@@ -891,7 +905,8 @@ emit_cond_jmp:
 		emit_a64_mov_i(1, tmp, imm, ctx);
 		switch (BPF_SIZE(code)) {
 		case BPF_W:
-			emit(A64_STR32(tmp, dst, tmp2), ctx);
+		  emit(A64_STTR32(tmp, dst, off), ctx);
+		  //emit(A64_STR32(tmp, dst, tmp2), ctx);
 			break;
 		case BPF_H:
 			emit(A64_STRH(tmp, dst, tmp2), ctx);
@@ -900,7 +915,8 @@ emit_cond_jmp:
 			emit(A64_STRB(tmp, dst, tmp2), ctx);
 			break;
 		case BPF_DW:
-			emit(A64_STR64(tmp, dst, tmp2), ctx);
+		  emit(A64_STTR64(tmp, dst, off), ctx);
+		  //emit(A64_STR64(tmp, dst, tmp2), ctx);
 			break;
 		}
 		break;
@@ -913,7 +929,8 @@ emit_cond_jmp:
 		emit_a64_mov_i(1, tmp, off, ctx);
 		switch (BPF_SIZE(code)) {
 		case BPF_W:
-			emit(A64_STR32(src, dst, tmp), ctx);
+		  emit(A64_STTR32(src, dst, off), ctx);
+		  //emit(A64_STR32(src, dst, tmp), ctx);
 			break;
 		case BPF_H:
 			emit(A64_STRH(src, dst, tmp), ctx);
@@ -922,7 +939,8 @@ emit_cond_jmp:
 			emit(A64_STRB(src, dst, tmp), ctx);
 			break;
 		case BPF_DW:
-			emit(A64_STR64(src, dst, tmp), ctx);
+		  emit(A64_STTR64(src, dst, off), ctx);
+		  //emit(A64_STR64(src, dst, tmp), ctx);
 			break;
 		}
 		break;

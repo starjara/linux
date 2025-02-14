@@ -1457,6 +1457,46 @@ u32 aarch64_insn_gen_extr(enum aarch64_insn_variant variant,
 	return aarch64_insn_encode_register(AARCH64_INSN_REGTYPE_RM, insn, Rm);
 }
 
+
+/* JARA: LSU instructions */
+u32 aarch64_insn_gen_load_store_reg_unprivileged(enum aarch64_insn_register reg,
+						 enum aarch64_insn_register base,
+						 s32 imm,
+						 enum aarch64_insn_size_type size,
+						 enum aarch64_insn_ldst_type type)
+{
+	u32 insn;
+
+	switch (type) {
+	case AARCH64_INSN_LDST_LOAD_REG_OFFSET:
+		insn = aarch64_insn_get_ldtr_value();
+		break;
+	case AARCH64_INSN_LDST_STORE_REG_OFFSET:
+		insn = aarch64_insn_get_sttr_value();
+		break;
+	default:
+		pr_err("%s: unknown load/store encoding %d\n", __func__, type);
+		return AARCH64_BREAK_FAULT;
+	}
+
+	insn = aarch64_insn_encode_ldst_size(size, insn);
+
+	insn = aarch64_insn_encode_register(AARCH64_INSN_REGTYPE_RT, insn, reg);
+
+	insn = aarch64_insn_encode_register(AARCH64_INSN_REGTYPE_RN, insn,
+					    base);
+
+	insn = aarch64_insn_encode_immediate(AARCH64_INSN_IMM_9, insn, imm);
+	
+	return insn;
+	/*
+	return aarch64_insn_encode_register(AARCH64_INSN_REGTYPE_RM, insn,
+					    offset);
+	*/
+}
+
+
+/* JARA: MSR/MRS instruction */
 u32 aarch64_insn_gen_sysreg(enum aarch64_insn_sysreg_type type,
 			  enum aarch64_insn_register Rt)
 {

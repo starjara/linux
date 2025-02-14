@@ -219,6 +219,21 @@
 #define A64_BTI_J  A64_HINT(AARCH64_INSN_HINT_BTIJ)
 #define A64_BTI_JC A64_HINT(AARCH64_INSN_HINT_BTIJC)
 
+/* JARA: LSU instruction */
+#define A64_LSU_REG(Rt, Rn, Imm, size, type) \
+	aarch64_insn_gen_load_store_reg_unprivileged(Rt, Rn, Imm, \
+		AARCH64_INSN_SIZE_##size, \
+		AARCH64_INSN_LDST_##type##_REG_OFFSET)
+//#define A64_STRB(Wt, Xn, Xm)  A64_LS_REG(Wt, Xn, Xm, 8, STORE)
+//#define A64_LDRB(Wt, Xn, Xm)  A64_LS_REG(Wt, Xn, Xm, 8, LOAD)
+//#define A64_STRH(Wt, Xn, Xm)  A64_LS_REG(Wt, Xn, Xm, 16, STORE)
+//#define A64_LDRH(Wt, Xn, Xm)  A64_LS_REG(Wt, Xn, Xm, 16, LOAD)
+#define A64_STTR32(Wt, Xn, Imm) A64_LSU_REG(Wt, Xn, Imm, 32, STORE)
+//#define A64_LDR32(Wt, Xn, Xm) A64_LS_REG(Wt, Xn, Xm, 32, LOAD)
+#define A64_STTR64(Xt, Xn, Imm) A64_LSU_REG(Xt, Xn, Imm, 64, STORE)
+//#define A64_LDR64(Xt, Xn, Xm) A64_LS_REG(Xt, Xn, Xm, 64, LOAD)
+
+
 /* JARA: Gen MSR instruction */
 #define A64_SYSREG(type, Rt) aarch64_insn_gen_sysreg(type, Rt)
 

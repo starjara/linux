@@ -386,6 +386,9 @@ __AARCH64_INSN_FUNCS(sb,	0xFFFFFFFF, 0xD50330FF)
 __AARCH64_INSN_FUNCS(clrex,	0xFFFFF0FF, 0xD503305F)
 __AARCH64_INSN_FUNCS(ssbb,	0xFFFFFFFF, 0xD503309F)
 __AARCH64_INSN_FUNCS(pssbb,	0xFFFFFFFF, 0xD503349F)
+/* JARA: STTR, LDTR */
+__AARCH64_INSN_FUNCS(sttr,	0x3FC00C00, 0x38000800)
+__AARCH64_INSN_FUNCS(ldtr,	0x3FC00C00, 0x39000800)
 
 #undef	__AARCH64_INSN_FUNCS
 
@@ -568,6 +571,11 @@ enum aarch64_insn_sysreg_type {
 };
 u32 aarch64_insn_gen_sysreg(enum aarch64_insn_sysreg_type type,
 			  enum aarch64_insn_register Rt);
+u32 aarch64_insn_gen_load_store_reg_unprivileged(enum aarch64_insn_register reg,
+						 enum aarch64_insn_register base,
+						 s32 imm,
+						 enum aarch64_insn_size_type size,
+						 enum aarch64_insn_ldst_type type);
 /* End JARA */
 
 #endif /* __ASSEMBLY__ */
