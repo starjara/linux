@@ -710,7 +710,10 @@ static int pmu_sbi_starting_cpu(unsigned int cpu, struct hlist_node *node)
 	csr_write(CSR_SCOUNTEREN, 0x7);
 
 	/* Stop all the counters so that they can be enabled from perf */
-	pmu_sbi_stop_all(pmu);
+	
+	/* JARA: Do not stop cycle reg */
+	// pmu_sbi_stop_all(pmu);
+	/* End JARA */
 
 	if (riscv_pmu_use_irq) {
 		cpu_hw_evt->irq = riscv_pmu_irq;
