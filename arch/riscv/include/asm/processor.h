@@ -36,9 +36,16 @@ struct thread_struct {
 	/* Callee-saved registers */
 	unsigned long ra;
 	unsigned long sp;	/* Kernel mode stack */
+
+  /* JARA: H-extension CSRs */
+  unsigned long hgatp;
+  unsigned long hstatus;
+  /* End JARA */
+
 	unsigned long s[12];	/* s[0]: frame pointer */
 	struct __riscv_d_ext_state fstate;
 	unsigned long bad_cause;
+
 };
 
 /* Whitelist the fstate from the task_struct for hardened usercopy */

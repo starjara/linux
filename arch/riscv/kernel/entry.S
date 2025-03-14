@@ -285,6 +285,14 @@ SYM_FUNC_START(__switch_to)
 	add   a4, a1, a4
 	REG_S ra,  TASK_THREAD_RA_RA(a3)
 	REG_S sp,  TASK_THREAD_SP_RA(a3)
+	
+	/* JARA: Save H-extension context */
+	csrr ra, CSR_HGATP
+	REG_S ra, TASK_THREAD_HGATP_RA(a3)
+	csrr ra, CSR_HSTATUS
+	REG_S ra, TASK_THREAD_HSTATUS_RA(a3)
+	/* End JARA */
+
 	REG_S s0,  TASK_THREAD_S0_RA(a3)
 	REG_S s1,  TASK_THREAD_S1_RA(a3)
 	REG_S s2,  TASK_THREAD_S2_RA(a3)
@@ -300,6 +308,14 @@ SYM_FUNC_START(__switch_to)
 	/* Restore context from next->thread */
 	REG_L ra,  TASK_THREAD_RA_RA(a4)
 	REG_L sp,  TASK_THREAD_SP_RA(a4)
+
+	/* JARA: Restore H-extension context */
+	REG_L s0, TASK_THREAD_HGATP_RA(a4)
+	csrw CSR_HGATP, s0
+	REG_L s0, TASK_THREAD_HSTATUS_RA(a4)
+	csrw CSR_HSTATUS, s0
+	/* End JARA */
+
 	REG_L s0,  TASK_THREAD_S0_RA(a4)
 	REG_L s1,  TASK_THREAD_S1_RA(a4)
 	REG_L s2,  TASK_THREAD_S2_RA(a4)
