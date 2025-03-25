@@ -760,6 +760,11 @@ void kvm_riscv_gstage_update_hgatp(struct kvm_vcpu *vcpu)
 
 	csr_write(CSR_HGATP, hgatp);
 
+	/* JARA: Print VMID */
+	//pr_info("vmid: 0x%lx", k->vmid.vmid);
+	//pr_info("hgatp_vmid: 0x%lx", (hgatp & HGATP_VMID) >> HGATP_VMID_SHIFT);
+	/* End JARA */
+
 	if (!kvm_riscv_gstage_vmid_bits())
 		kvm_riscv_local_hfence_gvma_all();
 }

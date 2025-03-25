@@ -91,7 +91,7 @@ void kvm_riscv_gstage_vmid_update(struct kvm_vcpu *vcpu)
 	/* First user of a new VMID version? */
 	if (unlikely(vmid_next == 0)) {
 		WRITE_ONCE(vmid_version, READ_ONCE(vmid_version) + 1);
-		vmid_next = 1;
+		vmid_next = 1024;
 
 		/*
 		 * We ran out of VMIDs so we increment vmid_version and
