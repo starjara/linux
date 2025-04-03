@@ -6058,6 +6058,16 @@ int kvm_init(unsigned vcpu_size, unsigned vcpu_align, struct module *module)
 		goto err_register;
 	}
 
+	/* JARA: hypervisor counter enabling */
+	unsigned long hcen = csr_read(hcounteren);
+	pr_info("hcounteren: 0x%lx\n", hcen);
+
+	if(!(hcen & 0x1)) {
+	  hcen |= 0x1;
+	  csr_write(hcounteren, hcen);
+	  pr_info("hcounter enabled: 0x%lx\n", hcen);
+	}
+
 	return 0;
 
 err_register:
