@@ -27,6 +27,11 @@
 #include <asm/syscall.h>
 #include <asm/thread_info.h>
 
+/* JARA: trap trace */
+#define LOG_E	pr_info("[kernel/traps.c] Enter: %s", __func__);
+/* End of JARA */
+	
+
 int show_unhandled_signals = 1;
 
 static DEFINE_SPINLOCK(die_lock);
@@ -95,6 +100,8 @@ void do_trap(struct pt_regs *regs, int signo, int code, unsigned long addr)
 {
 	struct task_struct *tsk = current;
 
+	LOG_E;
+
 	if (show_unhandled_signals && unhandled_signal(tsk, signo)
 	    && printk_ratelimit()) {
 		pr_info("%s[%d]: unhandled signal %d code 0x%x at 0x" REG_FMT,
@@ -110,6 +117,8 @@ void do_trap(struct pt_regs *regs, int signo, int code, unsigned long addr)
 static void do_trap_error(struct pt_regs *regs, int signo, int code,
 	unsigned long addr, const char *str)
 {
+  LOG_E;
+  
 	current->thread.bad_cause = regs->cause;
 
 	if (user_mode(regs)) {
@@ -160,6 +169,7 @@ int handle_misaligned_store(struct pt_regs *regs);
 
 asmlinkage __visible __trap_section void do_trap_load_misaligned(struct pt_regs *regs)
 {
+  LOG_E
 	if (user_mode(regs)) {
 		irqentry_enter_from_user_mode(regs);
 
@@ -181,6 +191,7 @@ asmlinkage __visible __trap_section void do_trap_load_misaligned(struct pt_regs 
 
 asmlinkage __visible __trap_section void do_trap_store_misaligned(struct pt_regs *regs)
 {
+  LOG_E
 	if (user_mode(regs)) {
 		irqentry_enter_from_user_mode(regs);
 
@@ -219,6 +230,7 @@ static inline unsigned long get_break_insn_length(unsigned long pc)
 
 void handle_break(struct pt_regs *regs)
 {
+  LOG_E
 #ifdef CONFIG_KPROBES
 	if (kprobe_single_step_handler(regs))
 		return;

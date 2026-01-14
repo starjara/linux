@@ -1,0 +1,51 @@
+init/Kconfig:468:source "kernel/bpf/Kconfig"
+include/linux/bpf_verifier.h:35: * mark_stack_slot_read() in kernel/bpf/verifier.c.
+include/linux/poison.h:87:/********** kernel/bpf/ **********/
+scripts/bpf_doc.py:546:* *kernel/bpf/verifier.c* contains the functions used to check that valid types
+scripts/bpf_doc.py:548:* *kernel/bpf/* directory contains other files in which additional helpers are
+scripts/bpf_doc.py:565:**check_map_func_compatibility**\ () function in file *kernel/bpf/verifier.c*.
+MAINTAINERS:3732:F:	kernel/bpf/btf.c
+MAINTAINERS:3743:F:	kernel/bpf/core.c
+MAINTAINERS:3744:F:	kernel/bpf/dispatcher.c
+MAINTAINERS:3745:F:	kernel/bpf/syscall.c
+MAINTAINERS:3746:F:	kernel/bpf/tnum.c
+MAINTAINERS:3747:F:	kernel/bpf/trampoline.c
+MAINTAINERS:3748:F:	kernel/bpf/verifier.c
+MAINTAINERS:3786:F:	kernel/bpf/
+MAINTAINERS:3805:F:	kernel/bpf/*iter.c
+MAINTAINERS:3836:F:	kernel/bpf/bpf_struct*
+MAINTAINERS:3853:F:	kernel/bpf/ringbuf.c
+MAINTAINERS:3863:F:	kernel/bpf/bpf_lsm.c
+MAINTAINERS:3877:F:	kernel/bpf/*storage.c
+MAINTAINERS:3878:F:	kernel/bpf/bpf_lru*
+MAINTAINERS:3879:F:	kernel/bpf/cgroup.c
+MAINTAINERS:3885:F:	kernel/bpf/disasm.*
+MAINTAINERS:3893:F:	kernel/bpf/stackmap.c
+MAINTAINERS:23034:F:	kernel/bpf/cpumap.c
+MAINTAINERS:23035:F:	kernel/bpf/devmap.c
+kernel/bpf/Kconfig:88:source "kernel/bpf/preload/Kconfig"
+Documentation/bpf/map_cpumap.rst:11:.. kernel-doc:: kernel/bpf/cpumap.c
+Documentation/bpf/cpumasks.rst:40:.. kernel-doc:: kernel/bpf/cpumask.c
+Documentation/bpf/cpumasks.rst:43:.. kernel-doc:: kernel/bpf/cpumask.c
+Documentation/bpf/cpumasks.rst:46:.. kernel-doc:: kernel/bpf/cpumask.c
+Documentation/bpf/cpumasks.rst:213:.. kernel-doc:: kernel/bpf/cpumask.c
+Documentation/bpf/cpumasks.rst:258:.. kernel-doc:: kernel/bpf/cpumask.c
+Documentation/bpf/cpumasks.rst:266:.. kernel-doc:: kernel/bpf/cpumask.c
+Documentation/bpf/cpumasks.rst:276:.. kernel-doc:: kernel/bpf/cpumask.c
+Documentation/bpf/cpumasks.rst:340:.. kernel-doc:: kernel/bpf/cpumask.c
+Documentation/bpf/cpumasks.rst:353:.. kernel-doc:: kernel/bpf/cpumask.c
+Documentation/bpf/cpumasks.rst:356:.. kernel-doc:: kernel/bpf/cpumask.c
+Documentation/bpf/cpumasks.rst:360:.. kernel-doc:: kernel/bpf/cpumask.c
+Documentation/bpf/kfuncs.rst:446:.. kernel-doc:: kernel/bpf/helpers.c
+Documentation/bpf/kfuncs.rst:518:.. kernel-doc:: kernel/bpf/helpers.c
+Documentation/bpf/kfuncs.rst:558:.. kernel-doc:: kernel/bpf/helpers.c
+Documentation/bpf/kfuncs.rst:571:.. kernel-doc:: kernel/bpf/helpers.c
+Documentation/bpf/kfuncs.rst:574:.. kernel-doc:: kernel/bpf/helpers.c
+Documentation/bpf/verifier.rst:108:See details of eBPF verifier in kernel/bpf/verifier.c
+Documentation/hid/hid-bpf.rst:96:kernel/bpf program because we can intercept any incoming command.
+tools/bpf/bpftool/Makefile:79:	-I$(srctree)/kernel/bpf/ \
+tools/bpf/bpftool/Makefile:234:$(BOOTSTRAP_OUTPUT)disasm.o: $(srctree)/kernel/bpf/disasm.c
+tools/bpf/bpftool/Makefile:237:$(OUTPUT)disasm.o: $(srctree)/kernel/bpf/disasm.c
+tools/testing/selftests/bpf/test_progs.h:425:#define BPF_TESTMOD_TEST_FILE "/sys/kernel/bpf_testmod"
+tools/perf/MANIFEST:24:kernel/bpf/disasm.c
+tools/perf/MANIFEST:25:kernel/bpf/disasm.h

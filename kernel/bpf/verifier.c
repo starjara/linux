@@ -39,6 +39,10 @@ static const struct bpf_verifier_ops * const bpf_verifier_ops[] = {
 #undef BPF_LINK_TYPE
 };
 
+/* JARA: Define macros */
+#define LOG_E pr_info("[verifier.c] Enter: %s\n", __func__)
+/* End of JARA */
+
 /* bpf_check() is a static code analyzer that walks eBPF program
  * instruction by instruction and updates register/stack state.
  * All paths of conditional branches are analyzed until 'bpf_exit' insn.
@@ -18801,6 +18805,8 @@ int bpf_check(struct bpf_prog **prog, union bpf_attr *attr, bpfptr_t uattr, __u3
 	u32 log_true_size;
 	bool is_priv;
 
+	LOG_E;
+	
 	/* no program is valid */
 	if (ARRAY_SIZE(bpf_verifier_ops) == 0)
 		return -EINVAL;

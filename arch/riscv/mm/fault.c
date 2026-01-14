@@ -22,9 +22,15 @@
 
 #include "../kernel/head.h"
 
+/* JARA: trap trace */
+#define LOG_E	pr_info("[mm/fault.c] %s", __func__);
+/* End of JARA */
+	
+
 static void die_kernel_fault(const char *msg, unsigned long addr,
 		struct pt_regs *regs)
 {
+  LOG_E;
 	bust_spinlocks(1);
 
 	pr_alert("Unable to handle kernel %s at virtual address " REG_FMT "\n", msg,
@@ -219,6 +225,7 @@ void handle_page_fault(struct pt_regs *regs)
 	unsigned int flags = FAULT_FLAG_DEFAULT;
 	int code = SEGV_MAPERR;
 	vm_fault_t fault;
+
 
 	cause = regs->cause;
 	addr = regs->badaddr;

@@ -26,6 +26,10 @@
 #include <linux/rtnetlink.h>
 #include <linux/rwsem.h>
 
+/* JARA: Define macros */
+#define LOG_E pr_info("[offload.c] Enter: %s\n", __func__)
+/* End of JARA */
+
 /* Protects offdevs, members of bpf_offload_netdev and offload members
  * of all progs.
  * RTNL lock cannot be taken when holding this lock.
@@ -506,6 +510,8 @@ struct bpf_map *bpf_map_offload_map_alloc(union bpf_attr *attr)
 	struct bpf_offload_netdev *ondev;
 	struct bpf_offloaded_map *offmap;
 	int err;
+
+	LOG_E;
 
 	if (!capable(CAP_SYS_ADMIN))
 		return ERR_PTR(-EPERM);

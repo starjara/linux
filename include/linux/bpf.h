@@ -1446,6 +1446,10 @@ struct bpf_prog_aux {
 };
 
 struct bpf_prog {
+        /* JARA: GPGD value */
+        void *gpgd;
+        /* End of JARA */
+
 	u16			pages;		/* Number of allocated pages */
 	u16			jited:1,	/* Is our filter JIT'ed? */
 				jit_requested:1,/* archs need to JIT the prog */
@@ -1477,6 +1481,7 @@ struct bpf_prog {
 		DECLARE_FLEX_ARRAY(struct sock_filter, insns);
 		DECLARE_FLEX_ARRAY(struct bpf_insn, insnsi);
 	};
+
 };
 
 struct bpf_array_aux {

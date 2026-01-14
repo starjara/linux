@@ -69,6 +69,14 @@ static const struct bpf_map_ops * const bpf_map_types[] = {
 #undef BPF_LINK_TYPE
 };
 
+/* JARA: Define macros */
+#define LOG_E pr_info("[syscall.c] Enter: %s\n", __func__)
+/* End of JARA */
+
+/* JARA: Module function register */
+extern int gbpf_create_pgtable(struct bpf_prog *prog);
+/* End of JARA */
+
 /*
  * If we're handed a bigger struct than we know of, ensure all the unknown bits
  * are 0 - i.e. new user-space does not rely on any kernel feature extensions
@@ -317,6 +325,8 @@ static void *__bpf_map_area_alloc(u64 size, int numa_node, bool mmapable)
 	unsigned int flags = 0;
 	unsigned long align = 1;
 	void *area;
+	
+	LOG_E;
 
 	if (size >= SIZE_MAX)
 		return NULL;
@@ -1131,6 +1141,8 @@ static int map_create(union bpf_attr *attr)
 	struct bpf_map *map;
 	int f_flags;
 	int err;
+
+	LOG_E;
 
 	err = CHECK_ATTR(BPF_MAP_CREATE);
 	if (err)
@@ -2110,6 +2122,7 @@ static void __bpf_prog_put(struct bpf_prog *prog)
 
 void bpf_prog_put(struct bpf_prog *prog)
 {
+  LOG_E;
 	__bpf_prog_put(prog);
 }
 EXPORT_SYMBOL_GPL(bpf_prog_put);
@@ -2508,6 +2521,8 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr, u32 uattr_size)
 	char license[128];
 	bool is_gpl;
 
+	LOG_E;
+
 	if (CHECK_ATTR(BPF_PROG_LOAD))
 		return -EINVAL;
 
@@ -2653,6 +2668,12 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr, u32 uattr_size)
 	if (err < 0)
 		goto free_used_maps;
 
+	/* JARA: Insert gpgd create function */
+	static int (*gbpf_create_pgtable_fp)(struct bpf_prog *);
+	gbpf_create_pgtable_fp = symbol_get(gbpf_create_pgtable);
+	gbpf_create_pgtable_fp(prog);
+	/* End of JARA */
+	
 	prog = bpf_prog_select_runtime(prog, &err);
 	if (err < 0)
 		goto free_used_maps;
@@ -5020,6 +5041,9 @@ static int __sys_bpf(int cmd, bpfptr_t uattr, unsigned int size)
 	union bpf_attr attr;
 	bool capable;
 	int err;
+
+	pr_info("\n");
+	LOG_E;
 
 	capable = bpf_capable() || !sysctl_unprivileged_bpf_disabled;
 

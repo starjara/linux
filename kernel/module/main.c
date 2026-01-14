@@ -2077,6 +2077,10 @@ static int check_modinfo(struct module *mod, struct load_info *info, int flags)
 	const char *modmagic = get_modinfo(info, "vermagic");
 	int err;
 
+	/* JARA: Igonore module version magic */
+	return 0;
+	/* End of JARA */
+
 	if (flags & MODULE_INIT_IGNORE_VERMAGIC)
 		modmagic = NULL;
 

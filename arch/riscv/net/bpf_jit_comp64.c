@@ -13,8 +13,17 @@
 #include <asm/patch.h>
 #include "bpf_jit.h"
 
+/* JARA: For hgatp manipulation */
+#include <asm/csr.h>
+#include <asm/page.h>
+/* End of JARA */
+
 #define RV_REG_TCC RV_REG_A6
 #define RV_REG_TCC_SAVED RV_REG_S6 /* Store A6 in S6 if program do calls */
+
+/* JARA: Define macros */
+#define LOG_E pr_info("[bpf_jit_comp64.c] Enter: %s\n", __func__)
+/* End of JARA */
 
 static const int regmap[] = {
 	[BPF_REG_0] =	RV_REG_A5,
@@ -722,6 +731,8 @@ static int invoke_bpf_prog(struct bpf_tramp_link *l, int args_off, int retval_of
 	int ret, branch_off;
 	struct bpf_prog *p = l->link.prog;
 	int cookie_off = offsetof(struct bpf_tramp_run_ctx, bpf_cookie);
+
+	LOG_E;
 
 	if (l->cookie) {
 		emit_imm(RV_REG_T1, l->cookie, ctx);
@@ -1666,6 +1677,8 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 {
 	int i, stack_adjust = 0, store_offset, bpf_stack_adjust;
 
+	LOG_E;
+
 	bpf_stack_adjust = round_up(ctx->prog->aux->stack_depth, 16);
 	if (bpf_stack_adjust)
 		mark_fp(ctx);
@@ -1735,6 +1748,29 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 	}
 
 	emit_addi(RV_REG_FP, RV_REG_SP, stack_adjust, ctx);
+	
+	/* JARA: Write hgatp for bpf program */
+	u64 hgatp = 8ULL << 60;
+	hgatp |= ((virt_to_phys(ctx->prog->gpgd) >> PAGE_SHIFT) & HGATP_PPN);
+	pr_info("HGAPT: %0llx\n", hgatp);
+	
+	// Backup S5 reg
+	emit_sd(RV_REG_SP, store_offset, RV_REG_S5, ctx);
+	store_offset -= 8;
+
+	// Set HGATP target value to S5 register
+	emit_imm(RV_REG_S5, hgatp, ctx);
+
+	// Write S5 to HGATP
+	emit_csrw(0, RV_REG_S5, RV_CSR_HGATP, ctx);
+	
+	// Restore S5 reg
+	store_offset += 8;
+	emit_ld(RV_REG_S5, store_offset, RV_REG_SP, ctx);
+
+	// Test code
+	emit_hvmi(HSV_D, 0, RV_REG_SP, RV_REG_RA, ctx);
+	/* End of JARA */
 
 	if (bpf_stack_adjust)
 		emit_addi(RV_REG_S5, RV_REG_SP, bpf_stack_adjust, ctx);
@@ -1750,6 +1786,7 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 
 void bpf_jit_build_epilogue(struct rv_jit_context *ctx)
 {
+  LOG_E;
 	__build_epilogue(false, ctx);
 }
 

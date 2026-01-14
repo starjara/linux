@@ -63,6 +63,14 @@
 #define CTX	regs[BPF_REG_CTX]
 #define IMM	insn->imm
 
+/* JARA: Macro define */
+#define LOG_E pr_info("[core.c] Enter: %s\n", __func__)
+/* End of JARA */
+
+/* JARA: Module function register */
+extern void gbpf_destroy_pgtable(struct bpf_prog *prog);
+/* End of JARA */
+
 struct bpf_mem_alloc bpf_global_ma;
 bool bpf_global_ma_set;
 
@@ -131,6 +139,8 @@ struct bpf_prog *bpf_prog_alloc(unsigned int size, gfp_t gfp_extra_flags)
 	gfp_t gfp_flags = bpf_memcg_flags(GFP_KERNEL | __GFP_ZERO | gfp_extra_flags);
 	struct bpf_prog *prog;
 	int cpu;
+
+	LOG_E;
 
 	prog = bpf_prog_alloc_no_stats(size, gfp_extra_flags);
 	if (!prog)
@@ -1012,6 +1022,8 @@ bpf_jit_binary_alloc(unsigned int proglen, u8 **image_ptr,
 {
 	struct bpf_binary_header *hdr;
 	u32 size, hole, start;
+
+	LOG_E;
 
 	WARN_ON_ONCE(!is_power_of_2(alignment) ||
 		     alignment > BPF_IMAGE_ALIGNMENT);
@@ -2558,6 +2570,13 @@ static void bpf_prog_free_deferred(struct work_struct *work)
 	int i;
 
 	aux = container_of(work, struct bpf_prog_aux, work);
+
+        /* JARA: Insert destroy pgtable */
+	static void (*gbpf_destroy_pgtable_fp)(struct bpf_prog *);
+	gbpf_destroy_pgtable_fp = symbol_get(gbpf_destroy_pgtable);
+	gbpf_destroy_pgtable_fp(aux->prog);
+	/* End of JARA */
+	
 #ifdef CONFIG_BPF_SYSCALL
 	bpf_free_kfunc_btf_tab(aux->kfunc_btf_tab);
 #endif
@@ -2594,6 +2613,8 @@ static void bpf_prog_free_deferred(struct work_struct *work)
 void bpf_prog_free(struct bpf_prog *fp)
 {
 	struct bpf_prog_aux *aux = fp->aux;
+
+	LOG_E;
 
 	if (aux->dst_prog)
 		bpf_prog_put(aux->dst_prog);

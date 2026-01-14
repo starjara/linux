@@ -13,10 +13,16 @@
 /* Number of iterations to try until offsets converge. */
 #define NR_JIT_ITERATIONS	32
 
+/* JARA: Define macros */
+#define LOG_E pr_info("[bpf_jit_core.c] Enter: %s\n", __func__);
+/* End of JARA */
+
 static int build_body(struct rv_jit_context *ctx, bool extra_pass, int *offset)
 {
 	const struct bpf_prog *prog = ctx->prog;
 	int i;
+
+	LOG_E;
 
 	for (i = 0; i < prog->len; i++) {
 		const struct bpf_insn *insn = &prog->insnsi[i];
@@ -47,6 +53,8 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 	int pass = 0, prev_ninsns = 0, prologue_len, i;
 	struct rv_jit_data *jit_data;
 	struct rv_jit_context *ctx;
+
+	LOG_E;
 
 	if (!prog->jit_requested)
 		return orig_prog;
@@ -187,6 +195,7 @@ u64 bpf_jit_alloc_exec_limit(void)
 
 void *bpf_jit_alloc_exec(unsigned long size)
 {
+  LOG_E;
 	return __vmalloc_node_range(size, PAGE_SIZE, BPF_JIT_REGION_START,
 				    BPF_JIT_REGION_END, GFP_KERNEL,
 				    PAGE_KERNEL, 0, NUMA_NO_NODE,
@@ -195,5 +204,6 @@ void *bpf_jit_alloc_exec(unsigned long size)
 
 void bpf_jit_free_exec(void *addr)
 {
+  LOG_E;
 	return vfree(addr);
 }

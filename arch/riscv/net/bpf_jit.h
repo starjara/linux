@@ -1056,6 +1056,44 @@ static inline void emit_subw(u8 rd, u8 rs1, u8 rs2, struct rv_jit_context *ctx)
 
 #endif /* __riscv_xlen == 64 */
 
+/*
+ * JARA: 
+ * H-extension instructions (hsv and hlv)
+ * and CSR R/W instructions
+ */
+enum {
+  RV_CSR_HGATP = 0x680,
+};
+
+enum {
+  HSV_B = 0b0110001,
+  HSV_H = 0b0110011,
+  HSV_W = 0b0110101,
+  HSV_D = 0b0110111,
+  HLV_B = 0b0110000,
+  HLV_H = 0b0110010,
+  HLV_W = 0b0110100,
+  HLV_D = 0b0110110,
+};
+
+static inline void emit_csrw(u8 rd, u8 rs1, u16 csr, struct rv_jit_context *ctx)
+{
+  u32 instr = csr << 20;     // Target csr field
+  instr = instr | rs1 << 15; // rs1 reg field
+  instr = instr | 1 << 12;   // funct3 field
+  instr = instr | rd << 7;   // rd reg field
+  instr = instr | 0x73;      // opcode field
+  
+  emit(instr, ctx);
+}
+
+static inline void emit_hvmi(u16 type, u8 rd, u8 rs1, u8 rs2, struct rv_jit_context *ctx)
+{
+  u32 instr = rv_r_insn(type, rs2, rs1, 0x4, rd, 0x73);
+
+  emit(instr, ctx);
+} 
+
 void bpf_jit_build_prologue(struct rv_jit_context *ctx);
 void bpf_jit_build_epilogue(struct rv_jit_context *ctx);
 
