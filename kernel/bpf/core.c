@@ -2574,7 +2574,8 @@ static void bpf_prog_free_deferred(struct work_struct *work)
         /* JARA: Insert destroy pgtable */
 	static void (*gbpf_destroy_pgtable_fp)(struct bpf_prog *);
 	gbpf_destroy_pgtable_fp = symbol_get(gbpf_destroy_pgtable);
-	gbpf_destroy_pgtable_fp(aux->prog);
+	if (gbpf_destroy_pgtable_fp)
+	  gbpf_destroy_pgtable_fp(aux->prog);
 	/* End of JARA */
 	
 #ifdef CONFIG_BPF_SYSCALL

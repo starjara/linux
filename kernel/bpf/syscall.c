@@ -2671,7 +2671,8 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr, u32 uattr_size)
 	/* JARA: Insert gpgd create function */
 	static int (*gbpf_create_pgtable_fp)(struct bpf_prog *);
 	gbpf_create_pgtable_fp = symbol_get(gbpf_create_pgtable);
-	gbpf_create_pgtable_fp(prog);
+	if (gbpf_create_pgtable_fp)
+	  gbpf_create_pgtable_fp(prog);
 	/* End of JARA */
 	
 	prog = bpf_prog_select_runtime(prog, &err);
