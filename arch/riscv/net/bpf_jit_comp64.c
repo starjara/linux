@@ -38,6 +38,8 @@ static const int regmap[] = {
 	[BPF_REG_9] =	RV_REG_S4,
 	[BPF_REG_FP] =	RV_REG_S5,
 	[BPF_REG_AX] =	RV_REG_T0,
+	/* JARA: BPF SP Reg */
+	[BPF_REG_SP] =  RV_REG_T6,
 };
 
 static const int pt_regmap[] = {
@@ -213,6 +215,18 @@ static void emit_imm(u8 rd, s64 val, struct rv_jit_context *ctx)
 static void __build_epilogue(bool is_tail_call, struct rv_jit_context *ctx)
 {
 	int stack_adjust = ctx->stack_size, store_offset = stack_adjust - 8;
+
+	/* JARA: Restore T6 reg and reset HGATP register */
+	
+	// Reset HGATP
+	//emit_addi(RV_REG_T6, RV_REG_ZERO, ctx, 0);
+	//emit_csrw(0, RV_REG_T6, RV_CSR_HGATP, ctx);
+	
+	// Restore T6
+	//store_offset += 8;
+	//emit_ld(RV_REG_T6, store_offset, RV_REG_SP, ctx);
+	
+	/* End of JARA */
 
 	if (seen_reg(RV_REG_RA, ctx)) {
 		emit_ld(RV_REG_RA, store_offset, RV_REG_SP, ctx);
@@ -1768,8 +1782,17 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 	store_offset += 8;
 	emit_ld(RV_REG_S5, store_offset, RV_REG_SP, ctx);
 
+	// Backup T6, to use BPF SP reg
+	emit_sd(RV_REG_SP, store_offset, RV_REG_T6, ctx);
+	store_offset -= 8;
+
+	// Store BPF SP start address to BPF SP reg
+	// ToDo
+
 	// Test code
-	emit_hvmi(HSV_D, 0, RV_REG_SP, RV_REG_RA, ctx);
+	//emit_hvmi(HSV_D, 0, RV_REG_SP, RV_REG_RA, ctx);
+
+	
 	/* End of JARA */
 
 	if (bpf_stack_adjust)

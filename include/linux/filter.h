@@ -49,7 +49,11 @@ struct ctl_table_header;
 #define BPF_REG_ARG4	BPF_REG_4
 #define BPF_REG_ARG5	BPF_REG_5
 #define BPF_REG_CTX	BPF_REG_6
-#define BPF_REG_FP	BPF_REG_10
+
+/* JARA: Change FP reg index */
+//#define BPF_REG_FP	BPF_REG_10
+#define BPF_REG_FP	BPF_REG_11
+/* End of JARA */
 
 /* Additional register mappings for converted user programs. */
 #define BPF_REG_A	BPF_REG_0
@@ -62,6 +66,10 @@ struct ctl_table_header;
 #define BPF_REG_AX		MAX_BPF_REG
 #define MAX_BPF_EXT_REG		(MAX_BPF_REG + 1)
 #define MAX_BPF_JIT_REG		MAX_BPF_EXT_REG
+
+/* JARA: Add BPF SP reg */
+#define BPF_REG_SP      BPF_REG_10
+/* End of JARA */
 
 /* unused opcode to mark special call to bpf_tail_call() helper */
 #define BPF_TAIL_CALL	0xf0

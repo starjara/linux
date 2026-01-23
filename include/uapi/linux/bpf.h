@@ -62,6 +62,9 @@ enum {
 	BPF_REG_8,
 	BPF_REG_9,
 	BPF_REG_10,
+	/* JARA: Add one BPF REG */
+	BPF_REG_11,
+	/* End of JARA */
 	__MAX_BPF_REG,
 };
 
