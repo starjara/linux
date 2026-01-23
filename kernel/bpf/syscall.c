@@ -75,6 +75,7 @@ static const struct bpf_map_ops * const bpf_map_types[] = {
 
 /* JARA: Module function register */
 extern int gbpf_create_pgtable(struct bpf_prog *prog);
+extern pte_t *gbpf_get_pte_ptr(void *gpgd, unsigned long vaddr);
 /* End of JARA */
 
 /*
@@ -2674,7 +2675,18 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr, u32 uattr_size)
 	if (gbpf_create_pgtable_fp)
 	  gbpf_create_pgtable_fp(prog);
 	/* End of JARA */
-	
+
+	/* Garden : Making L2 ~ L4 page tables */
+	pr_info("Making L2 ~~ L4 page tables\n");
+	static pte_t *(*gbpf_get_pte_ptr_fp)(void *gpgd, unsigned long vaddr);
+	gbpf_get_pte_ptr_fp = symbol_get(gbpf_get_pte_ptr);
+
+	pr_info("[Garden] gbpf_get_pte_ptr_fp address : %px\n", gbpf_get_pte_ptr_fp);
+
+	gbpf_get_pte_ptr_fp(prog->gpgd, 0xf000000000);
+
+	/* End of Garden */
+
 	prog = bpf_prog_select_runtime(prog, &err);
 	if (err < 0)
 		goto free_used_maps;
