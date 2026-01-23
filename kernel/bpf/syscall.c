@@ -2678,6 +2678,7 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr, u32 uattr_size)
 	/* End of JARA */
 
 	/* Garden : Making L2 ~ L4 page tables */
+	/*
 	pr_info("Making L2 ~~ L4 page tables\n");
 	static pte_t *(*gbpf_get_pte_ptr_fp)(void *gpgd, unsigned long vaddr);
 	gbpf_get_pte_ptr_fp = symbol_get(gbpf_get_pte_ptr);
@@ -2685,7 +2686,7 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr, u32 uattr_size)
 	pr_info("[Garden] gbpf_get_pte_ptr_fp address : %px\n", gbpf_get_pte_ptr_fp);
 
 	gbpf_get_pte_ptr_fp(prog->gpgd, 0xf000000000);
-
+*/
 	/* End of Garden */
 
 	prog = bpf_prog_select_runtime(prog, &err);

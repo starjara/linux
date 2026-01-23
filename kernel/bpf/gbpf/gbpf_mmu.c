@@ -66,7 +66,7 @@ void gbpf_init_basic_mappings(struct bpf_prog *prog){
 }
 EXPORT_SYMBOL_GPL(gbpf_init_basic_mappings);
 
-
+/* Garden : Allocating 4KB data after PTE */
 int gbpf_map_private_data(struct bpf_prog *prog, unsigned long vaddr)
 {
 	struct page *private_page;
@@ -105,6 +105,63 @@ static void *gbpf_alloc_table(void){
 	if (!p) return NULL;
 	return page_to_virt(p);
 }
+
+
+/* Garden : allocating private data into 4KB area */
+void gbpf_init_private_data(struct page *private_page, u32 prog_id, const char *name)
+{
+
+	struct gbpf_exec_env *env;
+
+	env = (struct gbpf_exec_env *)page_address(private_page);
+	if(!env){
+		return;
+	}
+
+	memset(env, 0, GBPF_PAGE_SIZE);
+
+	env->context.prog_id = prog_id;
+
+
+	pr_info("[Garden] Private data initialized for prog %u (%s) at kernel addr: %px\n", prog_id, name, env);
+
+
+
+}
+EXPORT_SYMBOL_GPL(gbpf_init_private_data);
+
+
+
+void setup_execution_context(struct page *private_page, struct pt_regs *regs, u32 prog_id)
+{
+	struct gbpf_exec_env *env;
+
+	env = (struct gbpf_exec_env *)page_address(private_page);
+	if (unlikely(!env)){
+		pr_err("[Garden] Critical: Failed to get kernel address for private page\n");
+		return;
+	}
+
+	memset(env, 0, GBPF_PAGE_SIZE);
+
+	env->context.args[0] = regs->a0;
+	env->context.args[1] = regs->a1;
+	env->context.args[2] = regs->a2;
+	env->context.args[3] = regs->a3;
+	env->context.args[4] = regs->a4;
+	env->context.args[5] = regs->a5;
+	env->context.args[6] = regs->a6;
+	env->context.args[7] = regs->a7;
+
+	env->context.prog_id = prog_id;
+
+	pr_info("[Garden] Execution context ready for prog %u\n", prog_id);
+	pr_info("[Garden] Argument a0: %llx, a1: %llx\n", regs->a0, regs->a1);
+}
+EXPORT_SYMBOL_GPL(setup_execution_context);
+
+
+
 
 /* Garden : Making L2 ~ L4 page tables */
 pte_t *gbpf_get_pte_ptr(void *gpgd, unsigned long vaddr){

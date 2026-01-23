@@ -2576,11 +2576,11 @@ static void bpf_prog_free_deferred(struct work_struct *work)
 
 	aux = container_of(work, struct bpf_prog_aux, work);
 
-	/* Garden : Free Tables With Recursion */
+	/* Garden : Free Tables With Recursion 
 	static void (*gbpf_free_all_levels_fp)(void *table, int level);
 	gbpf_free_all_levels_fp = symbol_get(gbpf_free_all_levels);
 	gbpf_free_all_levels_fp(aux->prog->gpgd, 0);
-
+*/
         /* JARA: Insert destroy pgtable */
 	static void (*gbpf_destroy_pgtable_fp)(struct bpf_prog *);
 	gbpf_destroy_pgtable_fp = symbol_get(gbpf_destroy_pgtable);
