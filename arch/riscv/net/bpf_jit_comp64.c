@@ -1750,7 +1750,7 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 	emit_addi(RV_REG_FP, RV_REG_SP, stack_adjust, ctx);
 	
 	/* JARA: Write hgatp for bpf program */
-	u64 hgatp = 8ULL << 60;
+/*	u64 hgatp = 8ULL << 60;
 	hgatp |= ((virt_to_phys(ctx->prog->gpgd) >> PAGE_SHIFT) & HGATP_PPN);
 	pr_info("HGAPT: %0llx\n", hgatp);
 	
@@ -1767,7 +1767,7 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 	// Restore S5 reg
 	store_offset += 8;
 	emit_ld(RV_REG_S5, store_offset, RV_REG_SP, ctx);
-
+*/
 	// Test code
 //	emit_hvmi(HSV_D, 0, RV_REG_SP, RV_REG_RA, ctx);
 	/* End of JARA */

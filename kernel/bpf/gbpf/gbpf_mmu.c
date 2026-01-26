@@ -66,72 +66,52 @@ void gbpf_init_basic_mappings(struct bpf_prog *prog){
 }
 EXPORT_SYMBOL_GPL(gbpf_init_basic_mappings);
 
-/* Garden : Allocating 4KB data after PTE */
-int gbpf_map_private_data(struct bpf_prog *prog, unsigned long vaddr)
+
+static int gbpf_map_preallocated_page(struct bpf_prog *prog, unsigned long vaddr, struct page *page)
 {
-	struct page *private_page;
 	pte_t *ptep;
 	unsigned long pfn;
 
-	private_page = alloc_page(GFP_KERNEL | __GFP_ZERO);
-	if (!private_page){
-		gbpf_err("Failed to allocate 4KB private data page\n");
-		return -ENOMEM;
-	}
-
 	ptep = gbpf_get_pte_ptr(prog->gpgd, vaddr);
-	if (!ptep) {
-		gbpf_info("Failed to get PTE pointer for vaddr : %lx\n", vaddr);
-		__free_page(private_page);
-		return -ENOMEM;
+	if(!ptep) return -ENOMEM;
+
+	if (pte_present(*ptep)){
+		return 0;
 	}
 
-	pfn = page_to_pfn(private_page);
+	pfn = page_to_pfn(page);
 	set_pte(ptep, pfn_pte(pfn, __pgprot(_PAGE_PRESENT | _PAGE_READ | _PAGE_WRITE)));
 
-	gbpf_info("Mapped 4KB page (PFN: %lx) to BPF vaddr: %lx\n", pfn, vaddr);
+	gbpf_info("Connected pre-allocated page (PFN: %ls) to PTE at %lx\n", pfn, vaddr);
+	
+	return 0;
+}
+
+
+int gbpf_run_prepare(struct bpf_prog *prog, struct pt_regs *regs)
+{
+	struct page *p;
+	unsigned long vaddr = 0xffff888800000000;
+
+	p = prog->aux->gbpf_page;
+	if (unlikely(!p)){
+		return -ENOMEM;
+	}
+
+	if (unlikely(gbpf_map_preallocated_page(prog, vaddr, p) < 0)){
+		return -ENOMEM;
+	}
+
+	setup_execution_context(p, regs, prog->aux->id);
+
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(gbpf_map_private_data);
+EXPORT_SYMBOL_GPL(gbpf_run_prepare);
 
 
 
-
-/* Garden : Allocating Table */
-static void *gbpf_alloc_table(void){
-	gbpf_info("Allocating Table -> gbpf_alloc_table\n");
-	struct page *p = alloc_pages(GFP_KERNEL | __GFP_ZERO, 0);
-	if (!p) return NULL;
-	return page_to_virt(p);
-}
-
-
-/* Garden : allocating private data into 4KB area */
-void gbpf_init_private_data(struct page *private_page, u32 prog_id, const char *name)
-{
-
-	struct gbpf_exec_env *env;
-
-	env = (struct gbpf_exec_env *)page_address(private_page);
-	if(!env){
-		return;
-	}
-
-	memset(env, 0, GBPF_PAGE_SIZE);
-
-	env->context.prog_id = prog_id;
-
-
-	pr_info("[Garden] Private data initialized for prog %u (%s) at kernel addr: %px\n", prog_id, name, env);
-
-
-
-}
-EXPORT_SYMBOL_GPL(gbpf_init_private_data);
-
-
-
+/* Garden: Setup Data into 4KB physical memory */
 void setup_execution_context(struct page *private_page, struct pt_regs *regs, u32 prog_id)
 {
 	struct gbpf_exec_env *env;
@@ -157,11 +137,53 @@ void setup_execution_context(struct page *private_page, struct pt_regs *regs, u3
 
 	pr_info("[Garden] Execution context ready for prog %u\n", prog_id);
 	pr_info("[Garden] Argument a0: %llx, a1: %llx\n", regs->a0, regs->a1);
+
 }
 EXPORT_SYMBOL_GPL(setup_execution_context);
 
 
 
+
+
+/* Garden Start : Allocating 4KB Data after PTE */
+struct page *gbpf_map_private_data(struct bpf_prog *prog, unsigned long vaddr)
+{
+	struct page *private_page;
+	pte_t *ptep;
+	unsigned long pfn;
+
+	private_page = alloc_page(GFP_KERNEL | __GFP_ZERO);
+	if (!private_page){
+		gbpf_err("Failed to allocate 4KB private data page\n");
+		return -ENOMEM;
+	}
+
+	ptep = gbpf_get_pte_ptr(prog->gpgd, vaddr);
+	if (!ptep) {
+		gbpf_info("Failed to get PTE pointer for vaddr : %lx\n", vaddr);
+		__free_page(private_page);
+		return -ENOMEM;
+	}
+
+	pfn = page_to_pfn(private_page);
+	set_pte(ptep, pfn_pte(pfn, __pgprot(_PAGE_PRESENT | _PAGE_READ | _PAGE_WRITE)));
+
+	gbpf_info("Mapped 4KB page (PFN: %lx) to BPF vaddr: %lx\n", pfn, vaddr);
+
+	return private_page;
+}
+EXPORT_SYMBOL_GPL(gbpf_map_private_data);
+
+
+
+
+/* Garden : Allocating Table */
+static void *gbpf_alloc_table(void){
+	gbpf_info("Allocating Table -> gbpf_alloc_table\n");
+	struct page *p = alloc_pages(GFP_KERNEL | __GFP_ZERO, 0);
+	if (!p) return NULL;
+	return page_to_virt(p);
+}
 
 /* Garden : Making L2 ~ L4 page tables */
 pte_t *gbpf_get_pte_ptr(void *gpgd, unsigned long vaddr){
@@ -198,7 +220,7 @@ pte_t *gbpf_get_pte_ptr(void *gpgd, unsigned long vaddr){
    	if (pmd_none(*pmd)) {
         
 	void *new_pte = gbpf_alloc_table();
-        set_pmd(pmd, pfn_pmd(virt_to_phys(new_pte) >> PAGE_SHIFT, __pgprot(_PAGE_TABLE))); // PMD 칸에 새 PTE 연결
+        set_pmd(pmd, pfn_pmd(virt_to_phys(new_pte) >> PAGE_SHIFT, __pgprot(_PAGE_TABLE))); 
     }
 
 	return pte_offset_kernel(pmd, vaddr);

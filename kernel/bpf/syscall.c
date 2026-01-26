@@ -2677,8 +2677,20 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr, u32 uattr_size)
 	  gbpf_create_pgtable_fp(prog);
 	/* End of JARA */
 
+
+	/* Garden : Pre-allocate 4KB Memory */
+		prog->aux->gbpf_page = alloc_page(GFP_KERNEL | __GFP_ZERO);
+
+		if (!prog->aux->gbpf_page) {
+			pr_err("[Garden] Failed to pre-allocate 4KB page for prog %d\n", prog->aux->id);
+		} else{
+			pr_info("[Garden] Pre-allocated 4KB page (PFN: %lx) for prog %d\n", page_to_pfn(prog->aux->gbpf_page), prog->aux->id);
+		}
+	
+
+
 	/* Garden : Making L2 ~ L4 page tables */
-	/*
+	
 	pr_info("Making L2 ~~ L4 page tables\n");
 	static pte_t *(*gbpf_get_pte_ptr_fp)(void *gpgd, unsigned long vaddr);
 	gbpf_get_pte_ptr_fp = symbol_get(gbpf_get_pte_ptr);
@@ -2686,7 +2698,7 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr, u32 uattr_size)
 	pr_info("[Garden] gbpf_get_pte_ptr_fp address : %px\n", gbpf_get_pte_ptr_fp);
 
 	gbpf_get_pte_ptr_fp(prog->gpgd, 0xf000000000);
-*/
+
 	/* End of Garden */
 
 	prog = bpf_prog_select_runtime(prog, &err);

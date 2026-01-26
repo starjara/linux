@@ -41,6 +41,10 @@
 #include <asm/barrier.h>
 #include <asm/unaligned.h>
 
+#include "gbpf/gbpf_mmu.h"
+
+
+
 /* Registers */
 #define BPF_R0	regs[BPF_REG_0]
 #define BPF_R1	regs[BPF_REG_1]
@@ -1671,6 +1675,24 @@ static u64 ___bpf_prog_run(u64 *regs, const struct bpf_insn *insn)
 {
 #define BPF_INSN_2_LBL(x, y)    [BPF_##x | BPF_##y] = &&x##_##y
 #define BPF_INSN_3_LBL(x, y, z) [BPF_##x | BPF_##y | BPF_##z] = &&x##_##y##_##z
+	
+/*	
+	pr_info("[Garden] Program Enter ___bpf_prog_run\n");
+	struct bpf_prog *prog = container_of(insn, struct bpf_prog, insnsi);
+	struct pt_regs *real_regs = (struct pt_regs *)regs[BPF_REG_1];
+*/
+		int err;
+
+		err = gbpf_run_prepare(prog, real_regs);
+		if (err){
+			pr_err("[Garden] Failed to prepare execution environment: %d\n", err);
+			return 0;
+		}
+
+		pr_info("[Garden] Environment successfully linked for prog %u\n", prog->aux->id);
+
+
+
 	static const void * const jumptable[256] __annotate_jump_table = {
 		[0 ... 255] = &&default_label,
 		/* Now overwrite non-defaults ... */
@@ -2576,11 +2598,11 @@ static void bpf_prog_free_deferred(struct work_struct *work)
 
 	aux = container_of(work, struct bpf_prog_aux, work);
 
-	/* Garden : Free Tables With Recursion 
+	/* Garden : Free Tables With Recursion */
 	static void (*gbpf_free_all_levels_fp)(void *table, int level);
 	gbpf_free_all_levels_fp = symbol_get(gbpf_free_all_levels);
 	gbpf_free_all_levels_fp(aux->prog->gpgd, 0);
-*/
+
         /* JARA: Insert destroy pgtable */
 	static void (*gbpf_destroy_pgtable_fp)(struct bpf_prog *);
 	gbpf_destroy_pgtable_fp = symbol_get(gbpf_destroy_pgtable);
