@@ -78,6 +78,7 @@ extern void gbpf_destroy_pgtable(struct bpf_prog *prog);
 /* Garden Start */
 extern void gbpf_init_basic_mappings(struct bpf_prog *prog);
 extern void gbpf_free_all_levels(void *table, int level);
+extern void gbpf_prog_free_deferred(struct work_struct *work);
 /* End of Garden */
 
 struct bpf_mem_alloc bpf_global_ma;
@@ -2597,6 +2598,11 @@ static void bpf_prog_free_deferred(struct work_struct *work)
 	int i;
 
 	aux = container_of(work, struct bpf_prog_aux, work);
+
+	/* Garden : Free Physical Page */
+	static void (*gbpf_prog_free_deferred_fp)(struct work_struct *work);
+	gbpf_prog_free_deferred_fp = symbol_get(gbpf_prog_free_deferred);
+	gbpf_prog_free_deferred_fp(work);	
 
 	/* Garden : Free Tables With Recursion */
 	static void (*gbpf_free_all_levels_fp)(void *table, int level);

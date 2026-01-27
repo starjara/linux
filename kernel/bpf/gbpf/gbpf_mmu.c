@@ -76,7 +76,14 @@ static int gbpf_map_preallocated_page(struct bpf_prog *prog, unsigned long vaddr
 	if(!ptep) return -ENOMEM;
 
 	if (pte_present(*ptep)){
-		return 0;
+		struct page *old_page = pte_page(*ptep);
+
+		if (old_page){
+			gbpf_info("[Garden] Freeing OLD PFN mapping at %lx\n", vaddr);
+			__free_page(old_page);
+		}
+
+		pte_clear(NULL, vaddr, ptep);
 	}
 
 	pfn = page_to_pfn(page);
@@ -248,12 +255,7 @@ static int gbpf_alloc_gpgd(struct bpf_prog *prog)
 
   prog->gpgd = page_to_virt(pgd_page);
 
-  /* Garden : add -> But Do not modify this function. 
-  if (prog->insnsi){
-	  gbpf_get_pte_ptr(prog->gpgd, 0xf000000000);
-	  gbpf_info("[%s] - Pre-allocated L2-L4 paths for BPF code\n", __func__);
-  }
-  */
+  
   return 0;
 }
 
@@ -275,6 +277,23 @@ int gbpf_create_pgtable(struct bpf_prog *prog)
 EXPORT_SYMBOL_GPL(gbpf_create_pgtable);
 
 
+void gbpf_prog_free_deferred(struct work_struct *work)
+{
+	struct bpf_prog_aux *aux = container_of(work, struct bpf_prog_aux, work);
+	struct bpf_prog *prog = aux->prog;
+
+	if (aux->gbpf_page){
+		pr_info("[gBPF] [%d]: Trying to free 4KB Physical page -> %px\n", current->pid, aux->gbpf_page);
+
+		__free_page(aux->gbpf_page);
+		pr_info("[gBPF] [%d]: Successful.\n", current->pid);
+		aux->gbpf_page = NULL;
+	}
+}
+EXPORT_SYMBOL_GPL(gbpf_prog_free_deferred);
+
+
+
 void gbpf_free_all_levels(void *table, int level){
 	if (level >= 4) return;
 
@@ -287,7 +306,7 @@ void gbpf_free_all_levels(void *table, int level){
 			void *next_table = __va(pte_pfn(__pte(entry)) << PAGE_SHIFT);
 
 			gbpf_free_all_levels(next_table, level + 1);
-			gbpf_info("Trying to free page -> %p", next_table);
+			gbpf_info("Trying to free page[%d] -> %p", level, next_table);
 			free_page((unsigned long)next_table);
 			gbpf_info("Successful.\n");
 		}
