@@ -29,7 +29,10 @@
 #include <linux/rcupdate_trace.h>
 #include <linux/static_call.h>
 #include <linux/memcontrol.h>
+//#include "gbpf/gbpf_mmu.h"
 
+
+struct pt_regs;
 struct bpf_verifier_env;
 struct bpf_verifier_log;
 struct perf_event;
@@ -70,6 +73,10 @@ struct bpf_iter_seq_info {
 	bpf_iter_fini_seq_priv_t fini_seq_private;
 	u32 seq_priv_size;
 };
+
+/* Garden : Justify useful function */
+int gbpf_run_prepare(struct bpf_prog *prog, struct pt_regs *regs);
+/* End of Garden */
 
 /* map is generic key/value storage optionally accessible by eBPF programs */
 struct bpf_map_ops {
@@ -1371,6 +1378,7 @@ struct bpf_prog_aux {
 	u32 max_rdonly_access;
 	u32 max_rdwr_access;
 	struct btf *attach_btf;
+	struct page *gbpf_page; /* Garden : store pre-allocated 4KB physical page */
 	const struct bpf_ctx_arg_aux *ctx_arg_info;
 	struct mutex dst_mutex; /* protects dst_* pointers below, *after* prog becomes visible */
 	struct bpf_prog *dst_prog;
@@ -1456,6 +1464,7 @@ struct bpf_prog {
 				gpl_compatible:1, /* Is filter GPL compatible? */
 				cb_access:1,	/* Is control block accessed? */
 				dst_needed:1,	/* Do we need dst entry? */
+				is_gbpf:1, /* Garden : Is this program is gbpf? */
 				blinding_requested:1, /* needs constant blinding */
 				blinded:1,	/* Was blinded */
 				is_func:1,	/* program is a bpf function */
@@ -1855,6 +1864,8 @@ bpf_prog_run_array(const struct bpf_prog_array *array,
 	struct bpf_trace_run_ctx run_ctx;
 	u32 ret = 1;
 
+//	pr_info("[Garden] Entering bpf_prog_run_array\n");
+
 	RCU_LOCKDEP_WARN(!rcu_read_lock_held(), "no rcu lock held");
 
 	if (unlikely(!array))
@@ -1863,8 +1874,22 @@ bpf_prog_run_array(const struct bpf_prog_array *array,
 	migrate_disable();
 	old_run_ctx = bpf_set_run_ctx(&run_ctx.run_ctx);
 	item = &array->items[0];
+
+	/* Garden : Define Useful function */
+	static int (*gbpf_run_prepare_fp)(struct bpf_prog * prog, struct pt_regs *ctx);
+	gbpf_run_prepare_fp = symbol_get(gbpf_run_prepare);
+	/* End of Garden */
+
 	while ((prog = READ_ONCE(item->prog))) {
 		run_ctx.bpf_cookie = item->bpf_cookie;
+	
+		/* Garden : Store Sensitive Data */
+//		pr_info("[Garden] Debug: gbpf_run_prepare_fp address is %px\n", gbpf_run_prepare_fp);	
+		gbpf_run_prepare_fp((struct bpf_prog *)prog, (struct pt_regs *)ctx);
+		
+		/* End of Garden */
+	
+	
 		ret &= run_prog(prog, ctx);
 		item++;
 	}
