@@ -1769,7 +1769,7 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 	emit_ld(RV_REG_S5, store_offset, RV_REG_SP, ctx);
 
 	// Test code
-	emit_hvmi(HSV_D, 0, RV_REG_SP, RV_REG_RA, ctx);
+//	emit_hvmi(HSV_D, 0, RV_REG_SP, RV_REG_RA, ctx);
 	/* End of JARA */
 
 	if (bpf_stack_adjust)
