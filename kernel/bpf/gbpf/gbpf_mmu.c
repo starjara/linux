@@ -1,6 +1,6 @@
 #include <linux/mm.h>
 #include <linux/bpf.h>
-
+#include <linux/vmalloc.h>
 #include <asm/csr.h>
 #include <asm/page.h>
 #include <asm/pgtable.h>
@@ -87,20 +87,43 @@ EXPORT_SYMBOL_GPL(gbpf_map_preallocated_page);
 
 int gbpf_run_prepare(struct bpf_prog *prog, struct pt_regs *regs)
 {
+
+	gbpf_info("Entering gbpf_run_prepare\n");
 	struct page *p;
+	pte_t *ptep;
+	unsigned long stack_vaddr = regs->sp & PAGE_MASK;
+//	unsigned long stack_phys = virt_to_phys((void *)regs->sp) & PAGE_MASK;
+	unsigned long stack_pfn, code_pfn;
+	unsigned long stack_phys, code_phys;
+
+	stack_pfn = vmalloc_to_pfn((void *)regs->sp);
+	stack_phys = stack_pfn << PAGE_SHIFT;
+
+
+	ptep = gbpf_get_pte_ptr(prog->gpgd, stack_phys);
+	if (ptep) {
+		set_pte(ptep, pfn_pte(stack_pfn, PAGE_KERNEL));
+	}
+
+	code_pfn = vmalloc_to_pfn(prog->bpf_func);
+	code_phys = code_pfn << PAGE_SHIFT;
+	ptep = gbpf_get_pte_ptr(prog->gpgd, code_phys);
+	if (ptep){
+		set_pte(ptep, pfn_pte(code_pfn, PAGE_KERNEL_EXEC));
+	}
+
+
+
 	unsigned long vaddr = 0xffff888800000000;
-//	gbpf_info("[Garden] Entering gbpf_run_prepare\n");
 	
 	p = prog->aux->gbpf_page;
 	if (unlikely(!p)){
 		return -ENOMEM;
 	}
-/*
-	if (unlikely(gbpf_map_preallocated_page(prog, vaddr, p) < 0)){
-		return -ENOMEM;
-	}
-*/
-	setup_execution_context(p, regs, prog->aux->id);
+
+
+
+	setup_execution_context(prog->aux->gbpf_page, regs, prog->aux->id);
 
 
 	return 0;
