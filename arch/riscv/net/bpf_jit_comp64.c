@@ -38,8 +38,6 @@ static const int regmap[] = {
 	[BPF_REG_9] =	RV_REG_S4,
 	[BPF_REG_FP] =	RV_REG_S5,
 	[BPF_REG_AX] =	RV_REG_T0,
-	/* JARA: BPF SP Reg */
-	[BPF_REG_SP] =  RV_REG_T6,
 };
 
 static const int pt_regmap[] = {
@@ -219,12 +217,11 @@ static void __build_epilogue(bool is_tail_call, struct rv_jit_context *ctx)
 	/* JARA: Restore T6 reg and reset HGATP register */
 	
 	// Reset HGATP
-	//emit_addi(RV_REG_T6, RV_REG_ZERO, ctx, 0);
-	//emit_csrw(0, RV_REG_T6, RV_CSR_HGATP, ctx);
+	emit_addi(RV_REG_T6, RV_REG_ZERO, 0, ctx);
+	emit_csrw(0, RV_REG_T6, RV_CSR_HGATP, ctx);
 	
 	// Restore T6
-	//store_offset += 8;
-	//emit_ld(RV_REG_T6, store_offset, RV_REG_SP, ctx);
+	emit_ld(RV_REG_T6, store_offset + 8, RV_REG_SP, ctx);
 	
 	/* End of JARA */
 
@@ -1697,6 +1694,10 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 	if (bpf_stack_adjust)
 		mark_fp(ctx);
 
+	/* JARA: Add stack adjust for kernel stack pointer value */
+	stack_adjust += 8;
+	/* End of JARA */
+	
 	if (seen_reg(RV_REG_RA, ctx))
 		stack_adjust += 8;
 	stack_adjust += 8; /* RV_REG_FP */
@@ -1712,6 +1713,7 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 		stack_adjust += 8;
 	if (seen_reg(RV_REG_S6, ctx))
 		stack_adjust += 8;
+
 
 	stack_adjust = round_up(stack_adjust, 16);
 	stack_adjust += bpf_stack_adjust;
@@ -1761,7 +1763,6 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 		store_offset -= 8;
 	}
 
-	emit_addi(RV_REG_FP, RV_REG_SP, stack_adjust, ctx);
 	
 	/* JARA: Write hgatp for bpf program */
 	u64 hgatp = 8ULL << 60;
@@ -1783,11 +1784,12 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 	emit_ld(RV_REG_S5, store_offset, RV_REG_SP, ctx);
 
 	// Backup T6, to use BPF SP reg
+	pr_info("T6 position in prologue: %0llx\n", store_offset);
 	emit_sd(RV_REG_SP, store_offset, RV_REG_T6, ctx);
 	store_offset -= 8;
 
 	// Store BPF SP start address to BPF SP reg
-	// ToDo
+	//emit_addi(RV_REG_T6, RV_REG_ZERO, 0x0F000000, ctx);
 
 	// Test code
 	//emit_hvmi(HSV_D, 0, RV_REG_SP, RV_REG_RA, ctx);
@@ -1795,6 +1797,8 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 	
 	/* End of JARA */
 
+	emit_addi(RV_REG_FP, RV_REG_SP, stack_adjust, ctx);
+	
 	if (bpf_stack_adjust)
 		emit_addi(RV_REG_S5, RV_REG_SP, bpf_stack_adjust, ctx);
 
