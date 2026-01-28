@@ -76,6 +76,7 @@ static const struct bpf_map_ops * const bpf_map_types[] = {
 /* JARA: Module function register */
 extern int gbpf_create_pgtable(struct bpf_prog *prog);
 extern pte_t *gbpf_get_pte_ptr(void *gpgd, unsigned long vaddr);
+extern int gbpf_map_preallocated_page(struct bpf_prog *prog, unsigned long vaddr, struct page *page);
 /* End of JARA */
 
 /*
@@ -2689,15 +2690,17 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr, u32 uattr_size)
 	
 
 
-	/* Garden : Making L2 ~ L4 page tables */
+	/* Garden : Making L2 ~ L4 page tables and Physical 4KB page */
 	
-	pr_info("Making L2 ~~ L4 page tables\n");
-	static pte_t *(*gbpf_get_pte_ptr_fp)(void *gpgd, unsigned long vaddr);
-	gbpf_get_pte_ptr_fp = symbol_get(gbpf_get_pte_ptr);
+	pr_info("Making L2 ~~ L4 page tables and Physical page\n");
+	static int (*gbpf_map_preallocated_page_fp)(struct bpf_prog *prog, unsigned long vaddr, struct page *page);
+	gbpf_map_preallocated_page_fp = symbol_get(gbpf_map_preallocated_page);
 
-	pr_info("[Garden] gbpf_get_pte_ptr_fp address : %px\n", gbpf_get_pte_ptr_fp);
+	pr_info("[Garden] gbpf_map_preallocated_page_fp address : %px\n", gbpf_map_preallocated_page_fp);
 
-	gbpf_get_pte_ptr_fp(prog->gpgd, 0xf000000000);
+	gbpf_map_preallocated_page_fp(prog, 0xf000000000, prog->aux->gbpf_page);
+
+
 
 	/* End of Garden */
 

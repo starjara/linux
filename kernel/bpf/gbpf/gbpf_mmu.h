@@ -5,7 +5,7 @@ static int gbpf_alloc_gpgd(struct bpf_prog *prog);
 static void gbpf_free_gpgd(struct bpf_prog *prog);
 static void *gbpf_alloc_table(void);
 struct page *gbpf_map_private_data(struct bpf_prog *prog, unsigned long vaddr);
-static int gbpf_map_preallocated_page(struct bpf_prog *prog, unsigned long vaddr, struct page *page);
+int gbpf_map_preallocated_page(struct bpf_prog *prog, unsigned long vaddr, struct page *page);
 
 
 void gbpf_prog_free_deferred(struct work_struct *work);

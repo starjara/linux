@@ -67,7 +67,7 @@ void gbpf_init_basic_mappings(struct bpf_prog *prog){
 EXPORT_SYMBOL_GPL(gbpf_init_basic_mappings);
 
 
-static int gbpf_map_preallocated_page(struct bpf_prog *prog, unsigned long vaddr, struct page *page)
+int gbpf_map_preallocated_page(struct bpf_prog *prog, unsigned long vaddr, struct page *page)
 {
 	pte_t *ptep;
 	unsigned long pfn;
@@ -75,40 +75,31 @@ static int gbpf_map_preallocated_page(struct bpf_prog *prog, unsigned long vaddr
 	ptep = gbpf_get_pte_ptr(prog->gpgd, vaddr);
 	if(!ptep) return -ENOMEM;
 
-	if (pte_present(*ptep)){
-		struct page *old_page = pte_page(*ptep);
-
-		if (old_page){
-			gbpf_info("[Garden] Freeing OLD PFN mapping at %lx\n", vaddr);
-			__free_page(old_page);
-		}
-
-		pte_clear(NULL, vaddr, ptep);
-	}
-
 	pfn = page_to_pfn(page);
 	set_pte(ptep, pfn_pte(pfn, __pgprot(_PAGE_PRESENT | _PAGE_READ | _PAGE_WRITE)));
 
-	gbpf_info("Connected pre-allocated page (PFN: %ls) to PTE at %lx\n", pfn, vaddr);
+	//gbpf_info("Connected pre-allocated page (PFN: %ls) to PTE at %lx\n", pfn, vaddr);
 	
 	return 0;
 }
+EXPORT_SYMBOL_GPL(gbpf_map_preallocated_page);
 
 
 int gbpf_run_prepare(struct bpf_prog *prog, struct pt_regs *regs)
 {
 	struct page *p;
 	unsigned long vaddr = 0xffff888800000000;
-
+//	gbpf_info("[Garden] Entering gbpf_run_prepare\n");
+	
 	p = prog->aux->gbpf_page;
 	if (unlikely(!p)){
 		return -ENOMEM;
 	}
-
+/*
 	if (unlikely(gbpf_map_preallocated_page(prog, vaddr, p) < 0)){
 		return -ENOMEM;
 	}
-
+*/
 	setup_execution_context(p, regs, prog->aux->id);
 
 
@@ -152,7 +143,8 @@ EXPORT_SYMBOL_GPL(setup_execution_context);
 
 
 
-/* Garden Start : Allocating 4KB Data after PTE */
+/* Garden Start : Allocating 4KB Data after PTE -> Replaced by gbpf_map_preallocated-~  */
+/*
 struct page *gbpf_map_private_data(struct bpf_prog *prog, unsigned long vaddr)
 {
 	struct page *private_page;
@@ -180,7 +172,7 @@ struct page *gbpf_map_private_data(struct bpf_prog *prog, unsigned long vaddr)
 	return private_page;
 }
 EXPORT_SYMBOL_GPL(gbpf_map_private_data);
-
+*/
 
 
 
@@ -199,6 +191,8 @@ pte_t *gbpf_get_pte_ptr(void *gpgd, unsigned long vaddr){
 	pud_t *pud;
 	pmd_t *pmd;
 
+//	gbpf_info("[Garden] Entering gbpf_get_pte_ptr\n");
+
 	pgd = (pgd_t *)gpgd + pgd_index(vaddr);
 	if (pgd_none(*pgd)){
 		void *new_p4d = gbpf_alloc_table();
@@ -208,24 +202,24 @@ pte_t *gbpf_get_pte_ptr(void *gpgd, unsigned long vaddr){
 		pr_info("[gBPF] Allocated new P4D table\n");
 	}
 
-	gbpf_info("Making p4d\n");
 	p4d = p4d_offset(pgd, vaddr);
 	if (p4d_none(*p4d)){
+		gbpf_info("Making p4d\n");
 		void *new_pud = gbpf_alloc_table();
 		set_p4d(p4d, pfn_p4d(virt_to_phys(new_pud) >> PAGE_SHIFT , __pgprot(_PAGE_TABLE))); /* not riscv kernel function? */
 	}
 
-	gbpf_info("Making pud\n");
 	pud = pud_offset(p4d, vaddr);
 	if (pud_none(*pud)){
+		gbpf_info("Making pud\n");
 		void *new_pmd = gbpf_alloc_table();
 		set_pud(pud, pfn_pud(virt_to_phys(new_pmd) >> PAGE_SHIFT, __pgprot(_PAGE_TABLE)));
 	}
 
-	gbpf_info("Making pmd\n");
 	pmd = pmd_offset(pud, vaddr);
    	if (pmd_none(*pmd)) {
         
+	gbpf_info("Making pmd\n");
 	void *new_pte = gbpf_alloc_table();
         set_pmd(pmd, pfn_pmd(virt_to_phys(new_pte) >> PAGE_SHIFT, __pgprot(_PAGE_TABLE))); 
     }
