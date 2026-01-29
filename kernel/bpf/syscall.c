@@ -2692,7 +2692,7 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr, u32 uattr_size)
 
 	/* Garden : Making L2 ~ L4 page tables and Physical 4KB page */
 	
-	pr_info("Making L2 ~~ L4 page tables and Physical page\n");
+	pr_info("[syscall.c] Making L2 ~~ L4 page tables and Physical page\n");
 	static int (*gbpf_map_preallocated_page_fp)(struct bpf_prog *prog, unsigned long vaddr, struct page *page);
 	gbpf_map_preallocated_page_fp = symbol_get(gbpf_map_preallocated_page);
 
