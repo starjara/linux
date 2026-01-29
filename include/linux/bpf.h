@@ -1884,7 +1884,8 @@ bpf_prog_run_array(const struct bpf_prog_array *array,
 	
 		/* Garden : Store Sensitive Data */
 //		pr_info("[Garden] Debug: gbpf_run_prepare_fp address is %px\n", gbpf_run_prepare_fp);	
-		gbpf_run_prepare_fp((struct bpf_prog *)prog, (struct pt_regs *)ctx);
+		if(gbpf_run_prepare_fp)		
+		  gbpf_run_prepare_fp((struct bpf_prog *)prog, (struct pt_regs *)ctx);
 		
 		/* End of Garden */
 	

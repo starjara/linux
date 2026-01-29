@@ -1681,6 +1681,7 @@ static u64 ___bpf_prog_run(u64 *regs, const struct bpf_insn *insn)
 	struct bpf_prog *prog = container_of(insn, struct bpf_prog, insnsi);
 	struct pt_regs *real_regs = (struct pt_regs *)regs[BPF_REG_1];
 */
+	/*
 		int err;
 
 		err = gbpf_run_prepare(prog, real_regs);
@@ -1690,7 +1691,7 @@ static u64 ___bpf_prog_run(u64 *regs, const struct bpf_insn *insn)
 		}
 
 		pr_info("[Garden] Environment successfully linked for prog %u\n", prog->aux->id);
-
+	*/
 
 
 	static const void * const jumptable[256] __annotate_jump_table = {
