@@ -16,6 +16,9 @@
 /* JARA: For hgatp manipulation */
 #include <asm/csr.h>
 #include <asm/page.h>
+
+bool gbpf_ready = false;
+EXPORT_SYMBOL_GPL(gbpf_ready);
 /* End of JARA */
 
 #define RV_REG_TCC RV_REG_A6
@@ -214,17 +217,6 @@ static void __build_epilogue(bool is_tail_call, struct rv_jit_context *ctx)
 {
 	int stack_adjust = ctx->stack_size, store_offset = stack_adjust - 8;
 
-	/* JARA: Restore T6 reg and reset HGATP register */
-	
-	// Reset HGATP
-	emit_addi(RV_REG_T6, RV_REG_ZERO, 0, ctx);
-	emit_csrw(0, RV_REG_T6, RV_CSR_HGATP, ctx);
-	
-	// Restore T6
-	emit_ld(RV_REG_T6, store_offset + 8, RV_REG_SP, ctx);
-	
-	/* End of JARA */
-
 	if (seen_reg(RV_REG_RA, ctx)) {
 		emit_ld(RV_REG_RA, store_offset, RV_REG_SP, ctx);
 		store_offset -= 8;
@@ -255,11 +247,26 @@ static void __build_epilogue(bool is_tail_call, struct rv_jit_context *ctx)
 		emit_ld(RV_REG_S6, store_offset, RV_REG_SP, ctx);
 		store_offset -= 8;
 	}
+	
+	/* JARA: Restore T6 reg and reset HGATP register */
+	
+	if (gbpf_ready) {
+	  // Reset HGATP
+	  emit_addi(RV_REG_T6, RV_REG_ZERO, 0, ctx);
+	  emit_csrw(0, RV_REG_T6, RV_CSR_HGATP, ctx);
+	
+	  // Restore T6
+	  emit_ld(RV_REG_T6, store_offset, RV_REG_SP, ctx);
+	  store_offset -= 8;
+	}
+	/* End of JARA */
 
 	emit_addi(RV_REG_SP, RV_REG_SP, stack_adjust, ctx);
 	/* Set return value. */
 	if (!is_tail_call)
 		emit_mv(RV_REG_A0, RV_REG_A5, ctx);
+
+	
 	emit_jalr(RV_REG_ZERO, is_tail_call ? RV_REG_T3 : RV_REG_RA,
 		  is_tail_call ? 20 : 0, /* skip reserved nops and TCC init */
 		  ctx);
@@ -1695,7 +1702,8 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 		mark_fp(ctx);
 
 	/* JARA: Add stack adjust for kernel stack pointer value */
-	stack_adjust += 8;
+	if (gbpf_ready)
+	  stack_adjust += 8;
 	/* End of JARA */
 	
 	if (seen_reg(RV_REG_RA, ctx))
@@ -1765,35 +1773,36 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 
 	
 	/* JARA: Write hgatp for bpf program */
-	u64 hgatp = 8ULL << 60;
-	hgatp |= ((virt_to_phys(ctx->prog->gpgd) >> PAGE_SHIFT) & HGATP_PPN);
-	pr_info("HGAPT: %0llx\n", hgatp);
-	
-	// Backup S5 reg
-	emit_sd(RV_REG_SP, store_offset, RV_REG_S5, ctx);
-	store_offset -= 8;
+	if (gbpf_ready) {
+	  u64 hgatp = 8ULL << 60;
+	  hgatp |= ((virt_to_phys(ctx->prog->gpgd) >> PAGE_SHIFT) & HGATP_PPN);
+	  pr_info("HGAPT: %0llx\n", hgatp);
+	  
+	  // Backup S5 reg
+	  emit_sd(RV_REG_SP, store_offset, RV_REG_S5, ctx);
+	  store_offset -= 8;
 
-	// Set HGATP target value to S5 register
-	emit_imm(RV_REG_S5, hgatp, ctx);
+	  // Set HGATP target value to S5 register
+	  emit_imm(RV_REG_S5, hgatp, ctx);
+	  
+	  // Write S5 to HGATP
+	  emit_csrw(0, RV_REG_S5, RV_CSR_HGATP, ctx);
+	  
+	  // Restore S5 reg
+	  store_offset += 8;
+	  emit_ld(RV_REG_S5, store_offset, RV_REG_SP, ctx);
+	  
+	  // Backup T6, to use BPF SP reg
+	  pr_info("T6 position in prologue: %0llx\n", store_offset);
+	  emit_sd(RV_REG_SP, store_offset, RV_REG_T6, ctx);
+	  store_offset -= 8;
+	  
+	  // Store BPF SP start address to BPF SP reg
+	  //emit_addi(RV_REG_T6, RV_REG_ZERO, 0x0F000000, ctx);
 
-	// Write S5 to HGATP
-	emit_csrw(0, RV_REG_S5, RV_CSR_HGATP, ctx);
-	
-	// Restore S5 reg
-	store_offset += 8;
-	emit_ld(RV_REG_S5, store_offset, RV_REG_SP, ctx);
-
-	// Backup T6, to use BPF SP reg
-	pr_info("T6 position in prologue: %0llx\n", store_offset);
-	emit_sd(RV_REG_SP, store_offset, RV_REG_T6, ctx);
-	store_offset -= 8;
-
-	// Store BPF SP start address to BPF SP reg
-	//emit_addi(RV_REG_T6, RV_REG_ZERO, 0x0F000000, ctx);
-
-	// Test code
-	//emit_hvmi(HSV_D, 0, RV_REG_SP, RV_REG_RA, ctx);
-
+	  // Test code
+	  //emit_hvmi(HSV_D, 0, RV_REG_SP, RV_REG_RA, ctx);
+	}
 	
 	/* End of JARA */
 

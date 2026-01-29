@@ -2601,12 +2601,14 @@ static void bpf_prog_free_deferred(struct work_struct *work)
 	/* Garden : Free Physical Page */
 	static void (*gbpf_prog_free_deferred_fp)(struct work_struct *work);
 	gbpf_prog_free_deferred_fp = symbol_get(gbpf_prog_free_deferred);
-	gbpf_prog_free_deferred_fp(work);	
+	if (gbpf_prog_free_deferred_fp)
+	  gbpf_prog_free_deferred_fp(work);	
 
 	/* Garden : Free Tables With Recursion */
 	static void (*gbpf_free_all_levels_fp)(void *table, int level);
 	gbpf_free_all_levels_fp = symbol_get(gbpf_free_all_levels);
-	gbpf_free_all_levels_fp(aux->prog->gpgd, 0);
+	if (gbpf_free_all_levels_fp)
+	  gbpf_free_all_levels_fp(aux->prog->gpgd, 0);
 
         /* JARA: Insert destroy pgtable */
 	static void (*gbpf_destroy_pgtable_fp)(struct bpf_prog *);
