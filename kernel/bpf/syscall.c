@@ -2697,8 +2697,8 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr, u32 uattr_size)
 	gbpf_map_preallocated_page_fp = symbol_get(gbpf_map_preallocated_page);
 
 	pr_info("[Garden] gbpf_map_preallocated_page_fp address : %px\n", gbpf_map_preallocated_page_fp);
-
-	gbpf_map_preallocated_page_fp(prog, 0xf000000000, prog->aux->gbpf_page);
+	if(gbpf_map_preallocated_page_fp)
+	  gbpf_map_preallocated_page_fp(prog, 0xf000000000, prog->aux->gbpf_page);
 
 
 

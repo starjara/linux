@@ -1681,6 +1681,7 @@ static u64 ___bpf_prog_run(u64 *regs, const struct bpf_insn *insn)
 	struct bpf_prog *prog = container_of(insn, struct bpf_prog, insnsi);
 	struct pt_regs *real_regs = (struct pt_regs *)regs[BPF_REG_1];
 */
+	/*
 		int err;
 
 		err = gbpf_run_prepare(prog, real_regs);
@@ -1690,7 +1691,7 @@ static u64 ___bpf_prog_run(u64 *regs, const struct bpf_insn *insn)
 		}
 
 		pr_info("[Garden] Environment successfully linked for prog %u\n", prog->aux->id);
-
+	*/
 
 
 	static const void * const jumptable[256] __annotate_jump_table = {
@@ -2601,12 +2602,14 @@ static void bpf_prog_free_deferred(struct work_struct *work)
 	/* Garden : Free Physical Page */
 	static void (*gbpf_prog_free_deferred_fp)(struct work_struct *work);
 	gbpf_prog_free_deferred_fp = symbol_get(gbpf_prog_free_deferred);
-	gbpf_prog_free_deferred_fp(work);	
+	if(gbpf_prog_free_deferred_fp) 
+	  gbpf_prog_free_deferred_fp(work);	
 
 	/* Garden : Free Tables With Recursion */
 	static void (*gbpf_free_all_levels_fp)(void *table, int level);
 	gbpf_free_all_levels_fp = symbol_get(gbpf_free_all_levels);
-	gbpf_free_all_levels_fp(aux->prog->gpgd, 0);
+	if(gbpf_free_all_levels_fp)
+	  gbpf_free_all_levels_fp(aux->prog->gpgd, 0);
 
         /* JARA: Insert destroy pgtable */
 	static void (*gbpf_destroy_pgtable_fp)(struct bpf_prog *);
