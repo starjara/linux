@@ -13,6 +13,10 @@
 #include "trace_output.h"
 #include "trace.h"
 
+/* JARA: Log print */
+#define LOG_E pr_info("[trace_syscalls.c] Enter: %s\n", __func__)
+/* End of JARA */
+
 static DEFINE_MUTEX(syscall_trace_lock);
 
 static int syscall_enter_register(struct trace_event_call *event,
@@ -560,6 +564,8 @@ static int perf_call_bpf_enter(struct trace_event_call *call, struct pt_regs *re
 		unsigned long args[SYSCALL_DEFINE_MAXARGS];
 	} param;
 	int i;
+
+	LOG_E;
 
 	*(struct pt_regs **)&param = regs;
 	param.syscall_nr = rec->nr;

@@ -46,6 +46,10 @@ struct bpf_trace_module {
 	struct list_head list;
 };
 
+/* JARA: Log print */
+#define LOG_E pr_info("[bpf_trace.c] Enter: %s\n", __func__)
+/* End of JARA */
+
 static LIST_HEAD(bpf_trace_modules);
 static DEFINE_MUTEX(bpf_module_mutex);
 
@@ -104,6 +108,8 @@ unsigned int trace_call_bpf(struct trace_event_call *call, void *ctx)
 {
 	unsigned int ret;
 
+	LOG_E;
+	
 	cant_sleep();
 
 	if (unlikely(__this_cpu_inc_return(bpf_prog_active) != 1)) {

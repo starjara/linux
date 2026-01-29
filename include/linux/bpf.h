@@ -1377,7 +1377,6 @@ struct bpf_prog_aux {
 	u32 max_rdonly_access;
 	u32 max_rdwr_access;
 	struct btf *attach_btf;
-	struct page *gbpf_page; /* Garden : store pre-allocated 4KB physical page */
 	const struct bpf_ctx_arg_aux *ctx_arg_info;
 	struct mutex dst_mutex; /* protects dst_* pointers below, *after* prog becomes visible */
 	struct bpf_prog *dst_prog;
@@ -1453,9 +1452,10 @@ struct bpf_prog_aux {
 };
 
 struct bpf_prog {
-        /* JARA: GPGD value */
-        void *gpgd;
-        /* End of JARA */
+  /* JARA: bpf space pages */
+  void *gpgd; // gbpf space pgd
+  struct page *gbpf_page; // gbpf space leaf page
+  /* End of JARA */
 
 	u16			pages;		/* Number of allocated pages */
 	u16			jited:1,	/* Is our filter JIT'ed? */

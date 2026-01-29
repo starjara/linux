@@ -1798,12 +1798,11 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 	  store_offset -= 8;
 	  
 	  // Store BPF SP start address to BPF SP reg
-	  //emit_addi(RV_REG_T6, RV_REG_ZERO, 0x0F000000, ctx);
+	  emit_addi(RV_REG_T6, RV_REG_ZERO, 0x0F000000, ctx);
 
 	  // Test code
 	  //emit_hvmi(HSV_D, 0, RV_REG_SP, RV_REG_RA, ctx);
 	}
-	
 	/* End of JARA */
 
 	emit_addi(RV_REG_FP, RV_REG_SP, stack_adjust, ctx);

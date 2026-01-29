@@ -37,6 +37,10 @@
 #include <linux/trace_events.h>
 #include <net/netfilter/nf_bpf_link.h>
 
+/* JARA: For gbpf module */
+#include <linux/gbpf.h>
+/* End of JARA */
+
 #define IS_FD_ARRAY(map) ((map)->map_type == BPF_MAP_TYPE_PERF_EVENT_ARRAY || \
 			  (map)->map_type == BPF_MAP_TYPE_CGROUP_ARRAY || \
 			  (map)->map_type == BPF_MAP_TYPE_ARRAY_OF_MAPS)
@@ -71,12 +75,6 @@ static const struct bpf_map_ops * const bpf_map_types[] = {
 
 /* JARA: Define macros */
 #define LOG_E pr_info("[syscall.c] Enter: %s\n", __func__)
-/* End of JARA */
-
-/* JARA: Module function register */
-extern int gbpf_create_pgtable(struct bpf_prog *prog);
-extern pte_t *gbpf_get_pte_ptr(void *gpgd, unsigned long vaddr);
-extern int gbpf_map_preallocated_page(struct bpf_prog *prog, unsigned long vaddr, struct page *page);
 /* End of JARA */
 
 /*
@@ -2670,28 +2668,25 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr, u32 uattr_size)
 	if (err < 0)
 		goto free_used_maps;
 
-	/* JARA: Insert gpgd create function */
-	static int (*gbpf_create_pgtable_fp)(struct bpf_prog *);
-	gbpf_create_pgtable_fp = symbol_get(gbpf_create_pgtable);
-	pr_info("[syscall.c] gbpf_create_pgtable_fp address : %px\n", gbpf_create_pgtable_fp);
-	if (gbpf_create_pgtable_fp)
-	  gbpf_create_pgtable_fp(prog);
+	/* JARA: create pgd and pgtable */
+	gbpf_call_create_pgd(prog);
+	gbpf_call_map(prog);
 	/* End of JARA */
 
 
 	/* Garden : Pre-allocate 4KB Memory */
-		prog->aux->gbpf_page = alloc_page(GFP_KERNEL | __GFP_ZERO);
-
-		if (!prog->aux->gbpf_page) {
-			pr_err("[syscall.c] Failed to pre-allocate 4KB page for prog %d\n", prog->aux->id);
-		} else{
-			pr_info("[syscall.c] Pre-allocated 4KB page (PFN: %lx) for prog %d\n", page_to_pfn(prog->aux->gbpf_page), prog->aux->id);
-		}
+	//prog->gbpf_page = alloc_page(GFP_KERNEL | __GFP_ZERO);
 	
-
-
+	/* ========================================
+	if (!prog->aux->gbpf_page) {
+	  pr_err("[syscall.c] Failed to pre-allocate 4KB page for prog %d\n", prog->aux->id);
+	} else{
+	  pr_info("[syscall.c] Pre-allocated 4KB page (PFN: %lx) for prog %d\n", page_to_pfn(prog->aux->gbpf_page), prog->aux->id);
+	}
+	=============================================== */
+	
 	/* Garden : Making L2 ~ L4 page tables and Physical 4KB page */
-	
+	/* ===============================================
 	pr_info("[syscall.c] Making L2 ~~ L4 page tables and Physical page\n");
 	static int (*gbpf_map_preallocated_page_fp)(struct bpf_prog *prog, unsigned long vaddr, struct page *page);
 	gbpf_map_preallocated_page_fp = symbol_get(gbpf_map_preallocated_page);
@@ -2699,8 +2694,7 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr, u32 uattr_size)
 	pr_info("[syscall.c] gbpf_map_preallocated_page_fp address : %px\n", gbpf_map_preallocated_page_fp);
 	if (gbpf_map_preallocated_page_fp)
 	  gbpf_map_preallocated_page_fp(prog, 0xf000000000, prog->aux->gbpf_page);
-
-
+	  =================================================== */
 
 	/* End of Garden */
 
