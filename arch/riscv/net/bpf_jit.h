@@ -75,6 +75,7 @@ struct rv_jit_context {
 	int nexentries;
 	unsigned long flags;
 	int stack_size;
+	bool is_sandboxed; /* Garden : check is sandboxed */
 };
 
 /* Convert from ninsns to bytes. */

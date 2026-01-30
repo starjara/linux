@@ -10,6 +10,8 @@
 #include <linux/filter.h>
 #include "bpf_jit.h"
 
+#include <linux/bpf_sandbox.h> // Garden : Include for sandboxing
+
 /* Number of iterations to try until offsets converge. */
 #define NR_JIT_ITERATIONS	32
 
@@ -48,6 +50,7 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 	struct rv_jit_data *jit_data;
 	struct rv_jit_context *ctx;
 
+
 	if (!prog->jit_requested)
 		return orig_prog;
 
@@ -71,6 +74,9 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 
 	ctx = &jit_data->ctx;
 
+	pr_info("[bpf_jit_core.c] Entering bpf_int_jit_compile");
+	ctx->is_sandboxed = (prog->sandbox_page != NULL); // Garden: check is sandbox is enabled
+	
 	if (ctx->offset) {
 		extra_pass = true;
 		prog_size = sizeof(*ctx->insns) * ctx->ninsns;

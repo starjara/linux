@@ -37,6 +37,8 @@
 #include <linux/trace_events.h>
 #include <net/netfilter/nf_bpf_link.h>
 
+#include <linux/bpf_sandbox.h> // Garden : Include for sandboxing
+
 #define IS_FD_ARRAY(map) ((map)->map_type == BPF_MAP_TYPE_PERF_EVENT_ARRAY || \
 			  (map)->map_type == BPF_MAP_TYPE_CGROUP_ARRAY || \
 			  (map)->map_type == BPF_MAP_TYPE_ARRAY_OF_MAPS)
@@ -2652,6 +2654,25 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr, u32 uattr_size)
 	err = bpf_check(&prog, attr, uattr, uattr_size);
 	if (err < 0)
 		goto free_used_maps;
+
+	/* Garden : Defining Global Sandbox page */
+	pr_info("[syscall.c] Start Sandboxing\n");
+	union bpf_sandbox *sb;
+/*
+	if (!IS_SANDBOX_ENABLED(prog->type))
+	  return 0;
+*/
+	sb = (union bpf_sandbox *)get_zeroed_page(GFP_KERNEL);
+	if (!sb)
+	  return -ENOMEM;
+	pr_info("[syscall.c] Filling Fields.\n");
+	sb->info.and_mask = 0x7FF;
+	sb->info.or_mask = (unsigned long)sb + 2048;
+	prog->sandbox_page = (void *)sb;
+	pr_info("[syscall.c] SafeBPF: Sandbox linked to prog at %px (Data starts at %llx)\n", sb, sb->info.or_mask);
+	
+
+	/* End of Garden */
 
 	prog = bpf_prog_select_runtime(prog, &err);
 	if (err < 0)
