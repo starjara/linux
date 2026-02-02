@@ -1362,6 +1362,11 @@ struct btf_mod_pair {
 struct bpf_kfunc_desc_tab;
 
 struct bpf_prog_aux {
+  /* JARA: bpf space pages */
+  void *gpgd; // gbpf space pgd
+  struct page *gbpf_page; // gbpf space leaf page
+  /* End of JARA */
+
 	atomic64_t refcnt;
 	u32 used_map_cnt;
 	u32 used_btf_cnt;
@@ -1452,11 +1457,6 @@ struct bpf_prog_aux {
 };
 
 struct bpf_prog {
-  /* JARA: bpf space pages */
-  void *gpgd; // gbpf space pgd
-  struct page *gbpf_page; // gbpf space leaf page
-  /* End of JARA */
-
 	u16			pages;		/* Number of allocated pages */
 	u16			jited:1,	/* Is our filter JIT'ed? */
 				jit_requested:1,/* archs need to JIT the prog */
@@ -1875,8 +1875,8 @@ bpf_prog_run_array(const struct bpf_prog_array *array,
 	item = &array->items[0];
 
 	/* Garden : Define Useful function */
-	static int (*gbpf_run_prepare_fp)(struct bpf_prog * prog, struct pt_regs *ctx);
-	gbpf_run_prepare_fp = symbol_get(gbpf_run_prepare);
+	//static int (*gbpf_run_prepare_fp)(struct bpf_prog * prog, struct pt_regs *ctx);
+	//gbpf_run_prepare_fp = symbol_get(gbpf_run_prepare);
 	/* End of Garden */
 
 	while ((prog = READ_ONCE(item->prog))) {
@@ -1884,8 +1884,8 @@ bpf_prog_run_array(const struct bpf_prog_array *array,
 	
 		/* Garden : Store Sensitive Data */
 //		pr_info("[Garden] Debug: gbpf_run_prepare_fp address is %px\n", gbpf_run_prepare_fp);	
-		if(gbpf_run_prepare_fp)		
-		  gbpf_run_prepare_fp((struct bpf_prog *)prog, (struct pt_regs *)ctx);
+		//if(gbpf_run_prepare_fp)		
+		//  gbpf_run_prepare_fp((struct bpf_prog *)prog, (struct pt_regs *)ctx);
 		
 		/* End of Garden */
 	

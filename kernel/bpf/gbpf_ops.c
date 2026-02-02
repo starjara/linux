@@ -69,6 +69,24 @@ int gbpf_call_map(struct bpf_prog *prog)
 }
 EXPORT_SYMBOL_GPL(gbpf_call_map);
 
+void gbpf_call_destroy_pgtable(struct bpf_prog *prog)
+{
+    const struct gbpf_ops *ops;
+    int idx = 0;
+
+    idx = srcu_read_lock(&gbpf_srcu);
+    ops = gbpf_ops_ptr;
+
+    if (ops && ops->destroy_pgtable)
+      ops->destroy_pgtable(prog);
+
+    srcu_read_unlock(&gbpf_srcu, idx);
+    return ;
+
+}
+EXPORT_SYMBOL_GPL(gbpf_call_destroy_pgtable);
+
+
 /*
 int gbpf_call_map_page(struct bpf_prog *prog, unsigned int level, unsigned long vaddr)
 {

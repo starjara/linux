@@ -1774,9 +1774,10 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 	
 	/* JARA: Write hgatp for bpf program */
 	if (gbpf_ready) {
-	  u64 hgatp = 8ULL << 60;
-	  hgatp |= ((virt_to_phys(ctx->prog->gpgd) >> PAGE_SHIFT) & HGATP_PPN);
-	  pr_info("HGAPT: %0llx\n", hgatp);
+	  u64 hgatp = HGATP_MODE_SV48X4 << HGATP_MODE_SHIFT;
+	  pr_info("gpgd_phys : %0llx\n", virt_to_phys(ctx->prog->aux->gpgd));
+	  hgatp |= ((virt_to_phys(ctx->prog->aux->gpgd) >> PAGE_SHIFT) & HGATP_PPN);
+	  pr_info("HGATP: %0llx\n", hgatp);
 	  
 	  // Backup S5 reg
 	  emit_sd(RV_REG_SP, store_offset, RV_REG_S5, ctx);
@@ -1793,15 +1794,15 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 	  emit_ld(RV_REG_S5, store_offset, RV_REG_SP, ctx);
 	  
 	  // Backup T6, to use BPF SP reg
-	  pr_info("T6 position in prologue: %0llx\n", store_offset);
 	  emit_sd(RV_REG_SP, store_offset, RV_REG_T6, ctx);
 	  store_offset -= 8;
 	  
 	  // Store BPF SP start address to BPF SP reg
-	  emit_addi(RV_REG_T6, RV_REG_ZERO, 0x0F000000, ctx);
+	  emit_imm(RV_REG_T6, 0x80000000, ctx);
 
 	  // Test code
-	  //emit_hvmi(HSV_D, 0, RV_REG_SP, RV_REG_RA, ctx);
+	  emit_hvmi(HSV_D, 0, RV_REG_T6, RV_REG_T6, ctx);
+	  emit_hvmi(HLV_D, RV_REG_T6, RV_REG_T6, 0, ctx);
 	}
 	/* End of JARA */
 
