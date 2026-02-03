@@ -2671,6 +2671,7 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr, u32 uattr_size)
 
 	/* JARA: Create gbpf pgd */
 	gbpf_call_create_pgd(prog);
+	prog->aux->vmid = gbpf_call_get_vmid();
 	/* End of JARA */
 	
 	prog = bpf_prog_select_runtime(prog, &err);
@@ -2707,31 +2708,6 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr, u32 uattr_size)
 	/* JARA: map first page */
 	gbpf_call_map(prog);
 	/* End of JARA */
-
-
-	/* Garden : Pre-allocate 4KB Memory */
-	//prog->gbpf_page = alloc_page(GFP_KERNEL | __GFP_ZERO);
-	
-	/* ========================================
-	if (!prog->aux->gbpf_page) {
-	  pr_err("[syscall.c] Failed to pre-allocate 4KB page for prog %d\n", prog->aux->id);
-	} else{
-	  pr_info("[syscall.c] Pre-allocated 4KB page (PFN: %lx) for prog %d\n", page_to_pfn(prog->aux->gbpf_page), prog->aux->id);
-	}
-	=============================================== */
-	
-	/* Garden : Making L2 ~ L4 page tables and Physical 4KB page */
-	/* ===============================================
-	pr_info("[syscall.c] Making L2 ~~ L4 page tables and Physical page\n");
-	static int (*gbpf_map_preallocated_page_fp)(struct bpf_prog *prog, unsigned long vaddr, struct page *page);
-	gbpf_map_preallocated_page_fp = symbol_get(gbpf_map_preallocated_page);
-
-	pr_info("[syscall.c] gbpf_map_preallocated_page_fp address : %px\n", gbpf_map_preallocated_page_fp);
-	if (gbpf_map_preallocated_page_fp)
-	  gbpf_map_preallocated_page_fp(prog, 0xf000000000, prog->aux->gbpf_page);
-	  =================================================== */
-
-	/* End of Garden */
 
 	return err;
 

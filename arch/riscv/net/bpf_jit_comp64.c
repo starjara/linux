@@ -1774,8 +1774,10 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 	
 	/* JARA: Write hgatp for bpf program */
 	if (gbpf_ready) {
-	  u64 hgatp = HGATP_MODE_SV48X4 << HGATP_MODE_SHIFT;
 	  pr_info("gpgd_phys : %0llx\n", virt_to_phys(ctx->prog->aux->gpgd));
+	  u64 hgatp = ctx->prog->aux->vmid;
+	  hgatp = hgatp << HGATP_VMID_SHIFT;
+	  hgatp |= HGATP_MODE_SV48X4 << HGATP_MODE_SHIFT;
 	  hgatp |= ((virt_to_phys(ctx->prog->aux->gpgd) >> PAGE_SHIFT) & HGATP_PPN);
 	  pr_info("HGATP: %0llx\n", hgatp);
 	  

@@ -1365,6 +1365,7 @@ struct bpf_prog_aux {
   /* JARA: bpf space pages */
   void *gpgd; // gbpf space pgd
   struct page *gbpf_page; // gbpf space leaf page
+  u32 vmid;
   /* End of JARA */
 
 	atomic64_t refcnt;
