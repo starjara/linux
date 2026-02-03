@@ -275,7 +275,22 @@ struct bpf_map {
 	} owner;
 	bool bypass_spec_v1;
 	bool frozen; /* write-once; write-protected by freeze_mutex */
+	/* Garden Start: Copying SafeBPF */
+	u64 sandbox_or_mask;
+	u64 sandbox_and_mask;
+	/* End of Garden */
+
 };
+
+/* Garden Start: Copying SafeBPF */
+struct bpf_sandbox_map_jit_info {
+
+	bool is_map_lookup_invoked;
+	unsigned long *map_reg_bitmap;
+	struct bpf_map *current_active_map;
+};
+/* End of Garden */
+
 
 static inline const char *btf_field_type_name(enum btf_field_type type)
 {

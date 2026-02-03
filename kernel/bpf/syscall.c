@@ -2656,22 +2656,21 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr, u32 uattr_size)
 		goto free_used_maps;
 
 	/* Garden : Defining Global Sandbox page */
-	pr_info("[syscall.c] Start Sandboxing\n");
-	union bpf_sandbox *sb;
+	
 /*
 	if (!IS_SANDBOX_ENABLED(prog->type))
 	  return 0;
-*/
-	sb = (union bpf_sandbox *)get_zeroed_page(GFP_KERNEL);
+*
+	sb = (union bpf_sandbox *)get_zeroed_page(GFP_KERNEL); //alloc?
 	if (!sb)
 	  return -ENOMEM;
 	pr_info("[syscall.c] Filling Fields.\n");
 	sb->info.and_mask = 0x7FF;
 	sb->info.or_mask = (unsigned long)sb + 2048;
 	prog->sandbox_page = (void *)sb;
-	pr_info("[syscall.c] SafeBPF: Sandbox linked to prog at %px (Data starts at %llx)\n", sb, sb->info.or_mask);
+	pr_info("[syscall.c] SafeBPF: Sandbox linked to prog at %p (Data starts at %llx)\n", sb, sb->info.or_mask);
 	
-
+*/
 	/* End of Garden */
 
 	prog = bpf_prog_select_runtime(prog, &err);

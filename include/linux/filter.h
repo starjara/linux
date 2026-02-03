@@ -29,6 +29,8 @@
 #include <asm/byteorder.h>
 #include <uapi/linux/filter.h>
 
+#include <linux/bpf_sandbox.h> // Garden : Include for sandboxing
+
 struct sk_buff;
 struct sock;
 struct seccomp_data;
@@ -578,11 +580,55 @@ typedef unsigned int (*bpf_dispatcher_fn)(const void *ctx,
 					  unsigned int (*bpf_func)(const void *,
 								   const struct bpf_insn *));
 
+
+/* Garden Start : Bpf Program run under sandboxing */
+static __always_inline u32 __bpf_prog_run_sandboxed(const struct bpf_prog *prog, const void *ctx, bpf_dispatcher_fn dfunc)
+{
+	pr_info("[filter.h] Entering __bpf_prog_run_sandboxed.\n");
+	u32 ret;
+	unsigned long flags;
+	void *sandbox_mem;
+	void *tagged_ctx;
+
+	cant_migrate();
+	if (static_branch_unlikely(&bpf_stats_enabled_key)){
+		struct bpf_prog_stats *stats;
+		u64 start = sched_clock();
+		unsigned long flags2;
+		sandbox_mem = sandbox_alloc(prog, ctx);
+		pr_info("[filter.h] sandbox_mem (stats-on): %px\n", sandbox_mem);
+		ret = dfunc(sandbox_mem, prog->insnsi, prog->bpf_func);
+		sandbox_free(prog);
+
+		stats = this_cpu_ptr(prog->stats);
+		flags2 = u64_stats_update_begin_irqsave(&stats->syncp);
+		u64_stats_inc(&stats->cnt);
+		u64_stats_add(&stats->nsecs, sched_clock() - start);
+		u64_stats_update_end_irqrestore(&stats->syncp, flags2);
+	} else {
+		sandbox_mem = sandbox_alloc(prog, ctx);
+		ret = dfunc(sandbox_mem, prog->insnsi, prog->bpf_func);
+		sandbox_free(prog);
+	}
+	return ret;
+}
+/* End of Garden */
+
+
+
+
+
+
 static __always_inline u32 __bpf_prog_run(const struct bpf_prog *prog,
 					  const void *ctx,
 					  bpf_dispatcher_fn dfunc)
 {
 	u32 ret;
+
+	/* Garden : BPF should be run under sandbox */
+	if(!IS_SANDBOX_ENABLED(prog->type))
+		return __bpf_prog_run_sandboxed(prog, ctx, dfunc);
+	/* End of Garden */
 
 	cant_migrate();
 	if (static_branch_unlikely(&bpf_stats_enabled_key)) {

@@ -15,6 +15,9 @@
 /* Number of iterations to try until offsets converge. */
 #define NR_JIT_ITERATIONS	32
 
+//extern void *current_sandbox_mem; Garden : Take global variable sandbox memory 
+
+
 static int build_body(struct rv_jit_context *ctx, bool extra_pass, int *offset)
 {
 	const struct bpf_prog *prog = ctx->prog;
@@ -49,6 +52,10 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 	int pass = 0, prev_ninsns = 0, prologue_len, i;
 	struct rv_jit_data *jit_data;
 	struct rv_jit_context *ctx;
+	/* Garden Start : Defining sandbox variable */
+	struct inst_info info;
+	/* End of Garden */
+
 
 
 	if (!prog->jit_requested)
@@ -73,15 +80,6 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 	}
 
 	ctx = &jit_data->ctx;
-
-	pr_info("[bpf_jit_core.c] Entering bpf_int_jit_compile");
-	ctx->is_sandboxed = (prog->sandbox_page != NULL); // Garden: check is sandbox is enabled
-	
-	if (ctx->offset) {
-		extra_pass = true;
-		prog_size = sizeof(*ctx->insns) * ctx->ninsns;
-		goto skip_init_ctx;
-	}
 
 	ctx->prog = prog;
 	ctx->offset = kcalloc(prog->len, sizeof(int), GFP_KERNEL);
