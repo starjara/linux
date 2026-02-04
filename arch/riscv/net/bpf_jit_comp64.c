@@ -217,11 +217,6 @@ static void __build_epilogue(bool is_tail_call, struct rv_jit_context *ctx)
 {
 	int stack_adjust = ctx->stack_size, store_offset = stack_adjust - 8;
 
-	/* JARA: Restore SP reg */
-	if (gbpf_ready) 
-	  emit_addi(RV_REG_SP, RV_REG_S6, 0, ctx);
-	/* End of JARA */
-
 	if (seen_reg(RV_REG_RA, ctx)) {
 		emit_ld(RV_REG_RA, store_offset, RV_REG_SP, ctx);
 		store_offset -= 8;
@@ -1832,18 +1827,13 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 	  // Write T6 to HGATP
 	  emit_csrw(0, RV_REG_T6, RV_CSR_HGATP, ctx);
 	  
-	  // Backup SP reg to S6
-	  emit_addi(RV_REG_S6, RV_REG_SP, 0, ctx);
-	  
 	  // Store BPF SP start address to BPF SP reg
-	  //emit_imm(RV_REG_SP, 0x80001000, ctx);
+	  emit_imm(RV_REG_T6, 0x80001000, ctx);
 
 	  // Test code
-	  /*
-	  emit_addi(RV_REG_SP, RV_REG_SP, -8, ctx);
-	  emit_hvmi(HSV_D, 0, RV_REG_SP, RV_REG_SP, ctx);
-	  emit_hvmi(HLV_D, RV_REG_SP, RV_REG_SP, 0, ctx);
-	  */
+	  emit_addi(RV_REG_T6, RV_REG_T6, -8, ctx);
+	  emit_hvmi(HSV_D, 0, RV_REG_T6, RV_REG_T6, ctx);
+	  emit_hvmi(HLV_D, RV_REG_T6, RV_REG_T6, 0, ctx);
 	}
 	/* End of JARA */
 
