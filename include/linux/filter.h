@@ -626,7 +626,7 @@ static __always_inline u32 __bpf_prog_run(const struct bpf_prog *prog,
 	u32 ret;
 
 	/* Garden : BPF should be run under sandbox */
-	if(!IS_SANDBOX_ENABLED(prog->type))
+	if(IS_SANDBOX_ENABLED(prog->type))
 		return __bpf_prog_run_sandboxed(prog, ctx, dfunc);
 	/* End of Garden */
 

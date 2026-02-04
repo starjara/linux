@@ -1696,11 +1696,6 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 	/* reserve 4 nop insns */
 	for (i = 0; i < 4; i++)
 		emit(rv_nop(), ctx);
-	/* Garden : Edit instruction */
-//	if (ctx->is_sandboxed){
-//		emit_li(RV_REG_S11, ctx->sfi_base_addr + 2048, ctx);
-//	}
-	/* End Garden */
 
 	/* First instruction is always setting the tail-call-counter
 	 * (TCC) register. This instruction is skipped for tail calls.

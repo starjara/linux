@@ -53,7 +53,9 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 	struct rv_jit_data *jit_data;
 	struct rv_jit_context *ctx;
 	/* Garden Start : Defining sandbox variable */
-	struct inst_info info;
+//	struct inst_info info;
+//	bool is_sandboxed = IS_SANDBOX_ENABLED(prog->type);
+//	bpf_sandbox_map_info_init(prog);
 	/* End of Garden */
 
 
