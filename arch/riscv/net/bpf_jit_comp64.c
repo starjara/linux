@@ -217,6 +217,11 @@ static void __build_epilogue(bool is_tail_call, struct rv_jit_context *ctx)
 {
 	int stack_adjust = ctx->stack_size, store_offset = stack_adjust - 8;
 
+	/* JARA: Restore SP reg */
+	if (gbpf_ready) 
+	  emit_addi(RV_REG_SP, RV_REG_S6, 0, ctx);
+	/* End of JARA */
+
 	if (seen_reg(RV_REG_RA, ctx)) {
 		emit_ld(RV_REG_RA, store_offset, RV_REG_SP, ctx);
 		store_offset -= 8;
@@ -248,16 +253,18 @@ static void __build_epilogue(bool is_tail_call, struct rv_jit_context *ctx)
 		store_offset -= 8;
 	}
 	
-	/* JARA: Restore T6 reg and reset HGATP register */
 	
+	/* JARA: Restore HGATP and T6 */
 	if (gbpf_ready) {
-	  // Reset HGATP
-	  emit_addi(RV_REG_T6, RV_REG_ZERO, 0, ctx);
+	  // Restore HGATP from kernel SP
+	  store_offset -= 8;
+	  emit_ld(RV_REG_T6, store_offset, RV_REG_SP, ctx);
 	  emit_csrw(0, RV_REG_T6, RV_CSR_HGATP, ctx);
 	
 	  // Restore T6
+	  store_offset += 8;
 	  emit_ld(RV_REG_T6, store_offset, RV_REG_SP, ctx);
-	  store_offset -= 8;
+	  store_offset -= 16;
 	}
 	/* End of JARA */
 
@@ -1629,12 +1636,26 @@ out_be:
 		emit_imm(RV_REG_T1, imm, ctx);
 		if (is_12b_int(off)) {
 			emit_sd(rd, off, RV_REG_T1, ctx);
+			/* JARA: check hsv.d */
+			/*
+			if(gbpf_ready) {
+			  emit_add(RV_REG_T1, RV_REG_T1, off, ctx);
+			  emit_hvmi(HSV_D, 0, rd, RV_REG_T1, ctx);
+			}
+			*/
+			/* End of JARA */
 			break;
 		}
 
 		emit_imm(RV_REG_T2, off, ctx);
 		emit_add(RV_REG_T2, RV_REG_T2, rd, ctx);
 		emit_sd(RV_REG_T2, 0, RV_REG_T1, ctx);
+		/* JARA: check hsv.d */
+		/*
+		if(gbpf_ready)
+		  emit_hvmi(HSV_D, 0, RV_REG_T2, RV_REG_T1, ctx);
+		*/
+		/* End of JARA */
 		break;
 
 	/* STX: *(size *)(dst + off) = src */
@@ -1671,12 +1692,27 @@ out_be:
 	case BPF_STX | BPF_MEM | BPF_DW:
 		if (is_12b_int(off)) {
 			emit_sd(rd, off, rs, ctx);
+			/* JARA: check hsv.d */
+			/*
+			if(gbpf_ready) {
+			  emit_add(RV_REG_T1, RV_REG_T1, off, ctx);
+			  emit_hvmi(HSV_D, 0, rd, RV_REG_T1, ctx);
+			}
+			*/
+			/* End of JARA */
+
 			break;
 		}
 
 		emit_imm(RV_REG_T1, off, ctx);
 		emit_add(RV_REG_T1, RV_REG_T1, rd, ctx);
 		emit_sd(RV_REG_T1, 0, rs, ctx);
+		/* JARA: check hsv.d */
+		/*
+		if(gbpf_ready)
+		  emit_hvmi(HSV_D, 0, RV_REG_T2, RV_REG_T1, ctx);
+		*/
+		/* End of JARA */
 		break;
 	case BPF_STX | BPF_ATOMIC | BPF_W:
 	case BPF_STX | BPF_ATOMIC | BPF_DW:
@@ -1703,7 +1739,7 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 
 	/* JARA: Add stack adjust for kernel stack pointer value */
 	if (gbpf_ready)
-	  stack_adjust += 8;
+	  stack_adjust += 16;
 	/* End of JARA */
 	
 	if (seen_reg(RV_REG_RA, ctx))
@@ -1781,30 +1817,33 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 	  hgatp |= ((virt_to_phys(ctx->prog->aux->gpgd) >> PAGE_SHIFT) & HGATP_PPN);
 	  pr_info("HGATP: %0llx\n", hgatp);
 	  
-	  // Backup S5 reg
-	  emit_sd(RV_REG_SP, store_offset, RV_REG_S5, ctx);
-	  store_offset -= 8;
-
-	  // Set HGATP target value to S5 register
-	  emit_imm(RV_REG_S5, hgatp, ctx);
-	  
-	  // Write S5 to HGATP
-	  emit_csrw(0, RV_REG_S5, RV_CSR_HGATP, ctx);
-	  
-	  // Restore S5 reg
-	  store_offset += 8;
-	  emit_ld(RV_REG_S5, store_offset, RV_REG_SP, ctx);
-	  
-	  // Backup T6, to use BPF SP reg
+	  // Backup T6 reg
 	  emit_sd(RV_REG_SP, store_offset, RV_REG_T6, ctx);
 	  store_offset -= 8;
 	  
+	  // Read HGATP to T6 and backup HGATP to kernel SP
+	  emit_csrw(RV_REG_T6, 0, RV_CSR_HGATP, ctx);
+	  emit_sd(RV_REG_SP, store_offset, RV_REG_T6, ctx);
+	  store_offset -= 8;
+
+	  // Set HGATP target value to T6 register
+	  emit_imm(RV_REG_T6, hgatp, ctx);
+	  
+	  // Write T6 to HGATP
+	  emit_csrw(0, RV_REG_T6, RV_CSR_HGATP, ctx);
+	  
+	  // Backup SP reg to S6
+	  emit_addi(RV_REG_S6, RV_REG_SP, 0, ctx);
+	  
 	  // Store BPF SP start address to BPF SP reg
-	  emit_imm(RV_REG_T6, 0x80000000, ctx);
+	  //emit_imm(RV_REG_SP, 0x80001000, ctx);
 
 	  // Test code
-	  emit_hvmi(HSV_D, 0, RV_REG_T6, RV_REG_T6, ctx);
-	  emit_hvmi(HLV_D, RV_REG_T6, RV_REG_T6, 0, ctx);
+	  /*
+	  emit_addi(RV_REG_SP, RV_REG_SP, -8, ctx);
+	  emit_hvmi(HSV_D, 0, RV_REG_SP, RV_REG_SP, ctx);
+	  emit_hvmi(HLV_D, RV_REG_SP, RV_REG_SP, 0, ctx);
+	  */
 	}
 	/* End of JARA */
 
