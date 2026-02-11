@@ -251,6 +251,8 @@ static void __build_epilogue(bool is_tail_call, struct rv_jit_context *ctx)
 	
 	/* JARA: Restore HGATP and T6 */
 	if (gbpf_ready) {
+	  emit(rv_nop(), ctx);
+	  
 	  // Restore HGATP from kernel SP
 	  store_offset -= 8;
 	  emit_ld(RV_REG_T6, store_offset, RV_REG_SP, ctx);
@@ -260,6 +262,8 @@ static void __build_epilogue(bool is_tail_call, struct rv_jit_context *ctx)
 	  store_offset += 8;
 	  emit_ld(RV_REG_T6, store_offset, RV_REG_SP, ctx);
 	  store_offset -= 16;
+	  
+	  emit(rv_nop(), ctx);
 	}
 	/* End of JARA */
 
@@ -1631,26 +1635,12 @@ out_be:
 		emit_imm(RV_REG_T1, imm, ctx);
 		if (is_12b_int(off)) {
 			emit_sd(rd, off, RV_REG_T1, ctx);
-			/* JARA: check hsv.d */
-			/*
-			if(gbpf_ready) {
-			  emit_add(RV_REG_T1, RV_REG_T1, off, ctx);
-			  emit_hvmi(HSV_D, 0, rd, RV_REG_T1, ctx);
-			}
-			*/
-			/* End of JARA */
 			break;
 		}
 
 		emit_imm(RV_REG_T2, off, ctx);
 		emit_add(RV_REG_T2, RV_REG_T2, rd, ctx);
 		emit_sd(RV_REG_T2, 0, RV_REG_T1, ctx);
-		/* JARA: check hsv.d */
-		/*
-		if(gbpf_ready)
-		  emit_hvmi(HSV_D, 0, RV_REG_T2, RV_REG_T1, ctx);
-		*/
-		/* End of JARA */
 		break;
 
 	/* STX: *(size *)(dst + off) = src */
@@ -1666,7 +1656,25 @@ out_be:
 		break;
 	case BPF_STX | BPF_MEM | BPF_H:
 		if (is_12b_int(off)) {
-			emit(rv_sh(rd, off, rs), ctx);
+			/* JARA: check hsv.h */
+			if(gbpf_ready) {
+			  emit(rv_nop(), ctx);
+
+
+			  u8 temp = rd;
+			  rd = RV_REG_T6;
+
+			  emit_addi(rd, rd, off, ctx);
+			  emit_hvmi(HSV_H, 0, rd, rs, ctx);
+			  emit_addi(rd, rd, -off, ctx);
+			  
+			  rd = temp;
+			  
+			  emit(rv_nop(), ctx);
+			}
+			else 
+			  emit(rv_sh(rd, off, rs), ctx);
+			/* End of JARA */
 			break;
 		}
 
@@ -1686,28 +1694,31 @@ out_be:
 		break;
 	case BPF_STX | BPF_MEM | BPF_DW:
 		if (is_12b_int(off)) {
-			emit_sd(rd, off, rs, ctx);
-			/* JARA: check hsv.d */
-			/*
+			/* JARA: check hsv.h */
 			if(gbpf_ready) {
-			  emit_add(RV_REG_T1, RV_REG_T1, off, ctx);
-			  emit_hvmi(HSV_D, 0, rd, RV_REG_T1, ctx);
-			}
-			*/
-			/* End of JARA */
+			  emit(rv_nop(), ctx);
 
+
+			  u8 temp = rd;
+			  rd = RV_REG_T6;
+
+			  emit_addi(rd, rd, off, ctx);
+			  emit_hvmi(HSV_D, 0, rd, rs, ctx);
+			  emit_addi(rd, rd, -off, ctx);
+			  
+			  rd = temp;
+			  
+			  emit(rv_nop(), ctx);
+			}
+			/* End of JARA */
+			else 
+			  emit_sd(rd, off, rs, ctx);
 			break;
 		}
 
 		emit_imm(RV_REG_T1, off, ctx);
 		emit_add(RV_REG_T1, RV_REG_T1, rd, ctx);
 		emit_sd(RV_REG_T1, 0, rs, ctx);
-		/* JARA: check hsv.d */
-		/*
-		if(gbpf_ready)
-		  emit_hvmi(HSV_D, 0, RV_REG_T2, RV_REG_T1, ctx);
-		*/
-		/* End of JARA */
 		break;
 	case BPF_STX | BPF_ATOMIC | BPF_W:
 	case BPF_STX | BPF_ATOMIC | BPF_DW:
@@ -1805,6 +1816,8 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 	
 	/* JARA: Write hgatp for bpf program */
 	if (gbpf_ready) {
+	  emit(rv_nop(), ctx);
+	  
 	  pr_info("gpgd_phys : %0llx\n", virt_to_phys(ctx->prog->aux->gpgd));
 	  u64 hgatp = ctx->prog->aux->vmid;
 	  hgatp = hgatp << HGATP_VMID_SHIFT;
@@ -1828,12 +1841,16 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 	  emit_csrw(0, RV_REG_T6, RV_CSR_HGATP, ctx);
 	  
 	  // Store BPF SP start address to BPF SP reg
-	  emit_imm(RV_REG_T6, 0x80001000, ctx);
+	  emit_imm(RV_REG_T6, 0x80000000, ctx);
+
+	  if (bpf_stack_adjust)
+	    emit_addi(RV_REG_T6, RV_REG_T6, bpf_stack_adjust, ctx);
 
 	  // Test code
-	  emit_addi(RV_REG_T6, RV_REG_T6, -8, ctx);
 	  emit_hvmi(HSV_D, 0, RV_REG_T6, RV_REG_T6, ctx);
 	  emit_hvmi(HLV_D, RV_REG_T6, RV_REG_T6, 0, ctx);
+	  
+	  emit(rv_nop(), ctx);
 	}
 	/* End of JARA */
 

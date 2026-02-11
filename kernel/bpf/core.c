@@ -2571,6 +2571,8 @@ static void bpf_prog_free_deferred(struct work_struct *work)
 	struct bpf_prog_aux *aux;
 	int i;
 
+	LOG_E;
+
 	aux = container_of(work, struct bpf_prog_aux, work);
 
         /* JARA: Insert destroy pgtable */
