@@ -18,6 +18,11 @@
 #define RV_REG_TCC RV_REG_A6
 #define RV_REG_TCC_SAVED RV_REG_S6 /* Store A6 in S6 if program do calls */
 
+union bpf_sandbox;
+extern union bpf_sandbox *sandboxes; // Garden : Use global sandbox variable
+				
+
+
 static const int regmap[] = {
 	[BPF_REG_0] =	RV_REG_A5,
 	[BPF_REG_1] =	RV_REG_A0,
@@ -239,6 +244,30 @@ static void __build_epilogue(bool is_tail_call, struct rv_jit_context *ctx)
 	}
 
 	emit_addi(RV_REG_SP, RV_REG_SP, stack_adjust, ctx);
+	/* Garden Start :  Restore stack pointer */
+	bool is_sandboxed = IS_SANDBOX_ENABLED(ctx->prog->type);
+	if (is_sandboxed) {
+		pr_info("[bpf_jit_comp64.c] Epilogue Start.\n");
+		
+		if (is_sandboxed && !is_tail_call){
+			/*
+		emit_li(RV_REG_T1, 1024, ctx);
+		emit_addi(RV_REG_T1, RV_REG_T1, 1024, ctx);
+		emit_addi(RV_REG_T1, RV_REG_T1, 24, ctx);
+
+		emit_sub(RV_REG_T1, RV_REG_SP, RV_REG_T1, ctx);
+
+		emit_ld(RV_REG_T0, 0, RV_REG_T1, ctx);
+
+		emit_mv(RV_REG_SP, RV_REG_T0, ctx);
+		*/
+
+			emit_ld(RV_REG_SP, 2024, RV_REG_S11, ctx);
+		}
+
+	}
+	/*  End of Garden */
+
 	/* Set return value. */
 	if (!is_tail_call)
 		emit_mv(RV_REG_A0, RV_REG_A5, ctx);
@@ -463,13 +492,37 @@ static int emit_call(u64 addr, bool fixed_addr, struct rv_jit_context *ctx)
 {
 	s64 off = 0;
 	u64 ip;
+	/* Garden Start : Managing Helper call */
+	
+	bool is_sandboxed = IS_SANDBOX_ENABLED(ctx->prog->type);
+
+	if (is_sandboxed) {
+		emit_sd(RV_REG_S11, 2032, RV_REG_SP, ctx);
+
+		emit_ld(RV_REG_SP, 2024, RV_REG_S11, ctx);
+	}	
+
+	/* End of Garden */
 
 	if (addr && ctx->insns) {
 		ip = (u64)(long)(ctx->insns + ctx->ninsns);
 		off = addr - ip;
 	}
+	
+	/* Garden Start */
 
-	return emit_jump_and_link(RV_REG_RA, off, fixed_addr, ctx);
+	emit_jump_and_link(RV_REG_RA, off, fixed_addr, ctx);
+
+	if (is_sandboxed) {
+		
+		emit_mv(RV_REG_A5, RV_REG_A0, ctx);
+
+		emit_ld(RV_REG_SP, 2032, RV_REG_S11, ctx);
+	}
+
+	return 0;
+
+	/* End of Garden */
 }
 
 static void emit_atomic(u8 rd, u8 rs, s16 off, s32 imm, bool is64,
@@ -1667,6 +1720,30 @@ out_be:
 void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 {
 	int i, stack_adjust = 0, store_offset, bpf_stack_adjust;
+	int sandbox_insns = 0; // Garden Append : Store Additional Sandbox Instruction
+		
+
+	/* Garden Start */ 
+	//ctx->priv_seen_reg |= BIT(RV_REG_S5);
+
+	bool is_sandboxed = IS_SANDBOX_ENABLED(ctx->prog->type);
+	if (is_sandboxed) {
+
+		emit_mv(RV_REG_S11, RV_REG_A0, ctx);
+
+		emit_sd(RV_REG_S11, 2024, RV_REG_SP, ctx);
+
+		emit_li(RV_REG_T1, 1024, ctx);
+		emit_addi(RV_REG_T1, RV_REG_T1, 1024, ctx);
+		emit_addi(RV_REG_T1, RV_REG_T1, 1024, ctx);
+		emit_addi(RV_REG_T1, RV_REG_T1, 1024, ctx);
+		emit_add(RV_REG_SP, RV_REG_S11, RV_REG_T1, ctx);
+
+//		emit_addi(RV_REG_A0, RV_REG_A0, 1024, ctx);
+//		emit_addi(RV_REG_A0, RV_REG_A0, 1024, ctx);
+
+	}
+	/* End of Garden */
 
 	bpf_stack_adjust = round_up(ctx->prog->aux->stack_depth, 16);
 	if (bpf_stack_adjust)
@@ -1702,6 +1779,22 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 	 * Force using a 4-byte (non-compressed) instruction.
 	 */
 	emit(rv_addi(RV_REG_TCC, RV_REG_ZERO, MAX_TAIL_CALL_CNT), ctx);
+
+	/* Garden Start : Store stack pointer
+	bool is_sandboxed = IS_SANDBOX_ENABLED(ctx->prog->type);
+
+	if (is_sandboxed) {
+
+		pr_info("[bpf_jit_comp64.c] Prologue Start.\n");
+
+		emit_addi(RV_REG_T1, RV_REG_A0, 2024, ctx);
+		emit_sd(RV_REG_SP, 0, RV_REG_T1, ctx);
+
+		emit_li(RV_REG_T1, 4096, ctx);
+		emit_add(RV_REG_SP, RV_REG_A0, RV_REG_T1, ctx);
+
+	}
+	  End of Garden */
 
 	emit_addi(RV_REG_SP, RV_REG_SP, -stack_adjust, ctx);
 
