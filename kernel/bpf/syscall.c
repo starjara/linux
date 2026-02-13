@@ -2669,9 +2669,12 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr, u32 uattr_size)
 	if (err < 0)
 		goto free_used_maps;
 
-	/* JARA: Create gbpf pgd */
+	/* JARA: Create gbpf pgd, and map first page */
 	gbpf_call_create_pgd(prog);
-	prog->aux->vmid = gbpf_call_get_vmid();
+	gbpf_call_map(prog);
+	/* End of JARA */
+
+prog->aux->vmid = gbpf_call_get_vmid();
 	/* End of JARA */
 	
 	prog = bpf_prog_select_runtime(prog, &err);
@@ -2704,10 +2707,6 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr, u32 uattr_size)
 	err = bpf_prog_new_fd(prog);
 	if (err < 0)
 		bpf_prog_put(prog);
-
-	/* JARA: map first page */
-	gbpf_call_map(prog);
-	/* End of JARA */
 
 	return err;
 

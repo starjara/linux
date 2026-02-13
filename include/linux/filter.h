@@ -584,20 +584,33 @@ static __always_inline u32 __bpf_prog_run(const struct bpf_prog *prog,
 {
 	u32 ret;
 
+	/* JARA: Call bpf prog */
+	pr_info("[include/linux/filter.h] Enter: %s\n", __func__);
+	pr_info("\tCall BPF program to run\n");
+	/* End of JARA */
+
 	cant_migrate();
 	if (static_branch_unlikely(&bpf_stats_enabled_key)) {
 		struct bpf_prog_stats *stats;
 		u64 start = sched_clock();
 		unsigned long flags;
 
+		/* JARA: Insert ctx copy func */
+		/* End of JARA */
 		ret = dfunc(ctx, prog->insnsi, prog->bpf_func);
+		/* JARA: Insert ctx sync func */
+		/* End of JARA */
 		stats = this_cpu_ptr(prog->stats);
 		flags = u64_stats_update_begin_irqsave(&stats->syncp);
 		u64_stats_inc(&stats->cnt);
 		u64_stats_add(&stats->nsecs, sched_clock() - start);
 		u64_stats_update_end_irqrestore(&stats->syncp, flags);
 	} else {
+		/* JARA: Insert ctx copy func */
+		/* End of JARA */
 		ret = dfunc(ctx, prog->insnsi, prog->bpf_func);
+		/* JARA: Insert ctx sync func */
+		/* End of JARA */
 	}
 	return ret;
 }
