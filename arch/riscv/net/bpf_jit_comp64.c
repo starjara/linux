@@ -258,7 +258,7 @@ static void __build_epilogue(bool is_tail_call, struct rv_jit_context *ctx)
 	  emit_ld(RV_REG_S11, store_offset, RV_REG_SP, ctx);
 	  emit_csrw(0, RV_REG_S11, RV_CSR_HGATP, ctx);
 	
-	  // Restore T6
+	  // Restore S11 
 	  store_offset += 8;
 	  emit_ld(RV_REG_S11, store_offset, RV_REG_SP, ctx);
 	  store_offset -= 16;
@@ -1081,7 +1081,7 @@ int bpf_jit_emit_insn(const struct bpf_insn *insn, struct rv_jit_context *ctx,
 
 		  rs = temp;
 		  */
-		  unsigned long long dst_addr = (unsigned long long)ctx->prog->aux->gbpf_page +
+		  unsigned long long dst_addr = (unsigned long long)ctx->prog->aux->gbpf_page + PAGE_SIZE -
 		    ctx->prog->aux->bpf_stack_adjust;
 		  emit_imm(rd, dst_addr, ctx);
 		}
@@ -1543,11 +1543,34 @@ out_be:
 	  switch (BPF_SIZE(code)) {
 	  case BPF_B:
 	    if (is_12b_int(off)) {
-	      /* JARA: check hlv.b */
-	      /* End of JARA */
+	      /*
 	      insns_start = ctx->ninsns;
 	      emit(rv_lbu(rd, off, rs), ctx);
 	      insn_len = ctx->ninsns - insns_start;
+	      */
+	      /* JARA: check hlv.b */
+	      insns_start = ctx->ninsns;
+	      if (gbpf_ready) {
+		u8 temp;
+		
+		if (rs == RV_REG_S5) {
+		  temp = rs;
+		  rs = RV_REG_S11;
+		}
+		
+		emit_addi(rs, rs, off, ctx);
+		emit_hvmi(HLV_B, rd, rs, 0, ctx);
+		emit_addi(rs, rs, -off, ctx);
+
+		if (rs == RV_REG_S5) {
+		  rs = temp;
+		}
+	      }
+	      else {
+		emit(rv_lbu(rd, off, rs), ctx);
+	      }
+	      insn_len = ctx->ninsns - insns_start;
+	      /* End of JARA */
 	      break;
 	    }
 
@@ -1577,9 +1600,35 @@ out_be:
 		    break;
 	    case BPF_W:
 			if (is_12b_int(off)) {
+			  /*
 				insns_start = ctx->ninsns;
 				emit(rv_lwu(rd, off, rs), ctx);
 				insn_len = ctx->ninsns - insns_start;
+			  */
+				/* JARA: check hlv.b */
+				insns_start = ctx->ninsns;
+				if (gbpf_ready) {
+				  u8 temp;
+				  
+				  if (rs == RV_REG_S5) {
+				    temp = rs;
+				    rs = RV_REG_S11;
+				  }
+				  
+				  emit_addi(rs, rs, off, ctx);
+				  emit_hvmi(HLV_W, rd, rs, 0, ctx);
+				  emit_addi(rs, rs, -off, ctx);
+				  
+				  if (rs == RV_REG_S5) {
+				    rs = temp;
+				  }
+				}
+				else {
+				  emit(rv_lwu(rd, off, rs), ctx);
+				}
+				insn_len = ctx->ninsns - insns_start;
+				/* End of JARA */
+
 				break;
 			}
 
@@ -1593,12 +1642,36 @@ out_be:
 			break;
 		case BPF_DW:
 			if (is_12b_int(off)) {
-			  /* JARA: Check hlv.d */
-			  emit(rv_nop(), ctx);
-			  /* End of JARA */
+			  /*
 				insns_start = ctx->ninsns;
 				emit_ld(rd, off, rs, ctx);
 				insn_len = ctx->ninsns - insns_start;
+			  */	
+				/* JARA: check hlv.b */
+				insns_start = ctx->ninsns;
+				if (gbpf_ready) {
+				  u8 temp;
+				  
+				  if (rs == RV_REG_S5) {
+				    temp = rs;
+				    rs = RV_REG_S11;
+				  }
+				  
+				  emit_addi(rs, rs, off, ctx);
+				  emit_hvmi(HLV_D, rd, rs, 0, ctx);
+				  emit_addi(rs, rs, -off, ctx);
+				  
+				  if (rs == RV_REG_S5) {
+				    rs = temp;
+				  }
+				}
+				else {
+				  emit_ld(rd, off, rs, ctx);
+				}
+				insn_len = ctx->ninsns - insns_start;
+				/* End of JARA */
+
+
 				break;
 			}
 
@@ -1907,12 +1980,12 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 	  emit_csrw(0, RV_REG_S11, RV_CSR_HGATP, ctx);
 	  
 	  // Store BPF SP start address to BPF SP reg
-	  emit_imm(RV_REG_S11, 0x80000000, ctx);
+	  emit_imm(RV_REG_S11, 0x80001000, ctx);
 	  //emit_imm(RV_REG_T6, page_to_phys(ctx->prog->aux->gbpf_page), ctx);
 	  pr_info("GBPF page base: %llx\n", page_to_phys(ctx->prog->aux->gbpf_page));
 
 	  if (bpf_stack_adjust) {
-	    emit_addi(RV_REG_S11, RV_REG_S11, bpf_stack_adjust, ctx);
+	    emit_addi(RV_REG_S11, RV_REG_S11, -bpf_stack_adjust, ctx);
 	    ctx->prog->aux->bpf_stack_adjust = bpf_stack_adjust;
 	  }
 
