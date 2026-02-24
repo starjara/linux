@@ -36,6 +36,9 @@ struct bpf_sandbox_info {
 	u64	kern_ctx;
 };
 
+void sandbox_tramp(void);
+extern void init_sandbox_env(void *env);
+bool is_skb_helper(u64 prog_id, u64 fn); 
 
 struct bpf_sandbox_mem{
         u8 raw_info[BPF_SANDBOX_INFO_SIZE];
@@ -51,6 +54,8 @@ extern union bpf_sandbox *sandboxes;
 extern void *sandbox_ctx;
 extern size_t bpf_ctx_size_map[];
 extern uintptr_t bpf_sandbox_and_mask;
+extern uintptr_t bpf_sandbox_or_masks[];
+
 
 static void bpf_sandbox_init_meminfo(struct bpf_sandbox_info *sandbox_info, size_t ctx_size)
 {
@@ -66,6 +71,7 @@ static void bpf_sandbox_init_meminfo(struct bpf_sandbox_info *sandbox_info, size
 
 static __always_inline void *sandbox_alloc(const struct bpf_prog *prog, const void *kernel_ctx)
 {
+	int cpu = raw_smp_processor_id();
 	pr_info("[bpf_sandbox.h] Allocating Sandbox\n");
 	size_t ctx_size = 0;
 
@@ -95,7 +101,7 @@ static __always_inline void *sandbox_alloc(const struct bpf_prog *prog, const vo
 
 	sandbox_ctx = current_sandbox_mem;
 
-	bpf_sandbox_set_memory(current_sandbox_mem, current_sandbox_info->kern_ctx, current_sandbox_info->or_mask, bpf_sandbox_and_mask);
+	bpf_sandbox_set_memory(current_sandbox_mem, current_sandbox_info->kern_ctx, bpf_sandbox_or_masks[cpu], bpf_sandbox_and_mask);
 	return current_sandbox_mem;
 }
 

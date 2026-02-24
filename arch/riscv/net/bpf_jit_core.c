@@ -11,7 +11,7 @@
 #include "bpf_jit.h"
 
 #include <linux/bpf_sandbox.h> // Garden : Include for sandboxing
-
+#include <linux/bpf_map.h>
 /* Number of iterations to try until offsets converge. */
 #define NR_JIT_ITERATIONS	32
 
@@ -55,7 +55,7 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 	/* Garden Start : Defining sandbox variable */
 //	struct inst_info info;
 //	bool is_sandboxed = IS_SANDBOX_ENABLED(prog->type);
-//	bpf_sandbox_map_info_init(prog);
+	bpf_sandbox_map_info_init(prog);
 	/* End of Garden */
 
 
@@ -84,7 +84,36 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 	ctx = &jit_data->ctx;
 
 	ctx->prog = prog;
+//	pr_info("SafeBPF: JIT_COMPILE - ctx addr: %px, prog member addr: %px, prog value: %px\n",
+//        ctx, &ctx->prog, prog);
 	ctx->offset = kcalloc(prog->len, sizeof(int), GFP_KERNEL);
+
+	/* Garden Start */
+	for (i = 0; i < prog->len; i++) {
+
+	   if (prog->map_info && prog->map_info->map_reg_bitmap) {
+  //            pr_info("[bpf_jit_comp64.c] : [PASS %d] Current Bitmap Raw Value: 0x%lx\n", i, prog->map_info->map_reg_bitmap[0]);
+	   }
+ 	   struct bpf_insn *insn = &prog->insnsi[i];
+    		if (insn->code == (BPF_LD | BPF_IMM | BPF_DW)) {
+				
+			if (i + 1 < prog->len) {
+				u64 imm64 = (u64)insn[1].imm << 32 | (u32)insn->imm;
+			
+				if ((imm64 >> 56) == 0xff) {
+//					pr_info("[bpf_jit_comp64.c] : Found Map Address 0x%llx at R%d\n", imm64, insn->dst_reg);
+
+					if (prog->map_info && prog->map_info->map_reg_bitmap) {
+						set_bit(insn->dst_reg, prog->map_info->map_reg_bitmap);
+					}
+
+					i++;
+				}
+			
+			}
+    		}
+	}
+	/* End of Garden */
 	if (!ctx->offset) {
 		prog = orig_prog;
 		goto out_offset;
@@ -97,6 +126,7 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 	for (i = 0; i < NR_JIT_ITERATIONS; i++) {
 		pass++;
 		ctx->ninsns = 0;
+		ctx->prog->pass = i;
 		if (build_body(ctx, extra_pass, ctx->offset)) {
 			prog = orig_prog;
 			goto out_offset;

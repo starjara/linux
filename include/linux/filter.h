@@ -581,7 +581,7 @@ typedef unsigned int (*bpf_dispatcher_fn)(const void *ctx,
 								   const struct bpf_insn *));
 
 
-/* Garden Start : Bpf Program run under sandboxing */
+/*Garden Start : Bpf Program run under sandboxing */
 static __always_inline u32 __bpf_prog_run_sandboxed(const struct bpf_prog *prog, const void *ctx, bpf_dispatcher_fn dfunc)
 {
 	pr_info("[filter.h] Entering __bpf_prog_run_sandboxed.\n");
@@ -597,7 +597,7 @@ static __always_inline u32 __bpf_prog_run_sandboxed(const struct bpf_prog *prog,
 		unsigned long flags2;
 		sandbox_mem = sandbox_alloc(prog, ctx);
 		pr_info("[filter.h] sandbox_mem (stats-on): %px\n", sandbox_mem);
-		ret = dfunc(sandbox_mem, prog->insnsi, prog->bpf_func);
+		ret = dfunc(ctx, prog->insnsi, prog->bpf_func);
 		sandbox_free(prog);
 
 		stats = this_cpu_ptr(prog->stats);
@@ -607,7 +607,7 @@ static __always_inline u32 __bpf_prog_run_sandboxed(const struct bpf_prog *prog,
 		u64_stats_update_end_irqrestore(&stats->syncp, flags2);
 	} else {
 		sandbox_mem = sandbox_alloc(prog, ctx);
-		ret = dfunc(sandbox_mem, prog->insnsi, prog->bpf_func);
+		ret = dfunc(ctx, prog->insnsi, prog->bpf_func);
 		sandbox_free(prog);
 	}
 	return ret;

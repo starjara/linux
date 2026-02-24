@@ -10,13 +10,35 @@
 #include <linux/bpf_lsm.h>
 #include <linux/btf_ids.h>
 #include "disasm.h"
-
+#include <linux/threads.h>
+#include <linux/filter.h>
+#include <linux/bpf_verifier.h>
 
 union bpf_sandbox *sandboxes;
 void *sandbox_ctx;
 uintptr_t bpf_sandbox_and_mask;
 EXPORT_SYMBOL(bpf_sandbox_and_mask);
+uintptr_t bpf_sandbox_or_masks[CONFIG_NR_CPUS];
+EXPORT_SYMBOL(bpf_sandbox_or_masks);
 
+
+
+struct bpf_sandbox_env {
+	DECLARE_HASHTABLE(func_ht, 7);
+	DECLARE_HASHTABLE(skb_func_ht, 4);
+	DECLARE_HASHTABLE(xdp_func_ht, 2);
+};
+
+struct bpf_helper {
+	u64 			addr;
+	struct hlist_node	hnode;
+};
+
+static DEFINE_PER_CPU(int, bpf_sandbox_nesting);
+
+
+extern const struct bpf_verifier_ops * const bpf_verifier_ops[];
+static struct bpf_sandbox_env *bpf_sandbox_env;
 static __always_inline int msb(int b)
 {
 	int p = 0;
@@ -31,9 +53,9 @@ static __always_inline int msb(int b)
 
 static __always_inline uintptr_t gen_or_mask(volatile void *p, size_t s)
 {
-	uintptr_t m = (((uintptr_t)1 << (msb(s) + 1)) -1) - s;
+//	uintptr_t m = (((uintptr_t)1 << (msb(s) + 1)) -1) - s;
 
-	return (uintptr_t)p & ~m;
+	return (uintptr_t)p;
 }
 
 static __always_inline uintptr_t gen_and_mask(size_t s)
@@ -60,6 +82,107 @@ EXPORT_SYMBOL(bpf_ctx_size_map);
 EXPORT_SYMBOL(sandboxes);
 EXPORT_SYMBOL(sandbox_ctx);
 
+
+
+
+
+
+
+static void func_ht_add(u64 prog_id, u64 fn)
+{
+	struct bpf_helper *a;
+
+	if (fn == 0)
+		return;
+
+	a = kzalloc(sizeof(struct bpf_helper), GFP_ATOMIC);
+	if (!a)
+		return;
+
+	a->addr = fn;
+	hash_add(bpf_sandbox_env[prog_id].func_ht, &a->hnode, fn);
+}
+
+static void skb_func_ht_add(int i, u64 prog_id, u64 fn)
+{
+	struct bpf_helper *a;
+
+	switch (i) {
+	case BPF_FUNC_skb_store_bytes:
+	case BPF_FUNC_skb_load_bytes:
+	case BPF_FUNC_l3_csum_replace:
+	case BPF_FUNC_l4_csum_replace:
+	case BPF_FUNC_clone_redirect:
+	case BPF_FUNC_get_cgroup_classid:
+	case BPF_FUNC_skb_vlan_push:
+	case BPF_FUNC_skb_vlan_pop:
+	case BPF_FUNC_skb_get_tunnel_key:
+	case BPF_FUNC_skb_set_tunnel_key:
+	case BPF_FUNC_get_route_realm:
+	case BPF_FUNC_skb_get_tunnel_opt:
+	case BPF_FUNC_skb_set_tunnel_opt:
+	case BPF_FUNC_skb_change_proto:
+	case BPF_FUNC_skb_change_type:
+	case BPF_FUNC_skb_under_cgroup:
+	case BPF_FUNC_get_hash_recalc:
+	case BPF_FUNC_skb_change_head:
+	case BPF_FUNC_skb_change_tail:
+	case BPF_FUNC_skb_pull_data:
+	case BPF_FUNC_csum_update:
+	case BPF_FUNC_set_hash_invalid:
+	case BPF_FUNC_get_socket_cookie:
+	case BPF_FUNC_get_socket_uid:
+	case BPF_FUNC_set_hash:
+	case BPF_FUNC_skb_adjust_room:
+	case BPF_FUNC_sk_redirect_map:
+	case BPF_FUNC_skb_get_xfrm_state:
+	case BPF_FUNC_skb_load_bytes_relative:
+	case BPF_FUNC_sk_redirect_hash:
+	case BPF_FUNC_lwt_push_encap:
+	case BPF_FUNC_lwt_seg6_store_bytes:
+	case BPF_FUNC_lwt_seg6_adjust_srh:
+	case BPF_FUNC_lwt_seg6_action:
+	case BPF_FUNC_skb_cgroup_id:
+	case BPF_FUNC_skb_ancestor_cgroup_id:
+	case BPF_FUNC_skb_ecn_set_ce:
+	case BPF_FUNC_sk_assign:
+	case BPF_FUNC_csum_level:
+	case BPF_FUNC_skb_cgroup_classid:
+	case BPF_FUNC_skb_set_tstamp:
+		a = kzalloc(sizeof(struct bpf_helper), GFP_ATOMIC);
+		if (!a)
+			return;
+		a->addr = fn;
+		hash_add(bpf_sandbox_env[prog_id].skb_func_ht, &a->hnode, fn);
+		break;
+	}
+}
+
+static void xdp_func_ht_add(int i, u64 prog_id, u64 fn)
+{
+	struct bpf_helper *a;
+
+	switch (i) {
+	case BPF_FUNC_xdp_adjust_head:
+	case BPF_FUNC_xdp_adjust_meta:
+	case BPF_FUNC_xdp_adjust_tail:
+	case BPF_FUNC_xdp_get_buff_len:
+	case BPF_FUNC_xdp_load_bytes:
+	case BPF_FUNC_xdp_store_bytes:
+		a = kzalloc(sizeof(struct bpf_helper), GFP_ATOMIC);
+		if (!a)
+			return;
+		a->addr = fn;
+		hash_add(bpf_sandbox_env[prog_id].xdp_func_ht, &a->hnode, fn);
+		break;
+	}
+}
+
+
+
+
+
+
 static int __init bpf_sandbox_init(void)
 {
 	sandboxes = kmalloc(sizeof(union bpf_sandbox) * nr_cpu_ids, GFP_KERNEL);
@@ -71,11 +194,143 @@ static int __init bpf_sandbox_init(void)
 	
 	bpf_sandbox_and_mask = gen_and_mask(BPF_SANDBOX_SIZE);
 	for (int i = 0; i < nr_cpu_ids; i++) {
-		sandboxes[i].info.or_mask = gen_or_mask(sandboxes[i].mem.private, BPF_SANDBOX_SIZE);
-	}
+		bpf_sandbox_or_masks[i] = gen_or_mask(sandboxes[i].mem.private, BPF_SANDBOX_SIZE);
+	//	pr_info("[sandbox.c] CPU[%d] or_mask: 0x%lx (at address: %px)\n", i, bpf_sandbox_or_masks[i], &bpf_sandbox_or_masks[i]);
+}
+	
 
-	pr_info("BPF Sandbox initialized successfully.\n");
+	pr_info("[sandbox.c] BPF Sandbox initialized successfully. sandboxes: %px, and_mask: 0x%lx\n", 
+         sandboxes, bpf_sandbox_and_mask);
+
+
 	return 0;
 }
 
 core_initcall(bpf_sandbox_init);
+
+
+
+static __always_inline bool is_allowed_helper(u64 prog_id, u64 fn)
+{
+	struct bpf_helper *a;
+
+	struct bpf_sandbox_env *env = &bpf_sandbox_env[prog_id];
+
+	hash_for_each_possible(env->skb_func_ht, a, hnode, (u64)fn) {
+		if (a->addr == fn)
+			return true;
+	}
+	return false;
+}
+
+
+bool is_skb_helper(u64 prog_id, u64 fn)
+{
+	struct bpf_helper *a;
+
+	struct bpf_sandbox_env *env = &bpf_sandbox_env[prog_id];
+
+	hash_for_each_possible(env->skb_func_ht, a, hnode, (u64)fn) {
+		if (a->addr == fn)
+			return true;
+	}
+
+	return false;
+}
+EXPORT_SYMBOL(is_skb_helper);
+
+static __always_inline bool is_xdp_helper(u64 prog_id, u64 fn)
+{
+	struct bpf_helper *a;
+
+	struct bpf_sandbox_env *env = &bpf_sandbox_env[prog_id];
+
+
+	hash_for_each_possible(env->xdp_func_ht, a, hnode, (u64)fn) {
+		if (a->addr == fn)
+			return true;
+	}
+
+	return false;
+}
+
+
+/* kernel/bpf/sandbox.c */
+
+// 1. 인자 선언을 완전히 없애서 컴파일러의 mv a0, a6 등을 원천 차단합니다.
+void sandbox_tramp(void) 
+{
+    u64 call_target, prog_id;
+    u64 r1_bak, r2_bak, r3_bak, r4_bak, r5_bak;
+
+
+    if (__this_cpu_read(bpf_sandbox_nesting) > 0) {
+	    return;
+    }
+
+    __this_cpu_inc(bpf_sandbox_nesting);
+
+
+    /* 2. 컴파일러가 스택을 쌓기 전, 최우선적으로 레지스터에서 값을 직접 가져옵니다. */
+ 
+    asm volatile ("mv %0, a0" : "=r" (r1_bak));   // JIT에서 대피시킨 진짜 r1(skb) 회수
+    asm volatile ("mv %0, a1" : "=r" (r2_bak));   // 나머지 인자들(r2~r5) 회수
+    asm volatile ("mv %0, a2" : "=r" (r3_bak));
+    asm volatile ("mv %0, a3" : "=r" (r4_bak));
+    asm volatile ("mv %0, a4" : "=r" (r5_bak));
+    asm volatile ("mv %0, a6" : "=r" (prog_id));   // JIT에서 넣은 prog_type 회수
+    asm volatile ("mv %0, a7" : "=r" (call_target)); // JIT에서 넣은 target 주소 회수
+
+    /* 3. 보안 검사 로직 (주의: pr_info 로그는 스택 오버플로우를 유발하므로 모두 제거하세요) */
+    if (unlikely(is_skb_helper(prog_id, call_target))) {
+        // r1_bak(skb 주소)을 커널 주소로 변환
+       // convert_bpf_ctx_to_kernel_ctx(&r1_bak);
+    }
+
+    /* 4. 최종 호출 (수정된 r1_bak을 a0에 담아 전달) */
+    bpf_sandbox_call_trampoline_target(call_target, r1_bak, r2_bak, r3_bak, r4_bak, r5_bak);
+
+    __this_cpu_dec(bpf_sandbox_nesting);
+
+}
+
+void init_sandbox_env(void *env)
+{
+    struct bpf_verifier_env *v_env = (struct bpf_verifier_env *)env;
+    struct bpf_sandbox_env *new_env; // 임시 포인터
+    const struct bpf_func_proto *fn;
+    u64 prog_id;
+    int i;
+
+    /* 1. 유효성 검사 (가장 중요) */
+    if (!v_env || !v_env->prog) return;
+    prog_id = v_env->prog->type;
+
+    /* 2. 전역 변수 할당 로직 개선 */
+    if (!bpf_sandbox_env) {
+        new_env = kmalloc_array(MAX_BPF_PROG_TYPE, 
+                                sizeof(struct bpf_sandbox_env), GFP_KERNEL);
+        if (!new_env) return;
+
+        for (i = 0; i < MAX_BPF_PROG_TYPE; i++) {
+            hash_init(new_env[i].func_ht);
+            hash_init(new_env[i].skb_func_ht);
+            hash_init(new_env[i].xdp_func_ht);
+        }
+        /* 모든 루프가 끝난 '완성된' 상태에서만 대입 */
+        bpf_sandbox_env = new_env; 
+    }
+
+    /* 3. 안전하게 참조 */
+    if (prog_id < MAX_BPF_PROG_TYPE && hash_empty(bpf_sandbox_env[prog_id].func_ht)) {
+        for (i = 0; i <= __BPF_FUNC_MAX_ID; i++) {
+            fn = bpf_verifier_ops[prog_id]->get_func_proto(i, v_env->prog);
+            if (!fn || !fn->func) continue;
+
+            func_ht_add(prog_id, (u64)fn->func);
+            skb_func_ht_add(i, prog_id, (u64)fn->func);
+            xdp_func_ht_add(i, prog_id, (u64)fn->func);
+        }
+    }
+}
+

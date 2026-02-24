@@ -289,6 +289,8 @@ struct bpf_sandbox_map_jit_info {
 	unsigned long *map_reg_bitmap;
 	struct bpf_map *current_active_map;
 };
+
+
 /* End of Garden */
 
 
@@ -1460,6 +1462,10 @@ struct bpf_prog_aux {
 	};
 };
 
+/* Garden Start : Copying SafeBPF */
+
+
+
 struct bpf_prog {
 	u16			pages;		/* Number of allocated pages */
 	u16			jited:1,	/* Is our filter JIT'ed? */
@@ -1482,6 +1488,12 @@ struct bpf_prog {
 	u32			jited_len;	/* Size of jited insns in bytes */
 	u8			tag[BPF_TAG_SIZE];
 	void *sandbox_page; // Garden : Include Field for sandboxing
+	int pass;
+	struct bpf_sandbox_map_jit_info *map_info;  // Garden : Include for map info
+	/* Garden Start : Defining bitmap Variables */
+	unsigned long *ctx_read_write_bitmap;
+	unsigned long *ctx_write_bitmap;
+	/* End of Garden */
 	struct bpf_prog_stats __percpu *stats;
 	int __percpu		*active;
 	unsigned int		(*bpf_func)(const void *ctx,

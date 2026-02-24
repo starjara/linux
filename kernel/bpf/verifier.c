@@ -26,9 +26,18 @@
 #include <linux/poison.h>
 #include <linux/module.h>
 
+/* Garden Start */
+#include <linux/bpf_sandbox.h>
+#include <linux/bpf_map.h>
+/* End of Garden */
+
+
+
+
+
 #include "disasm.h"
 
-static const struct bpf_verifier_ops * const bpf_verifier_ops[] = {
+const struct bpf_verifier_ops * const bpf_verifier_ops[] = {
 #define BPF_PROG_TYPE(_id, _name, prog_ctx_type, kern_ctx_type) \
 	[_id] = & _name ## _verifier_ops,
 #define BPF_MAP_TYPE(_id, _ops)
@@ -39,6 +48,7 @@ static const struct bpf_verifier_ops * const bpf_verifier_ops[] = {
 #undef BPF_LINK_TYPE
 };
 
+EXPORT_SYMBOL_GPL(bpf_verifier_ops);
 /* bpf_check() is a static code analyzer that walks eBPF program
  * instruction by instruction and updates register/stack state.
  * All paths of conditional branches are analyzed until 'bpf_exit' insn.
@@ -18903,6 +18913,8 @@ int bpf_check(struct bpf_prog **prog, union bpf_attr *attr, bpfptr_t uattr, __u3
 
 	ret = do_check_subprogs(env);
 	ret = ret ?: do_check_main(env);
+
+	init_sandbox_env(env); // Garden Append
 
 	if (ret == 0 && bpf_prog_is_offloaded(env->prog->aux))
 		ret = bpf_prog_offload_finalize(env);
