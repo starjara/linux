@@ -588,6 +588,8 @@ static __always_inline u32 __bpf_prog_run(const struct bpf_prog *prog,
 {
 	u32 ret;
 
+
+
 	cant_migrate();
 	if (static_branch_unlikely(&bpf_stats_enabled_key)) {
 		struct bpf_prog_stats *stats;

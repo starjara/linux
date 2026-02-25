@@ -69,6 +69,23 @@ int gbpf_call_map(struct bpf_prog *prog)
 }
 EXPORT_SYMBOL_GPL(gbpf_call_map);
 
+int gbpf_call_map_ext(const struct bpf_prog *prog, const void *kaddr, size_t len)
+{
+    const struct gbpf_ops *ops;
+    int idx, ret = 0;
+
+    idx = srcu_read_lock(&gbpf_srcu);
+    ops = gbpf_ops_ptr;
+
+    if (ops && ops->map)
+      ret = ops->map_ext(prog, kaddr, len);
+
+    srcu_read_unlock(&gbpf_srcu, idx);
+    return ret;
+
+}
+EXPORT_SYMBOL_GPL(gbpf_call_map_ext);
+
 void gbpf_call_destroy_pgtable(struct bpf_prog *prog)
 {
     const struct gbpf_ops *ops;

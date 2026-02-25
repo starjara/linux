@@ -3,14 +3,30 @@
 
 #include <linux/types.h>
 #include <linux/bpf.h>
+#include <net/xdp.h>
+
+#define GBPF_STK_BASE 0x80000000ULL
+#define GBPF_PKT_BASE 0x90000000ULL
 
 struct page;
+/*
+struct sk_buff;
+struct sock;
+struct seccomp_data;
+struct bpf_prog_aux;
+struct xdp_rxq_info;
+struct xdp_buff;
+struct sock_reuseport;
+struct ctl_table;
+struct ctl_table_header;
+*/
 
 extern size_t gbpf_ctx_size_map[];
 
 struct gbpf_ops {
   int (*create_pgd)(struct bpf_prog *prog);
   int (*map)(struct bpf_prog *prog);
+  int (*map_ext)(const struct bpf_prog *prog, const void *kaddr, size_t len);
   void (*destroy_pgtable)(struct bpf_prog *prog);
   u32 (*get_vmid)(void);
   void (*inc_vmid)(void);
@@ -24,11 +40,17 @@ const struct gbpf_ops *pbpf_ops_get(void);
 
 int gbpf_call_create_pgd(struct bpf_prog *prog);
 int gbpf_call_map(struct bpf_prog *prog);
+int gbpf_call_map_ext(const struct bpf_prog *prog, const void *kaddr, size_t len);
 void gbpf_call_destroy_pgtable(struct bpf_prog *prog);
 u32 gbpf_call_get_vmid(void);
 void gbpf_call_inc_vmid(void);
 void gbpf_call_dec_vmid(void);
 static __always_inline void *gbpf_copy_ctx(const void *ctx, const struct bpf_prog *prog);
+
+static inline unsigned long page_off(const void *p)
+{
+    return (unsigned long)p & (PAGE_SIZE - 1);
+}
 
 static __always_inline void *gbpf_copy_ctx(const void *ctx, const struct bpf_prog *prog)
 {
@@ -39,14 +61,44 @@ static __always_inline void *gbpf_copy_ctx(const void *ctx, const struct bpf_pro
 
   if(ctx) {
     ctx_size = gbpf_ctx_size_map[prog->type];
+
     if (ctx_size == 8)
       ctx_size = 64;
+
+    if (prog->type == BPF_PROG_TYPE_XDP) {
+      const struct xdp_buff *xdp = ctx;
+      size_t len = (unsigned long)xdp->data_end - (unsigned long)xdp->data;
+      struct xdp_buff *shadow;
+      unsigned long base;
+      
+      gbpf_call_map_ext(prog, xdp->data, len);
+
+      addr = prog->aux->gbpf_page;
+      memcpy(addr, xdp, sizeof(*xdp));   /* xdp_buff shadow */
+
+      shadow = addr;
+
+      shadow->data = (void *)(uintptr_t)(GBPF_PKT_BASE + page_off(xdp->data));
+
+      /* 1페이지니까 end/meta가 같은 페이지일 때만 rewrite */
+      if (virt_to_page((void *)((unsigned long)xdp->data_end & PAGE_MASK)) == prog->aux->gbpf_pkt_page)
+	shadow->data_end = (void *)(uintptr_t)(GBPF_PKT_BASE + page_off(xdp->data_end));
+
+      if (xdp->data_meta &&
+	  virt_to_page((void *)((unsigned long)xdp->data_meta & PAGE_MASK)) == prog->aux->gbpf_pkt_page)
+	shadow->data_meta = (void *)(uintptr_t)(GBPF_PKT_BASE + page_off(xdp->data_meta));
+
+      return (void *)(uintptr_t)0x80000000; /* 너가 ctx를 놓기로 한 BPF-space VA */
+    }
+
     addr = prog->aux->gbpf_page;
     memcpy(addr, ctx, ctx_size);
     // ret = addr;
     ret = (void *)(uintptr_t)0x80000000;
+
     pr_info("CTX ADDR = %p\n", addr);
     pr_info("CTX SIZE = %lld\n", ctx_size);
+
   }
 
   return ret;
