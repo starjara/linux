@@ -16,6 +16,9 @@
 #include "map_in_map.h"
 #include <linux/bpf_mem_alloc.h>
 
+
+
+
 #define HTAB_CREATE_FLAG_MASK						\
 	(BPF_F_NO_PREALLOC | BPF_F_NO_COMMON_LRU | BPF_F_NUMA_NODE |	\
 	 BPF_F_ACCESS_MASK | BPF_F_ZERO_SEED)
@@ -687,10 +690,26 @@ static void *__htab_map_lookup_elem(struct bpf_map *map, void *key)
 static void *htab_map_lookup_elem(struct bpf_map *map, void *key)
 {
 	struct htab_elem *l = __htab_map_lookup_elem(map, key);
+	/* Garden Start */
+	void *value;
+	u32 value_size;
+	u64 *or_mask = sandbox_ctx + BPF_SANDBOX_MAP_OR_MASK_OFFSET;
+	u64 *and_mask = sandbox_ctx + BPF_SANDBOX_MAP_AND_MASK_OFFSET;
+	/* End of Garden */
 
-	if (l)
-		return l->key + round_up(map->key_size, 8);
 
+	if (l){
+		value = l->key + round_up(map->key_size, 16);
+		value_size = round_up(map->value_size, 16);
+		map->sandbox_or_mask = 0;
+		map->sandbox_and_mask = 0;
+		*or_mask = gen_or_mask(value, value_size);
+		*and_mask = gen_and_mask(value_size);
+		return value;
+
+
+		//return l->key + round_up(map->key_size, 8);
+	}
 	return NULL;
 }
 

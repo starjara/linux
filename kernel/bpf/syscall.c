@@ -38,6 +38,7 @@
 #include <net/netfilter/nf_bpf_link.h>
 
 #include <linux/bpf_sandbox.h> // Garden : Include for sandboxing
+#include <linux/bpf_ctx.h>
 
 #define IS_FD_ARRAY(map) ((map)->map_type == BPF_MAP_TYPE_PERF_EVENT_ARRAY || \
 			  (map)->map_type == BPF_MAP_TYPE_CGROUP_ARRAY || \
@@ -54,6 +55,7 @@
 #define XDP_BITMAP_SIZE 6
 #define PERF_EVENT_BITMAP_SIZE 32
 #define SOCKET_FILTER_BITMAP_SIZE 64
+extern void bpf_ctx_bitmap_alloc(struct bpf_prog *prog, int type);
 
 /* End of Garden */
 
@@ -2512,38 +2514,6 @@ static bool is_perfmon_prog_type(enum bpf_prog_type prog_type)
 
 
 /* Garden Start : Allocating Data into Bitmap */
-
-static inline void __bpf_ctx_bitmap_alloc(struct bpf_prog *prog, int nbits)
-{
-	prog->ctx_read_write_bitmap = bitmap_zalloc(nbits, GFP_KERNEL);
-	prog->ctx_write_bitmap = bitmap_zalloc(nbits, GFP_KERNEL);
-
-	if (prog->ctx_read_write_bitmap) {
-        	pr_info("SafeBPF: ctx_read_write_bitmap (%d bits) allocated at %p\n", 
-                	nbits, prog->ctx_read_write_bitmap);
-    	} else {
-        	pr_err("SafeBPF: Failed to allocate ctx_read_write_bitmap!\n");
-    	}
-
-}
-
-static inline void bpf_ctx_bitmap_alloc(struct bpf_prog *prog, int type)
-{
-	switch (type) {
-		case BPF_PROG_TYPE_XDP:
-			__bpf_ctx_bitmap_alloc(prog, XDP_BITMAP_SIZE);
-			break;
-		case BPF_PROG_TYPE_SOCKET_FILTER:
-			__bpf_ctx_bitmap_alloc(prog, SOCKET_FILTER_BITMAP_SIZE);
-			break;
-		case BPF_PROG_TYPE_PERF_EVENT:
-			__bpf_ctx_bitmap_alloc(prog, PERF_EVENT_BITMAP_SIZE);
-			break;
-		default:
-			break;
-	}
-}
-
 /* End of Garden */
 
 

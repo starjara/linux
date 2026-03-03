@@ -18941,10 +18941,19 @@ skip_full_check:
 			sanitize_dead_code(env);
 	}
 
-	if (ret == 0)
+	// Garden : Copying SafeBPF
+	if (ret == 0){
 		/* program is valid, convert *(u32*)(ctx + off) accesses */
-		ret = convert_ctx_accesses(env);
-
+	//	ret = convert_ctx_accesses(env);
+		if (IS_SANDBOX_CTX_SUPPORTED(env->prog->type)) {
+			record_ctx_accesses(env);
+		} else {
+			ret = convert_ctx_accesses(env);
+			record_ctx_accesses(env);
+			ret = convert_ctx_acceses(env);
+		}
+	}
+	// End of Garden
 	if (ret == 0)
 		ret = do_misc_fixups(env);
 

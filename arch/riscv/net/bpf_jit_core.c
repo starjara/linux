@@ -18,7 +18,7 @@
 //extern void *current_sandbox_mem; Garden : Take global variable sandbox memory 
 
 
-static int build_body(struct rv_jit_context *ctx, bool extra_pass, int *offset)
+static int build_body(struct rv_jit_context *ctx, bool extra_pass, int *offset, bool is_sandboxed)
 {
 	const struct bpf_prog *prog = ctx->prog;
 	int i;
@@ -27,7 +27,7 @@ static int build_body(struct rv_jit_context *ctx, bool extra_pass, int *offset)
 		const struct bpf_insn *insn = &prog->insnsi[i];
 		int ret;
 
-		ret = bpf_jit_emit_insn(insn, ctx, extra_pass);
+		ret = bpf_jit_emit_insn(insn, ctx, extra_pass, is_sandboxed);
 		/* BPF_LD | BPF_IMM | BPF_DW: skip the next instruction. */
 		if (ret > 0)
 			i++;
@@ -57,7 +57,7 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 //	bool is_sandboxed = IS_SANDBOX_ENABLED(prog->type);
 	bpf_sandbox_map_info_init(prog);
 	/* End of Garden */
-
+	bool is_sandboxed = IS_SANDBOX_ENABLED(prog->type);
 
 
 	if (!prog->jit_requested)
@@ -84,25 +84,15 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 	ctx = &jit_data->ctx;
 
 	ctx->prog = prog;
-//	pr_info("SafeBPF: JIT_COMPILE - ctx addr: %px, prog member addr: %px, prog value: %px\n",
-//        ctx, &ctx->prog, prog);
 	ctx->offset = kcalloc(prog->len, sizeof(int), GFP_KERNEL);
 
-	/* Garden Start */
+	/* Garden Start 
 	for (i = 0; i < prog->len; i++) {
-
-	   if (prog->map_info && prog->map_info->map_reg_bitmap) {
-  //            pr_info("[bpf_jit_comp64.c] : [PASS %d] Current Bitmap Raw Value: 0x%lx\n", i, prog->map_info->map_reg_bitmap[0]);
-	   }
  	   struct bpf_insn *insn = &prog->insnsi[i];
     		if (insn->code == (BPF_LD | BPF_IMM | BPF_DW)) {
-				
 			if (i + 1 < prog->len) {
 				u64 imm64 = (u64)insn[1].imm << 32 | (u32)insn->imm;
-			
 				if ((imm64 >> 56) == 0xff) {
-//					pr_info("[bpf_jit_comp64.c] : Found Map Address 0x%llx at R%d\n", imm64, insn->dst_reg);
-
 					if (prog->map_info && prog->map_info->map_reg_bitmap) {
 						set_bit(insn->dst_reg, prog->map_info->map_reg_bitmap);
 					}
@@ -113,7 +103,7 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 			}
     		}
 	}
-	/* End of Garden */
+	 End of Garden */
 	if (!ctx->offset) {
 		prog = orig_prog;
 		goto out_offset;
@@ -127,12 +117,12 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 		pass++;
 		ctx->ninsns = 0;
 		ctx->prog->pass = i;
-		if (build_body(ctx, extra_pass, ctx->offset)) {
+		if (build_body(ctx, extra_pass, ctx->offset, is_sandboxed)) {
 			prog = orig_prog;
 			goto out_offset;
 		}
 		ctx->body_len = ctx->ninsns;
-		bpf_jit_build_prologue(ctx);
+		bpf_jit_build_prologue(ctx, is_sandboxed);
 		ctx->epilogue_offset = ctx->ninsns;
 		bpf_jit_build_epilogue(ctx);
 
@@ -179,8 +169,8 @@ skip_init_ctx:
 	ctx->ninsns = 0;
 	ctx->nexentries = 0;
 
-	bpf_jit_build_prologue(ctx);
-	if (build_body(ctx, extra_pass, NULL)) {
+	bpf_jit_build_prologue(ctx, is_sandboxed);
+	if (build_body(ctx, extra_pass, NULL, is_sandboxed)) {
 		bpf_jit_binary_free(jit_data->header);
 		prog = orig_prog;
 		goto out_offset;

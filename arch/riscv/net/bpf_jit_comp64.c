@@ -214,7 +214,7 @@ static void emit_imm(u8 rd, s64 val, struct rv_jit_context *ctx)
 		emit_addi(rd, rd, lower, ctx);
 }
 
-static void __build_epilogue(bool is_tail_call, struct rv_jit_context *ctx)
+static void __build_epilogue(bool is_tail_call, struct rv_jit_context *ctx, bool is_sandboxed)
 {
 	int stack_adjust = ctx->stack_size, store_offset = stack_adjust - 8;
 
@@ -226,6 +226,15 @@ static void __build_epilogue(bool is_tail_call, struct rv_jit_context *ctx)
 	}
 	 End of Garden */
 
+	/* Garden Start :  Restore stack pointer */  
+
+
+	if (is_sandboxed) {
+		emit_ld(RV_REG_T1, -24, RV_REG_S11, ctx);
+		emit_mv(RV_REG_SP, RV_REG_T1, ctx);
+	}
+	
+	/*   End of Garden */
 
 	if (seen_reg(RV_REG_RA, ctx)) {
 		emit_ld(RV_REG_RA, store_offset, RV_REG_SP, ctx);
@@ -259,30 +268,16 @@ static void __build_epilogue(bool is_tail_call, struct rv_jit_context *ctx)
 	}
 
 	//emit_addi(RV_REG_SP, RV_REG_SP, stack_adjust, ctx);
-	/* Garden Start :  Restore stack pointer */  
-	bool is_sandboxed = IS_SANDBOX_ENABLED(ctx->prog->type);
-
-
-	if (is_sandboxed && !is_tail_call) {
-		pr_info("[bpf_jit_comp64.c] Epilogue Start.\n");
-		emit_ld(RV_REG_SP, 2024, RV_REG_S11, ctx);
-		emit_ld(RV_REG_RA, 2040, RV_REG_S11, ctx);
-	}
-	else{
-		emit_addi(RV_REG_SP, RV_REG_SP, stack_adjust, ctx);
-	}
-	/*   End of Garden */
 
 	/* Set return value. */
 
 
 	if (!is_tail_call)
 		emit_mv(RV_REG_A0, RV_REG_A5, ctx);
-/*
-	if (!is_sandboxed)
-		emit_addi(RV_REG_SP, RV_REG_SP, stack_adjust, ctx);
 
-*/
+	
+	emit_addi(RV_REG_SP, RV_REG_SP, stack_adjust, ctx);
+
 	emit_jalr(RV_REG_ZERO, is_tail_call ? RV_REG_T3 : RV_REG_RA,
 		  is_tail_call ? 20 : 0, /* skip reserved nops and TCC init */
 		  ctx);
@@ -373,7 +368,7 @@ static int emit_bpf_tail_call(int insn, struct rv_jit_context *ctx)
 {
 	int tc_ninsn, off, start_insn = ctx->ninsns;
 	u8 tcc = rv_tail_call_reg(ctx);
-
+	bool is_sandboxed = IS_SANDBOX_ENABLED(ctx->prog->type);
 	/* a0: &ctx
 	 * a1: &array
 	 * a2: index
@@ -417,7 +412,7 @@ static int emit_bpf_tail_call(int insn, struct rv_jit_context *ctx)
 	if (is_12b_check(off, insn))
 		return -1;
 	emit_ld(RV_REG_T3, off, RV_REG_T2, ctx);
-	__build_epilogue(true, ctx);
+	__build_epilogue(true, ctx, is_sandboxed);
 	return 0;
 }
 
@@ -504,29 +499,9 @@ static int emit_call(u64 addr, bool fixed_addr, struct rv_jit_context *ctx)
 {
 	s64 off = 0;
 	u64 ip;
-	/* Garden Start : Managing Helper call */
-	bool is_sandboxed = IS_SANDBOX_ENABLED(ctx->prog->type);
-
-	if (is_sandboxed) {
-
-		if ( addr == (u64)&sandbox_tramp || addr == (u64)&is_skb_helper) {
-			fixed_addr = false;
-		}
-		else {
-		emit_mv(RV_REG_A5, RV_REG_A0, ctx);
-		emit_imm(RV_REG_A6, ctx->prog->type, ctx);
-		emit_imm(RV_REG_A7, addr, ctx);
-		emit_addi(RV_REG_FP, RV_REG_FP, -1024, ctx);
-		emit_addi(RV_REG_FP, RV_REG_FP, -1024, ctx);
-		addr = (u64)&sandbox_tramp;
-
-		fixed_addr = false;
-		}
-	}
-	/* End of Garden */
 
 
-	 if (addr && ctx->insns) {
+	if (addr && ctx->insns) {
 		ip = (u64)(long)(ctx->insns + ctx->ninsns);
 		off = addr - ip;
 	}
@@ -1087,25 +1062,41 @@ static u8 emit_sfi(u8 rs, int off, struct rv_jit_context *ctx, bool is_map)
     u8 temp_reg = RV_REG_T1; 
     u8 and_mask_reg = RV_REG_T2;
     u8 or_mask_reg = RV_REG_T3;
+    u8 base_ptr = RV_REG_S11;
+    u64 mask;
 
-    off = off - 0x100;
     emit_imm(temp_reg, off, ctx);
     emit_add(temp_reg, temp_reg, rs, ctx);
 
-    emit_ld(and_mask_reg, -16, RV_REG_S11, ctx);
-    emit_ld(or_mask_reg, -8, RV_REG_S11, ctx);
-    
-    emit_and(temp_reg, temp_reg, and_mask_reg, ctx);
-    emit_or(temp_reg, temp_reg, or_mask_reg, ctx);
-
-    emit(rv_ld(temp_reg, 0, temp_reg), ctx);
-
     if (is_map) {
-        emit_and(temp_reg, temp_reg, and_mask_reg, ctx);
-        emit_or(temp_reg, temp_reg, or_mask_reg, ctx);
-    } else {
-        emit_and(temp_reg, temp_reg, and_mask_reg, ctx);
-        emit_or(temp_reg, temp_reg, or_mask_reg, ctx);
+    
+    struct bpf_map *map = ctx->prog->map_info->current_active_map;	
+	   
+    if (map->sandbox_and_mask && map->sandbox_or_mask) {
+	mask = (u64)map->sandbox_and_mask;
+	emit_imm(and_mask_reg, mask, ctx);
+   	emit_and(temp_reg, temp_reg, and_mask_reg, ctx);
+	
+	mask = (u64)map->sandbox_or_mask;
+	emit_imm(or_mask_reg, mask, ctx);
+	emit_or(temp_reg, temp_reg, or_mask_reg, ctx);	
+    
+    }
+    else {
+    	emit_ld(and_mask_reg, -48, base_ptr, ctx);
+	emit_and(temp_reg, temp_reg, and_mask_reg, ctx);
+
+	emit_ld(or_mask_reg, -40, base_ptr, ctx);
+	emit_or(temp_reg, temp_reg, or_mask_reg, ctx);
+	}
+
+    }
+    else {
+    	emit_ld(and_mask_reg, -16, base_ptr, ctx);
+	emit_and(temp_reg, temp_reg, and_mask_reg, ctx);
+
+	emit_ld(or_mask_reg, -8, base_ptr, ctx);
+	emit_or(temp_reg, temp_reg, or_mask_reg, ctx);
     }
 
     return temp_reg; 
@@ -1117,7 +1108,7 @@ static u8 emit_sfi(u8 rs, int off, struct rv_jit_context *ctx, bool is_map)
 /* End of Garden */
 
 int bpf_jit_emit_insn(const struct bpf_insn *insn, struct rv_jit_context *ctx,
-		      bool extra_pass)
+		      bool extra_pass, bool is_sandboxed)
 {
 	bool is64 = BPF_CLASS(insn->code) == BPF_ALU64 ||
 		    BPF_CLASS(insn->code) == BPF_JMP;
@@ -1126,13 +1117,9 @@ int bpf_jit_emit_insn(const struct bpf_insn *insn, struct rv_jit_context *ctx,
 	u8 rd = -1, rs = -1, code = insn->code;
 	s16 off = insn->off;
 	s32 imm = insn->imm;
-	bool is_sandboxed = IS_SANDBOX_ENABLED(ctx->prog->type); // Garden Append : Checking whether sandbox enabled
 	init_regs(&rd, &rs, insn, ctx);
 
 
-	//bpf_sandbox_map_info_init(ctx->prog);
-//	pr_info("[bpf_jit_comp64.c] : Emit_insn-> Current Bitmap Value: 0x%lx\n", 
-               // ctx->prog->map_info->map_reg_bitmap[0]);	
 	switch (code) {
 	/* dst = src */
 	case BPF_ALU | BPF_MOV | BPF_X:
@@ -1145,15 +1132,14 @@ int bpf_jit_emit_insn(const struct bpf_insn *insn, struct rv_jit_context *ctx,
 		emit_mv(rd, rs, ctx);
 		
 		/* Garden Start */
-		if (is_sandboxed && ctx->prog)                 {
-			if (is_map_reg(ctx->prog, insn->src_reg)) {
-//				pr_info("[bpf_jit_comp64.c] Setting bit.\n");
-				set_bit(insn->dst_reg, ctx->prog->ctx_read_write_bitmap);
-			} else {
-//				pr_info("[bpf_jit_comp64.c] Clearing bit at ALU64 & MOV.\n");
-				clear_bit(insn->dst_reg, ctx->prog->ctx_read_write_bitmap);
-			}
+		
+		if (is_sandboxed && is_map_reg(ctx->prog, rs))
+		{
+			bitmap_set(ctx->prog->map_info->map_reg_bitmap, rd, 1);
+		} else if (is_sandboxed && is_map_reg(ctx->prog, rd)) {
+			bitmap_clear(ctx->prog->map_info->map_reg_bitmap, rd, 1);
 		}
+		
 		/* End of Garden */
 		if (!is64 && !aux->verifier_zext)
 			emit_zext_32(rd, ctx);
@@ -1163,9 +1149,13 @@ int bpf_jit_emit_insn(const struct bpf_insn *insn, struct rv_jit_context *ctx,
 	case BPF_ALU | BPF_ADD | BPF_X:
 	case BPF_ALU64 | BPF_ADD | BPF_X:
 		emit_add(rd, rd, rs, ctx);
+		
+		
 		if (!is64 && !aux->verifier_zext)
 			emit_zext_32(rd, ctx);
 		break;
+
+
 	case BPF_ALU | BPF_SUB | BPF_X:
 	case BPF_ALU64 | BPF_SUB | BPF_X:
 		if (is64)
@@ -1311,7 +1301,6 @@ out_be:
 
 		/* Garden Start */
 		if (is_sandboxed) {
-		//	pr_info("[bpf_jit_comp64.c] Clearing bit at BPF_K.\n");
 			clear_bit(insn->dst_reg, ctx->prog->ctx_read_write_bitmap);
 		}
 		/* End of Garden */
@@ -1557,26 +1546,32 @@ out_be:
 					    &addr, &fixed_addr);
 		if (ret < 0)
 			return ret;
+		
+		/* Garden Start */
+		if (is_sandboxed) {
+			if (is_map_lookup((u64)addr)){
+				ctx->prog->map_info->is_map_lookup_invoked = true;
+				bitmap_set(ctx->prog->map_info->map_reg_bitmap, rs, 1);
+			} else {
+				ctx->prog->map_info->is_map_lookup_invoked = false;
+				bitmap_clear(ctx->prog->map_info->map_reg_bitmap, rs, 1);
+			}
+			emit_imm(RV_REG_T1, ctx->prog->type, ctx);
+			emit_imm(RV_REG_T2, addr, ctx);
+			addr = (u64)&sandbox_tramp;
+			fixed_addr = false;
+		
+		}
+		/* End of Garden */
 
 		ret = emit_call(addr, fixed_addr, ctx);
 		
 		/* Garden Start */
-		if (is_sandboxed && ctx->prog->map_info) {
-			if (is_map_lookup((u64)addr)) {
-				ctx->prog->map_info->is_map_lookup_invoked = true;
-				if (ctx->prog->map_info->map_reg_bitmap)
-				{
-					pr_info("[bpf_jit_comp64.c] Setting bit.\n");
-					set_bit(BPF_REG_0, ctx->prog->ctx_read_write_bitmap);
-				}
-			} else {
-				ctx->prog->map_info->is_map_lookup_invoked = false;
-				
-				if (ctx->prog->map_info->map_reg_bitmap){
-				//	pr_info("[bpf_jit_comp64.c] Clearing bit at BPF_JMP & BPF_CALL.\n");
-					clear_bit(BPF_REG_0, ctx->prog->ctx_read_write_bitmap);
-				}
-			}
+		if (is_sandboxed) {
+			emit(rv_nop(), ctx);
+			emit(rv_nop(), ctx);
+			emit(rv_nop(), ctx);
+
 		}
 		/* End of Garden */
 
@@ -1635,9 +1630,10 @@ out_be:
 	{
 		int insn_len, insns_start;
 		/* Garden Start : Adding some code for each cases */
-		u8 masked_addr_reg;
 
+	
 		if (is_sandboxed) {
+			u8 masked_addr_reg;
 		if (is_map_reg(ctx->prog, rs) && ctx->prog->map_info->current_active_map){
 			bitmap_set(ctx->prog->map_info->map_reg_bitmap, rd, 1);
 			masked_addr_reg = emit_sfi(rs, off, ctx, true);
@@ -1663,7 +1659,7 @@ out_be:
 		}
 		}
 
-		else {
+		else { 
 		/* End of Garden */
 		switch (BPF_SIZE(code)) {
 		case BPF_B:
@@ -1788,8 +1784,8 @@ out_be:
 		break;
 
 	/* STX: *(size *)(dst + off) = src */
-	/*
-	case BPF_STX | BPF_MEM | BPF_B:
+	
+/*	case BPF_STX | BPF_MEM | BPF_B:
 		if (is_12b_int(off)) {
 			emit(rv_sb(rd, off, rs), ctx);
 			break;
@@ -1831,7 +1827,7 @@ out_be:
 		emit_sd(RV_REG_T1, 0, rs, ctx);
 		break;
 
-	*/
+*/	
 	/* Garden Start : Modifying Store logic */
 	case BPF_STX | BPF_MEM | BPF_B:
 	case BPF_STX | BPF_MEM | BPF_H:
@@ -1840,6 +1836,8 @@ out_be:
 	{
 		u8 masked_addr_reg;
 		if (is_sandboxed) {
+
+			
 			if (is_map_reg(ctx->prog, rd) && ctx->prog->map_info->current_active_map) {
 				masked_addr_reg = emit_sfi(rd, off, ctx, true);
 			} else {
@@ -1866,32 +1864,14 @@ out_be:
 			break;
 		}
 		break;
-	}
+	} 
 	/* End of Garden */
 
 	case BPF_STX | BPF_ATOMIC | BPF_W:
 	case BPF_STX | BPF_ATOMIC | BPF_DW:
 
-		u8 masked_addr_reg;
 
-		if (is_sandboxed) {
-
-			if (is_map_reg(ctx->prog, rd) && ctx->prog->map_info->current_active_map) {
-				masked_addr_reg = emit_sfi(rd, off, ctx, true);
-			} else {
-				masked_addr_reg = emit_sfi(rd, off, ctx, false);
-			}
-		} else {
-			emit_imm(RV_REG_T1, off, ctx);
-			emit_add(RV_REG_T1, RV_REG_T1, rd, ctx);
-			masked_addr_reg = RV_REG_T1;
-		}
-			
-
-		//emit_imm(RV_REG_T1, off, ctx);
-		//emit_add(RV_REG_T1, RV_REG_T1, rd, ctx);
-
-		emit_atomic(/*rd*/ masked_addr_reg, rs, /*off*/ 0, imm,
+		emit_atomic(/*rd*/ rd, rs, /*off*/ off, imm,
 			    BPF_SIZE(code) == BPF_DW, ctx);
 		break;
 	default:
@@ -1902,44 +1882,11 @@ out_be:
 	return 0;
 }
 
-void bpf_jit_build_prologue(struct rv_jit_context *ctx)
+void bpf_jit_build_prologue(struct rv_jit_context *ctx, bool is_sandboxed)
 {
 	int i, stack_adjust = 0, store_offset, bpf_stack_adjust;
 	int sandbox_insns = 0; // Garden Append : Store Additional Sandbox Instruction
 		
-
-	/* Garden Start */ 
-	//ctx->priv_seen_reg |= BIT(RV_REG_S5);
-
-	bool is_sandboxed = IS_SANDBOX_ENABLED(ctx->prog->type);
-	if (is_sandboxed) {
-//		bpf_sandbox_map_info_init(ctx->prog);
-
-		emit_addr(RV_REG_S11, (uintptr_t)&sandboxes, false, ctx);
-		emit_ld(RV_REG_S11, 0, RV_REG_S11, ctx);
-
-		emit_sd(RV_REG_S11, 2024, RV_REG_SP, ctx);
-
-
-		emit_addr(RV_REG_S7, (uintptr_t)&bpf_sandbox_and_mask, false, ctx);
-		emit_ld(RV_REG_S7, 0, RV_REG_S7, ctx);
-
-		int cpu = raw_smp_processor_id();
-		emit_addr(RV_REG_S9, (uintptr_t)&bpf_sandbox_or_masks[cpu], false, ctx);
-		emit_ld(RV_REG_S9, 0, RV_REG_S9, ctx);
-
-		emit_li(RV_REG_T1, 1024, ctx);
-		emit_addi(RV_REG_T1, RV_REG_T1, 1024, ctx);
-		emit_addi(RV_REG_T1, RV_REG_T1, 1024, ctx);
-		emit_addi(RV_REG_T1, RV_REG_T1, 1024, ctx);
-		emit_add(RV_REG_SP, RV_REG_S11, RV_REG_T1, ctx);
-
-//		emit_addi(RV_REG_A0, RV_REG_A0, 1024, ctx);
-//		emit_addi(RV_REG_A0, RV_REG_A0, 1024, ctx);
-
-	}
-	/* End of Garden */
-
 	bpf_stack_adjust = round_up(ctx->prog->aux->stack_depth, 16);
 	if (bpf_stack_adjust)
 		mark_fp(ctx);
@@ -1975,21 +1922,6 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 	 */
 	emit(rv_addi(RV_REG_TCC, RV_REG_ZERO, MAX_TAIL_CALL_CNT), ctx);
 
-	/* Garden Start : Store stack pointer
-	bool is_sandboxed = IS_SANDBOX_ENABLED(ctx->prog->type);
-
-	if (is_sandboxed) {
-
-		pr_info("[bpf_jit_comp64.c] Prologue Start.\n");
-
-		emit_addi(RV_REG_T1, RV_REG_A0, 2024, ctx);
-		emit_sd(RV_REG_SP, 0, RV_REG_T1, ctx);
-
-		emit_li(RV_REG_T1, 4096, ctx);
-		emit_add(RV_REG_SP, RV_REG_A0, RV_REG_T1, ctx);
-
-	}
-	  End of Garden */
 
 	emit_addi(RV_REG_SP, RV_REG_SP, -stack_adjust, ctx);
 
@@ -2024,6 +1956,21 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 		store_offset -= 8;
 	}
 
+/* Garden Start : Copying SafeBPF */
+
+	if (is_sandboxed) {
+
+	    emit_mv(RV_REG_S11, RV_REG_A0, ctx);
+	    emit_sd(RV_REG_S11, -24, RV_REG_SP, ctx);
+	    emit_addi(RV_REG_SP, RV_REG_S11, 0x7f0, ctx);
+
+	}
+	
+	/* End of Garden */
+
+
+
+
 	emit_addi(RV_REG_FP, RV_REG_SP, stack_adjust, ctx);
 
 	if (bpf_stack_adjust)
@@ -2040,7 +1987,8 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 
 void bpf_jit_build_epilogue(struct rv_jit_context *ctx)
 {
-	__build_epilogue(false, ctx);
+	bool is_sandboxed = IS_SANDBOX_ENABLED(ctx->prog->type);
+	__build_epilogue(false, ctx, is_sandboxed);
 }
 
 bool bpf_jit_supports_kfunc_call(void)

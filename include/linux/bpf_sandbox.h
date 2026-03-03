@@ -3,26 +3,33 @@
 #ifndef _BPF_SANDBOX_H
 #define _BPF_SANDBOX_H
 
+#include <linux/bpf.h>
 #include <linux/types.h>
 #include <asm/bpf_sandbox.h>
 #include <linux/smp.h>
+#include <linux/hashtable.h>
+#include <linux/bpf_ctx.h>
 
 #define BPF_SANDBOX_SIZE 2048
-#define BPF_SANDBOX_INFO_SIZE 2048
+#define BPF_SANDBOX_INFO_SIZE 2048 
 #define MAX_BPF_STACK 512
+#define BPF_SANDBOX_MAP_OR_MASK_OFFSET -40
+#define BPF_SANDBOX_MAP_AND_MASK_OFFSET -48
+
+
 #define BPF_SANDBOX_OR_MASK_OFFSET -8
 #define BPF_SANDBOX_AND_MASK_OFFSET -16
 #define BPF_SANDBOX_ORIG_SP_OFFSET -24
 
 #define MAX_SYNC_PAIRS 10
 
-#define IS_SANDBOX_ENABLED(type) ((type) == BPF_PROG_TYPE_XDP || (type) == BPF_PROG_TYPE_SOCKET_FILTER || (type) == BPF_PROG_TYPE_KPROBE)
+#define IS_SANDBOX_ENABLED(type) ((type) == BPF_PROG_TYPE_XDP || (type) == BPF_PROG_TYPE_SOCKET_FILTER || (type) == BPF_PROG_TYPE_KPROBE || (type) == BPF_PROG_TYPE_RAW_TRACEPOINT)
 
 #define current_sandbox (&sandboxes[smp_processor_id()])
 
 #define current_sandbox_info (&current_sandbox->info)
 
-#define current_sandbox_mem ((void *)&current_sandbox->mem)
+#define current_sandbox_mem ((void *)&current_sandbox->mem.private)
 
 struct bpf_sandbox_info {
         u64     prog_brk;
@@ -36,9 +43,12 @@ struct bpf_sandbox_info {
 	u64	kern_ctx;
 };
 
-void sandbox_tramp(void);
+
+
+u64 sandbox_tramp(void);
+extern void bpf_sync_kernel_ctx(const struct bpf_prog *prog, const void *kernel_ctx, void *bpf_ctx);
 extern void init_sandbox_env(void *env);
-bool is_skb_helper(u64 prog_id, u64 fn); 
+__always_inline bool is_skb_helper(u64 prog_id, u64 fn); 
 
 struct bpf_sandbox_mem{
         u8 raw_info[BPF_SANDBOX_INFO_SIZE];
@@ -56,6 +66,31 @@ extern size_t bpf_ctx_size_map[];
 extern uintptr_t bpf_sandbox_and_mask;
 extern uintptr_t bpf_sandbox_or_masks[];
 
+
+static __always_inline int msb(int b)
+{
+	int p = 0;
+	b = b / 2;
+	while (b != 0) {
+		b = b / 2;
+		p++;
+	}
+	return p;
+}
+
+static __always_inline uintptr_t gen_or_mask(volatile void *p, size_t s)
+{
+	uintptr_t m =(((uintptr_t)1 << (msb(s) + 1)) - 1) -s ;
+	
+	return (uintptr_t)p & ~m;
+}
+
+static __always_inline uintptr_t gen_and_mask(size_t s)
+{
+	uintptr_t m = (((uintptr_t)1 << (msb(s) + 1 )) - 1) - s;
+
+	return (uintptr_t)m;
+}
 
 static void bpf_sandbox_init_meminfo(struct bpf_sandbox_info *sandbox_info, size_t ctx_size)
 {
@@ -107,7 +142,7 @@ static __always_inline void *sandbox_alloc(const struct bpf_prog *prog, const vo
 
 static __always_inline void sandbox_free(const struct bpf_prog *prog)
 {
-//	bpf_sync_kernel_ctx(prog, (void *)current_sandbox_info->kern_ctx, current_sandbox_mem);
+	bpf_sync_kernel_ctx(prog, (void *)current_sandbox_info->kern_ctx, current_sandbox_mem);
 	sandbox_ctx = NULL;
 }
 

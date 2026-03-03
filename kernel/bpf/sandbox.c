@@ -39,6 +39,7 @@ static DEFINE_PER_CPU(int, bpf_sandbox_nesting);
 
 extern const struct bpf_verifier_ops * const bpf_verifier_ops[];
 static struct bpf_sandbox_env *bpf_sandbox_env;
+/*
 static __always_inline int msb(int b)
 {
 	int p = 0;
@@ -64,7 +65,7 @@ static __always_inline uintptr_t gen_and_mask(size_t s)
 
 	return (uintptr_t)m;
 }
-
+*/
 
 
 size_t bpf_ctx_size_map[] = {
@@ -209,7 +210,6 @@ static int __init bpf_sandbox_init(void)
 core_initcall(bpf_sandbox_init);
 
 
-
 static __always_inline bool is_allowed_helper(u64 prog_id, u64 fn)
 {
 	struct bpf_helper *a;
@@ -224,7 +224,7 @@ static __always_inline bool is_allowed_helper(u64 prog_id, u64 fn)
 }
 
 
-bool is_skb_helper(u64 prog_id, u64 fn)
+__always_inline bool is_skb_helper(u64 prog_id, u64 fn)
 {
 	struct bpf_helper *a;
 
@@ -255,44 +255,26 @@ static __always_inline bool is_xdp_helper(u64 prog_id, u64 fn)
 }
 
 
-/* kernel/bpf/sandbox.c */
-
-// 1. 인자 선언을 완전히 없애서 컴파일러의 mv a0, a6 등을 원천 차단합니다.
-void sandbox_tramp(void) 
+u64 sandbox_tramp(void)
 {
-    u64 call_target, prog_id;
-    u64 r1_bak, r2_bak, r3_bak, r4_bak, r5_bak;
+	u64 prog_id;
+
+	volatile u64 call_target = bpf_sandbox_get_trampoline_target(&prog_id);
 
 
-    if (__this_cpu_read(bpf_sandbox_nesting) > 0) {
-	    return;
-    }
-
-    __this_cpu_inc(bpf_sandbox_nesting);
-
-
-    /* 2. 컴파일러가 스택을 쌓기 전, 최우선적으로 레지스터에서 값을 직접 가져옵니다. */
- 
-    asm volatile ("mv %0, a0" : "=r" (r1_bak));   // JIT에서 대피시킨 진짜 r1(skb) 회수
-    asm volatile ("mv %0, a1" : "=r" (r2_bak));   // 나머지 인자들(r2~r5) 회수
-    asm volatile ("mv %0, a2" : "=r" (r3_bak));
-    asm volatile ("mv %0, a3" : "=r" (r4_bak));
-    asm volatile ("mv %0, a4" : "=r" (r5_bak));
-    asm volatile ("mv %0, a6" : "=r" (prog_id));   // JIT에서 넣은 prog_type 회수
-    asm volatile ("mv %0, a7" : "=r" (call_target)); // JIT에서 넣은 target 주소 회수
-
-    /* 3. 보안 검사 로직 (주의: pr_info 로그는 스택 오버플로우를 유발하므로 모두 제거하세요) */
-    if (unlikely(is_skb_helper(prog_id, call_target))) {
-        // r1_bak(skb 주소)을 커널 주소로 변환
-       // convert_bpf_ctx_to_kernel_ctx(&r1_bak);
-    }
-
-    /* 4. 최종 호출 (수정된 r1_bak을 a0에 담아 전달) */
-    bpf_sandbox_call_trampoline_target(call_target, r1_bak, r2_bak, r3_bak, r4_bak, r5_bak);
-
-    __this_cpu_dec(bpf_sandbox_nesting);
+//	if (unlikely(is_skb_helper(prog_id, call_target)) || unlikely(is_xdp_helper(prog_id, call_target))) {
+		convert_bpf_ctx_to_kernel_ctx();
+//	}
+/*
+	if (unlikely(!is_allowed_helper(prog_id, call_target))) {
+		return 0;
+	}
+*/
+	return bpf_sandbox_call_trampoline_target(call_target);
 
 }
+EXPORT_SYMBOL(sandbox_tramp);
+
 
 void init_sandbox_env(void *env)
 {

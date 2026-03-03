@@ -597,7 +597,7 @@ static __always_inline u32 __bpf_prog_run_sandboxed(const struct bpf_prog *prog,
 		unsigned long flags2;
 		sandbox_mem = sandbox_alloc(prog, ctx);
 		pr_info("[filter.h] sandbox_mem (stats-on): %px\n", sandbox_mem);
-		ret = dfunc(ctx, prog->insnsi, prog->bpf_func);
+		ret = dfunc(sandbox_mem, prog->insnsi, prog->bpf_func);
 		sandbox_free(prog);
 
 		stats = this_cpu_ptr(prog->stats);
@@ -607,7 +607,7 @@ static __always_inline u32 __bpf_prog_run_sandboxed(const struct bpf_prog *prog,
 		u64_stats_update_end_irqrestore(&stats->syncp, flags2);
 	} else {
 		sandbox_mem = sandbox_alloc(prog, ctx);
-		ret = dfunc(ctx, prog->insnsi, prog->bpf_func);
+		ret = dfunc(sandbox_mem, prog->insnsi, prog->bpf_func);
 		sandbox_free(prog);
 	}
 	return ret;
@@ -626,8 +626,10 @@ static __always_inline u32 __bpf_prog_run(const struct bpf_prog *prog,
 	u32 ret;
 
 	/* Garden : BPF should be run under sandbox */
-	if(IS_SANDBOX_ENABLED(prog->type))
+	if(IS_SANDBOX_ENABLED(prog->type)){
 		return __bpf_prog_run_sandboxed(prog, ctx, dfunc);
+	
+	}
 	/* End of Garden */
 
 	cant_migrate();
