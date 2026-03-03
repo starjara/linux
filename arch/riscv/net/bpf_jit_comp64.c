@@ -1963,7 +1963,8 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx, bool is_sandboxed)
 	    emit_mv(RV_REG_S11, RV_REG_A0, ctx);
 	    emit_sd(RV_REG_S11, -24, RV_REG_SP, ctx);
 	    emit_addi(RV_REG_SP, RV_REG_S11, 0x7f0, ctx);
-
+	    emit_addi(RV_REG_SP, RV_REG_SP, 0x7f0, ctx);
+	    emit_addi(RV_REG_SP, RV_REG_SP, 0x10, ctx);
 	}
 	
 	/* End of Garden */

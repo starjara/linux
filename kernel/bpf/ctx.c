@@ -1,6 +1,8 @@
 #include <linux/bpf_ctx.h>
 
 
+
+/*
 void bpf_sync_sk_filter_ctx(const struct bpf_prog *prog, const struct sk_buff *kernel_ctx, struct __sk_buff *bpf_ctx)
 {
 	struct qdisc_skb_cb *qdisc_cb = qdisc_skb_cb(kernel_ctx);
@@ -17,7 +19,7 @@ void bpf_sync_xdp_ctx(const struct bpf_prog *prog, const struct xdp_buff *kernel
 	if (bpf_prog_is_offloaded(prog->aux) && rxq && virt_addr_valid(rxq))
 		rxq->queue_index = bpf_ctx->rx_queue_index;
 }
-
+*/
 
 
 void bpf_sync_kernel_ctx(const struct bpf_prog *prog, const void *kernel_ctx, void *bpf_ctx)

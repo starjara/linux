@@ -18950,7 +18950,7 @@ skip_full_check:
 		} else {
 			ret = convert_ctx_accesses(env);
 			record_ctx_accesses(env);
-			ret = convert_ctx_acceses(env);
+			ret = convert_ctx_accesses(env);
 		}
 	}
 	// End of Garden

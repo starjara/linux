@@ -10,8 +10,8 @@
 #include <linux/hashtable.h>
 #include <linux/bpf_ctx.h>
 
-#define BPF_SANDBOX_SIZE 2048
-#define BPF_SANDBOX_INFO_SIZE 2048 
+#define BPF_SANDBOX_SIZE 4096
+#define BPF_SANDBOX_INFO_SIZE 4096 
 #define MAX_BPF_STACK 512
 #define BPF_SANDBOX_MAP_OR_MASK_OFFSET -40
 #define BPF_SANDBOX_MAP_AND_MASK_OFFSET -48
@@ -124,11 +124,11 @@ static __always_inline void *sandbox_alloc(const struct bpf_prog *prog, const vo
 			pr_info("[bpf_sandbox.h] Current Sandbox Memory is NULL.\n");
 		}
 		else{
-		ctx_size = bpf_ctx_size_map[prog->type];
-		current_sandbox_info->kern_ctx = (u64)kernel_ctx;
+			ctx_size = bpf_ctx_size_map[prog->type];
+			current_sandbox_info->kern_ctx = (u64)kernel_ctx;
 
-		bpf_sandbox_init_meminfo(current_sandbox_info, ctx_size);
-		memcpy(current_sandbox_mem, kernel_ctx, ctx_size);
+			bpf_sandbox_init_meminfo(current_sandbox_info, ctx_size);
+			memcpy(current_sandbox_mem, kernel_ctx, ctx_size);
 		}
 	} else {
 		bpf_sandbox_init_meminfo(current_sandbox_info, 0);

@@ -263,7 +263,7 @@ u64 sandbox_tramp(void)
 
 
 //	if (unlikely(is_skb_helper(prog_id, call_target)) || unlikely(is_xdp_helper(prog_id, call_target))) {
-		convert_bpf_ctx_to_kernel_ctx();
+//		convert_bpf_ctx_to_kernel_ctx();
 //	}
 /*
 	if (unlikely(!is_allowed_helper(prog_id, call_target))) {

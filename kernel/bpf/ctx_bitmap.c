@@ -1,6 +1,6 @@
 #include <linux/bpf_verifier.h>
-#include <linux/bpf_ctx.h>
 #include <linux/bitmap.h>
+#include <linux/bpf_ctx.h>
 
 void record_ctx_accesses(void *verifier_env)
 {
@@ -199,7 +199,7 @@ void bpf_create_perf_event_ctx(const struct bpf_prog *prog,
 		}
 	}
 }
-
+/*
 void bpf_create_xdp_ctx(const struct bpf_prog *prog,
 	const struct xdp_buff *kernel_ctx,
 	struct xdp_md *bpf_ctx)
@@ -247,7 +247,7 @@ void bpf_create_xdp_ctx(const struct bpf_prog *prog,
 		}
 	}
 }
-
+*/
 void bpf_sync_sk_filter_ctx(const struct bpf_prog *prog,
 	const struct sk_buff *kernel_ctx, struct __sk_buff *bpf_ctx)
 {
