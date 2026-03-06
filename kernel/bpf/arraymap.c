@@ -15,6 +15,14 @@
 
 #include "map_in_map.h"
 
+/* JARA: Include Header */
+#include <linux/gbpf.h>
+/* End of JARA */
+
+/* JARA: Define macros */
+#define LOG_E pr_info("[arraymap.c] Enter: %s\n", __func__)
+/* End of JARA */
+
 #define ARRAY_CREATE_FLAG_MASK \
 	(BPF_F_NUMA_NODE | BPF_F_MMAPABLE | BPF_F_ACCESS_MASK | \
 	 BPF_F_PRESERVE_ELEMS | BPF_F_INNER_MAP)
@@ -86,6 +94,16 @@ static struct bpf_map *array_map_alloc(union bpf_attr *attr)
 	u64 array_size, mask64;
 	struct bpf_array *array;
 
+	/* JARA: Additional variables */
+	bool is_gbpf = 0;
+	void *data;
+	u64 total_elem_size;
+	/* End of JARA */
+
+	/* JARA: Debug print */
+	LOG_E;
+	/* End of JARA */
+
 	elem_size = round_up(attr->value_size, 8);
 
 	max_entries = attr->max_entries;
@@ -109,7 +127,35 @@ static struct bpf_map *array_map_alloc(union bpf_attr *attr)
 			return ERR_PTR(-E2BIG);
 	}
 
-	array_size = sizeof(*array);
+	// array_size = sizeof(*array);
+	/* JARA: Disjoint value and metadata */
+	// Check module 
+	is_gbpf = gbpf_call_check_module();
+	if (is_gbpf) {
+	  total_elem_size = percpu ?
+	    __roundup_pow_of_two((u64)max_entries * sizeof(void *)) :
+	    __roundup_pow_of_two((u64)max_entries * elem_size);
+	
+	  // Meta data page + value page
+	  array_size = PAGE_ALIGN(sizeof(*array)) + PAGE_ALIGN(total_elem_size);
+	  
+	  // Alloc data memory 
+	  data = attr->map_flags & BPF_F_MMAPABLE ?
+	    bpf_map_area_mmapable_alloc(array_size, numa_node) :
+	    bpf_map_area_alloc(array_size, numa_node);
+	  
+	  if (!data)
+	    return ERR_PTR(-ENOMEM);
+	  
+	  // Change value base addr 
+	  array = data + PAGE_ALIGN(sizeof(struct bpf_array))
+	    - offsetof(struct bpf_array, value);
+	}
+	else {
+	  array_size = sizeof(*array);
+	}
+	/* End of JARA */
+
 	if (percpu) {
 		array_size += (u64) max_entries * sizeof(void *);
 	} else {
@@ -165,6 +211,8 @@ static void *array_map_lookup_elem(struct bpf_map *map, void *key)
 	struct bpf_array *array = container_of(map, struct bpf_array, map);
 	u32 index = *(u32 *)key;
 
+	LOG_E;
+
 	if (unlikely(index >= array->map.max_entries))
 		return NULL;
 
@@ -175,6 +223,10 @@ static int array_map_direct_value_addr(const struct bpf_map *map, u64 *imm,
 				       u32 off)
 {
 	struct bpf_array *array = container_of(map, struct bpf_array, map);
+
+	/* JARA: Check gbpf module */
+	bool is_gbpf = gbpf_call_check_module();
+	/* End of JARA */
 
 	if (map->max_entries != 1)
 		return -ENOTSUPP;
@@ -240,6 +292,8 @@ static void *percpu_array_map_lookup_elem(struct bpf_map *map, void *key)
 	struct bpf_array *array = container_of(map, struct bpf_array, map);
 	u32 index = *(u32 *)key;
 
+	LOG_E;
+	
 	if (unlikely(index >= array->map.max_entries))
 		return NULL;
 

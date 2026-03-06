@@ -5,8 +5,14 @@
 #include <linux/bpf.h>
 #include <net/xdp.h>
 
-#define GBPF_STK_BASE 0x80000000ULL
+#define GBPF_PAGE_SIZE 4096
+#define GBPF_CONTEXT_SIZE 512
+#define GBPF_STACK_SIZE (GBPF_PAGE_SIZE - GBPF_CONTEXT_SIZE)
+
+#define GBPF_CTX_BASE 0x80000000ULL
 #define GBPF_PKT_BASE 0x90000000ULL
+#define GBPF_PKT_MAX_PAGES  64
+#define GBPF_MAP_BASE 0xA0000000ULL
 
 struct page;
 /*
@@ -23,10 +29,16 @@ struct ctl_table_header;
 
 extern size_t gbpf_ctx_size_map[];
 
+enum GBPF_MAP_TYPE {
+  PKT,
+  MAP,
+};
+
 struct gbpf_ops {
+  int (*check_module)(void);
   int (*create_pgd)(struct bpf_prog *prog);
   int (*map)(struct bpf_prog *prog);
-  int (*map_ext)(const struct bpf_prog *prog, const void *kaddr, size_t len);
+  int (*map_ext)(const struct bpf_prog *prog, const void *kaddr, size_t len, enum GBPF_MAP_TYPE type);
   void (*destroy_pgtable)(struct bpf_prog *prog);
   u32 (*get_vmid)(void);
   void (*inc_vmid)(void);
@@ -38,9 +50,10 @@ void gbpf_unregister_ops(const struct gbpf_ops *ops);
 
 const struct gbpf_ops *pbpf_ops_get(void);
 
+int gbpf_call_check_module(void);
 int gbpf_call_create_pgd(struct bpf_prog *prog);
 int gbpf_call_map(struct bpf_prog *prog);
-int gbpf_call_map_ext(const struct bpf_prog *prog, const void *kaddr, size_t len);
+int gbpf_call_map_ext(const struct bpf_prog *prog, const void *kaddr, size_t len, enum GBPF_MAP_TYPE type);
 void gbpf_call_destroy_pgtable(struct bpf_prog *prog);
 u32 gbpf_call_get_vmid(void);
 void gbpf_call_inc_vmid(void);
@@ -71,7 +84,7 @@ static __always_inline void *gbpf_copy_ctx(const void *ctx, const struct bpf_pro
       struct xdp_buff *shadow;
       unsigned long base;
       
-      gbpf_call_map_ext(prog, xdp->data, len);
+      gbpf_call_map_ext(prog, xdp->data, len, PKT);
 
       addr = prog->aux->gbpf_page;
       memcpy(addr, xdp, sizeof(*xdp));   /* xdp_buff shadow */

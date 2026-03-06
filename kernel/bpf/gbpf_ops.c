@@ -36,6 +36,22 @@ void gbpf_unregister_ops(const struct gbpf_ops *ops)
 }
 EXPORT_SYMBOL_GPL(gbpf_unregister_ops);
 
+int gbpf_call_check_module(void)
+{
+  const struct gbpf_ops *ops;
+  int idx, ret = 0;
+
+  idx = srcu_read_lock(&gbpf_srcu);
+  ops = gbpf_ops_ptr;
+  
+  if (ops && ops->check_module)
+    ret = ops->check_module();
+  
+  srcu_read_unlock(&gbpf_srcu, idx);
+  return ret;
+}
+EXPORT_SYMBOL_GPL(gbpf_call_check_module);
+
 int gbpf_call_create_pgd(struct bpf_prog *prog)
 {
     const struct gbpf_ops *ops;
@@ -69,7 +85,7 @@ int gbpf_call_map(struct bpf_prog *prog)
 }
 EXPORT_SYMBOL_GPL(gbpf_call_map);
 
-int gbpf_call_map_ext(const struct bpf_prog *prog, const void *kaddr, size_t len)
+int gbpf_call_map_ext(const struct bpf_prog *prog, const void *kaddr, size_t len, enum GBPF_MAP_TYPE type)
 {
     const struct gbpf_ops *ops;
     int idx, ret = 0;
@@ -78,7 +94,7 @@ int gbpf_call_map_ext(const struct bpf_prog *prog, const void *kaddr, size_t len
     ops = gbpf_ops_ptr;
 
     if (ops && ops->map)
-      ret = ops->map_ext(prog, kaddr, len);
+      ret = ops->map_ext(prog, kaddr, len, type);
 
     srcu_read_unlock(&gbpf_srcu, idx);
     return ret;

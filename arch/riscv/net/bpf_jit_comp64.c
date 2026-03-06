@@ -1072,18 +1072,21 @@ int bpf_jit_emit_insn(const struct bpf_insn *insn, struct rv_jit_context *ctx,
 		}
 		// emit_mv(rd, rs, ctx);
 		/* JARA: when src is BPF frame pointer */
+		// Used for helper call arg
 		if (gbpf_ready && rs == RV_REG_S5) {
-		  /*
+		  // bpf space to bpf space 
 		  u8 temp = rs;
 		  rs = RV_REG_S11;
 		  
 		  emit_mv(rd, rs, ctx);
 
 		  rs = temp;
-		  */
+		  // BPF space to kernel space 
+		  /*
 		  unsigned long long dst_addr = (unsigned long long)ctx->prog->aux->gbpf_page + PAGE_SIZE -
 		    ctx->prog->aux->bpf_stack_adjust;
 		  emit_imm(rd, dst_addr, ctx);
+		  */
 		}
 		else {
 		  emit_mv(rd, rs, ctx);
@@ -1522,7 +1525,16 @@ out_be:
 			if (ret)
 				return ret;
 		} else {
-			emit_imm(rd, imm64, ctx);
+		  // emit_imm(rd, imm64, ctx);
+		  /* JARA: Maybe map base addr */
+		  if (gbpf_ready) {
+		    imm64 = GBPF_MAP_BASE;
+		    emit_imm(rd, imm64, ctx);
+		  }
+		  else {
+		    emit_imm(rd, imm64, ctx);
+		  }
+		  /* End of JARA */
 		}
 
 		return 1;
@@ -1730,7 +1742,31 @@ out_be:
 	case BPF_ST | BPF_MEM | BPF_DW:
 		emit_imm(RV_REG_T1, imm, ctx);
 		if (is_12b_int(off)) {
-			emit_sd(rd, off, RV_REG_T1, ctx);
+		  //emit_sd(rd, off, RV_REG_T1, ctx);
+		  /* JARA: Non atomic sd */
+		  if(gbpf_ready) {
+		    emit(rv_nop(), ctx);
+		    
+		    
+		    u8 temp;
+		    if (rd == RV_REG_S5) {
+		      temp = rd;
+		      rd = RV_REG_S11;
+		    }
+		    
+		    emit_addi(rd, rd, off, ctx);
+		    emit_hvmi(HSV_D, 0, rd, rs, ctx);
+		    emit_addi(rd, rd, -off, ctx);
+		    
+		    if (rd == RV_REG_S5) {
+		      rd = temp;
+		    }
+		    
+		    emit(rv_nop(), ctx);
+		  }
+		  else 
+		    emit_sd(rd, off, rs, ctx);
+		  /* End of JARA */
 			break;
 		}
 
@@ -1833,18 +1869,22 @@ out_be:
 		if (is_12b_int(off)) {
 		  // emit_sd(rd, off, rs, ctx);
 		  /* JARA: check hsv.h */
-		  if(gbpf_ready && rd == RV_REG_S5) {
+		  if(gbpf_ready ) {
 		    emit(rv_nop(), ctx);
 		    
-		    
-		    u8 temp = rd;
-		    rd = RV_REG_S11;
+		    u8 temp;
+		    if (rd == RV_REG_S5) {
+		      temp = rd;
+		      rd = RV_REG_S11;
+		    }
 		    
 		    emit_addi(rd, rd, off, ctx);
 		    emit_hvmi(HSV_D, 0, rd, rs, ctx);
 		    emit_addi(rd, rd, -off, ctx);
 		    
-		    rd = temp;
+		    if (rd == RV_REG_S5) {
+		      rd = temp;
+		    }
 		    
 		    emit(rv_nop(), ctx);
 		  }

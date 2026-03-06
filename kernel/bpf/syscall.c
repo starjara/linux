@@ -1377,6 +1377,8 @@ static int map_lookup_elem(union bpf_attr *attr)
 	struct fd f;
 	int err;
 
+	LOG_E;
+
 	if (CHECK_ATTR(BPF_MAP_LOOKUP_ELEM))
 		return -EINVAL;
 
@@ -2521,7 +2523,10 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr, u32 uattr_size)
 	char license[128];
 	bool is_gpl;
 
+	/* JARA: Variable */
+	bool is_gbpf = gbpf_call_check_module();
 	LOG_E;
+	/* End of JARA */
 
 	if (CHECK_ATTR(BPF_PROG_LOAD))
 		return -EINVAL;
@@ -2670,13 +2675,13 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr, u32 uattr_size)
 		goto free_used_maps;
 
 	/* JARA: Create gbpf pgd, and map first page */
-	gbpf_call_create_pgd(prog);
-	gbpf_call_map(prog);
+	if (is_gbpf) {
+	  gbpf_call_create_pgd(prog);
+	  gbpf_call_map(prog);
+	  prog->aux->vmid = gbpf_call_get_vmid();
+	}
 	/* End of JARA */
 
-prog->aux->vmid = gbpf_call_get_vmid();
-	/* End of JARA */
-	
 	prog = bpf_prog_select_runtime(prog, &err);
 	if (err < 0)
 		goto free_used_maps;
@@ -2707,6 +2712,17 @@ prog->aux->vmid = gbpf_call_get_vmid();
 	err = bpf_prog_new_fd(prog);
 	if (err < 0)
 		bpf_prog_put(prog);
+
+	/* JARA: Map used map value pages */
+	if (is_gbpf) {
+	  int i;
+	  pr_info("Map count : %d\n", prog->aux->used_map_cnt);
+	  // Mapping MAP value page into the gbpf space 
+	  for (i=0; i<prog->aux->used_map_cnt; i++) {
+	    gbpf_call_map_ext(prog, prog->aux->used_maps[i] + PAGE_SIZE, PAGE_SIZE, MAP);
+	  }
+	}
+	/* End of JARA */
 
 	return err;
 
