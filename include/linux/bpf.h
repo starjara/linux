@@ -1363,7 +1363,7 @@ struct bpf_kfunc_desc_tab;
 
 struct bpf_prog_aux {
   /* JARA: bpf space pages */
-  void *gpgd; // gbpf space pgd
+  struct page *gpgd; // gbpf space pgd
   struct page *gbpf_page; // gbpf space leaf page
   struct page *gbpf_pkt_page;
   u32 vmid;

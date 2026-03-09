@@ -82,12 +82,11 @@ static __always_inline void *gbpf_copy_ctx(const void *ctx, const struct bpf_pro
       const struct xdp_buff *xdp = ctx;
       size_t len = (unsigned long)xdp->data_end - (unsigned long)xdp->data;
       struct xdp_buff *shadow;
-      unsigned long base;
       
       gbpf_call_map_ext(prog, xdp->data, len, PKT);
 
-      addr = prog->aux->gbpf_page;
-      memcpy(addr, xdp, sizeof(*xdp));   /* xdp_buff shadow */
+      addr = page_to_virt(prog->aux->gbpf_page);
+      memcpy(addr, xdp, sizeof(struct xdp_buff));   /* xdp_buff shadow */
 
       shadow = addr;
 
@@ -101,16 +100,16 @@ static __always_inline void *gbpf_copy_ctx(const void *ctx, const struct bpf_pro
 	  virt_to_page((void *)((unsigned long)xdp->data_meta & PAGE_MASK)) == prog->aux->gbpf_pkt_page)
 	shadow->data_meta = (void *)(uintptr_t)(GBPF_PKT_BASE + page_off(xdp->data_meta));
 
-      return (void *)(uintptr_t)0x80000000; /* 너가 ctx를 놓기로 한 BPF-space VA */
+      return (void *)(uintptr_t)GBPF_CTX_BASE; /* 너가 ctx를 놓기로 한 BPF-space VA */
     }
 
-    addr = prog->aux->gbpf_page;
+    addr = page_to_virt(prog->aux->gbpf_page);
     memcpy(addr, ctx, ctx_size);
     // ret = addr;
-    ret = (void *)(uintptr_t)0x80000000;
+    ret = (void *)(uintptr_t)GBPF_CTX_BASE;
 
-    pr_info("CTX ADDR = %p\n", addr);
-    pr_info("CTX SIZE = %lld\n", ctx_size);
+    pr_info("CTX ADDR = %px\n", addr);
+    pr_info("CTX SIZE = %lu\n", ctx_size);
 
   }
 

@@ -55,6 +55,8 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 	struct rv_jit_context *ctx;
 
 	LOG_E;
+	/* JARA: BPF map reg bit map init */
+	/* End of JARA */
 
 	if (!prog->jit_requested)
 		return orig_prog;
