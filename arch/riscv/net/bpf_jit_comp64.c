@@ -249,16 +249,18 @@ static void __build_epilogue(bool is_tail_call, struct rv_jit_context *ctx)
 	}
 	
 	
-	/* JARA: Restore HGATP and T6 */
+	/* JARA: Restore HGATP and S11 */
 	if (gbpf_ready) {
 	  emit(rv_nop(), ctx);
 	  
 	  // Restore HGATP from kernel SP
-	  store_offset -= 8;
+	  store_offset -= 16;
 	  emit_ld(RV_REG_S11, store_offset, RV_REG_SP, ctx);
 	  emit_csrw(0, RV_REG_S11, RV_CSR_HGATP, ctx);
 	
-	  // Restore S11 
+	  // Restore S11 and S10
+	  store_offset += 8;
+	  emit_ld(RV_REG_S10, store_offset, RV_REG_SP, ctx);
 	  store_offset += 8;
 	  emit_ld(RV_REG_S11, store_offset, RV_REG_SP, ctx);
 	  store_offset -= 16;
@@ -1070,7 +1072,7 @@ int bpf_jit_emit_insn(const struct bpf_insn *insn, struct rv_jit_context *ctx,
 			emit_zext_32(rd, ctx);
 			break;
 		}
-		//emit_mv(rd, rs, ctx);
+		emit_mv(rd, rs, ctx);
 		/* JARA: when src is BPF frame pointer */
 		// Used for helper call arg
 		if (gbpf_ready && rs == RV_REG_S5) {
@@ -1078,19 +1080,6 @@ int bpf_jit_emit_insn(const struct bpf_insn *insn, struct rv_jit_context *ctx,
 		    unsigned long long dst_addr = (unsigned long long)page_to_virt(ctx->prog->aux->gbpf_page)
 		      + PAGE_SIZE;
 		    emit_imm(rd, dst_addr, ctx);
-
-		    /*
-		      u64 x = (u64)page_to_virt(ctx->prog->aux->gbpf_page);
-		  
-		      pr_info("target kva      : 0x%lx\n", x);
-		      x += PAGE_SIZE;
-		      pr_info("target kva+pg   : 0x%lx\n", x);
-		      //x -= ctx->prog->aux->bpf_stack_adjust;
-		      pr_info("target kva-adj  : 0x%lx\n", x - ctx->prog->aux->bpf_stack_adjust);
-		      
-		      emit_imm(rd, x, ctx);
-		    */
-		  
 		}
 		else {
 		  emit_mv(rd, rs, ctx);
@@ -1492,11 +1481,32 @@ out_be:
 		if (ret < 0)
 			return ret;
 
+		/* JARA: Save helper call info */
+		if (gbpf_ready) {
+		  //ret = emit_call(addr, fixed_addr, ctx);
+
+		  // S11 has call taget addr
+		  emit_addr(RV_REG_S11, addr, fixed_addr, ctx);
+		  // S10 has helper id
+		  emit_imm(RV_REG_S10, insn->imm, ctx);
+		  
+		  ret = emit_call((u64)&gbpf_helper_call_trampoline, true, ctx);
+			
+		  if (ret)
+		    return ret;
+		  
+		  
+		  emit_mv(bpf_to_rv_reg(BPF_REG_0, ctx), RV_REG_A0, ctx);
+		  break;
+		}
+		/* End of JARA */
+
 		ret = emit_call(addr, fixed_addr, ctx);
 		if (ret)
 			return ret;
 
 		emit_mv(bpf_to_rv_reg(BPF_REG_0, ctx), RV_REG_A0, ctx);
+		
 		break;
 	}
 	/* tail call */
@@ -1523,26 +1533,26 @@ out_be:
 		u64 imm64;
 
 		imm64 = (u64)insn1.imm << 32 | (u32)imm;
+		
 		if (bpf_pseudo_func(insn)) {
-			/* fixed-length insns for extra jit pass */
-			ret = emit_addr(rd, imm64, extra_pass, ctx);
-			if (ret)
-				return ret;
+		  /* fixed-length insns for extra jit pass */
+		  ret = emit_addr(rd, imm64, extra_pass, ctx);
+		  if (ret)
+		    return ret;
 		} else {
 		  emit_imm(rd, imm64, ctx);
 		  /* JARA: Maybe map base addr */
 		  /*
-		  if (gbpf_ready) {
-		    imm64 = GBPF_MAP_BASE;
-		    emit_imm(rd, imm64, ctx);
-		  }
-		  else {
-		    emit_imm(rd, imm64, ctx);
-		  }
+		    if (gbpf_ready) {
+		      imm64 = GBPF_MAP_BASE;
+		      emit_imm(rd, imm64, ctx);
+		    }
+		    else {
+		      emit_imm(rd, imm64, ctx);
+		    }
 		  */
 		  /* End of JARA */
 		}
-
 		return 1;
 	}
 
@@ -1937,19 +1947,21 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 	  hgatp |= ((page_to_phys(ctx->prog->aux->gpgd) >> PAGE_SHIFT) & HGATP_PPN);
 	  pr_info("HGATP: %0llx\n", hgatp);
 	  
-	  // Backup T6 reg
+	  // Backup S11 and S10 reg
 	  emit_sd(RV_REG_SP, store_offset, RV_REG_S11, ctx);
 	  store_offset -= 8;
+	  emit_sd(RV_REG_SP, store_offset, RV_REG_S10, ctx);
+	  store_offset -= 8;
 	  
-	  // Read HGATP to T6 and backup HGATP to kernel SP
+	  // Read HGATP to S11 and backup HGATP to kernel SP
 	  emit_csrw(RV_REG_S11, 0, RV_CSR_HGATP, ctx);
 	  emit_sd(RV_REG_SP, store_offset, RV_REG_S11, ctx);
 	  store_offset -= 8;
 
-	  // Set HGATP target value to T6 register
+	  // Set HGATP target value to S11 register
 	  emit_imm(RV_REG_S11, hgatp, ctx);
 	  
-	  // Write T6 to HGATP
+	  // Write S11 to HGATP
 	  emit_csrw(0, RV_REG_S11, RV_CSR_HGATP, ctx);
 	  
 	  // Store BPF SP start address to BPF SP reg

@@ -4,6 +4,7 @@
 #include <linux/types.h>
 #include <linux/bpf.h>
 #include <net/xdp.h>
+#include <linux/types.h>
 
 #define GBPF_PAGE_SIZE 4096
 #define GBPF_CONTEXT_SIZE 512
@@ -45,11 +46,13 @@ struct gbpf_ops {
   void (*dec_vmid)(void);
 };
 
+// Module call related 
 int gbpf_register_ops(const struct gbpf_ops *ops);
 void gbpf_unregister_ops(const struct gbpf_ops *ops);
 
 const struct gbpf_ops *pbpf_ops_get(void);
 
+// Module functions
 int gbpf_call_check_module(void);
 int gbpf_call_create_pgd(struct bpf_prog *prog);
 int gbpf_call_map(struct bpf_prog *prog);
@@ -59,6 +62,10 @@ u32 gbpf_call_get_vmid(void);
 void gbpf_call_inc_vmid(void);
 void gbpf_call_dec_vmid(void);
 static __always_inline void *gbpf_copy_ctx(const void *ctx, const struct bpf_prog *prog);
+
+// Trampoline functions
+u64 gbpf_helper_call_trampoline(u64 arg1, u64 arg2, u64 arg3, u64 arg4, u64 arg5);
+
 
 static inline unsigned long page_off(const void *p)
 {

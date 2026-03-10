@@ -225,7 +225,7 @@ static int array_map_direct_value_addr(const struct bpf_map *map, u64 *imm,
 	struct bpf_array *array = container_of(map, struct bpf_array, map);
 
 	/* JARA: Check gbpf module */
-	bool is_gbpf = gbpf_call_check_module();
+	//bool is_gbpf = gbpf_call_check_module();
 	/* End of JARA */
 
 	if (map->max_entries != 1)
