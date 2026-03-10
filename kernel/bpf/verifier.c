@@ -17774,6 +17774,14 @@ static int do_misc_fixups(struct bpf_verifier_env *env)
 
 			map_ptr = BPF_MAP_PTR(aux->map_ptr_state);
 			ops = map_ptr->ops;
+			/* Garden Start : Copying SafeBPF */
+			record_map_ops(prog->type, ops);
+			if (IS_SANDBOX_ENABLED(prog->type))
+			{
+				bpf_sandbox_add_map_lookup(ops);
+				goto patch_map_ops_generic;
+			}
+			/* End of Garden */
 			if (insn->imm == BPF_FUNC_map_lookup_elem &&
 			    ops->map_gen_lookup) {
 				cnt = ops->map_gen_lookup(map_ptr, insn_buf);
@@ -18885,6 +18893,8 @@ int bpf_check(struct bpf_prog **prog, union bpf_attr *attr, bpfptr_t uattr, __u3
 	if (ret < 0)
 		goto skip_full_check;
 
+	init_sandbox_env(env);
+
 	ret = check_subprogs(env);
 	if (ret < 0)
 		goto skip_full_check;
@@ -18914,7 +18924,6 @@ int bpf_check(struct bpf_prog **prog, union bpf_attr *attr, bpfptr_t uattr, __u3
 	ret = do_check_subprogs(env);
 	ret = ret ?: do_check_main(env);
 
-	init_sandbox_env(env); // Garden Append
 
 	if (ret == 0 && bpf_prog_is_offloaded(env->prog->aux))
 		ret = bpf_prog_offload_finalize(env);

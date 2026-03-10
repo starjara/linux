@@ -182,8 +182,6 @@ static void xdp_func_ht_add(int i, u64 prog_id, u64 fn)
 
 
 
-
-
 static int __init bpf_sandbox_init(void)
 {
 	sandboxes = kmalloc(sizeof(union bpf_sandbox) * nr_cpu_ids, GFP_KERNEL);
@@ -210,16 +208,21 @@ static int __init bpf_sandbox_init(void)
 core_initcall(bpf_sandbox_init);
 
 
+
+
 static __always_inline bool is_allowed_helper(u64 prog_id, u64 fn)
 {
 	struct bpf_helper *a;
 
 	struct bpf_sandbox_env *env = &bpf_sandbox_env[prog_id];
 
-	hash_for_each_possible(env->skb_func_ht, a, hnode, (u64)fn) {
-		if (a->addr == fn)
+	hash_for_each_possible(bpf_sandbox_env[prog_id].func_ht, a, hnode, (u64)fn) {
+		if (a->addr == fn){
+	//		pr_info("Yes. you can access.\n");
 			return true;
+		}
 	}
+	//pr_info("Access Denied.\n");
 	return false;
 }
 
@@ -231,10 +234,12 @@ __always_inline bool is_skb_helper(u64 prog_id, u64 fn)
 	struct bpf_sandbox_env *env = &bpf_sandbox_env[prog_id];
 
 	hash_for_each_possible(env->skb_func_ht, a, hnode, (u64)fn) {
-		if (a->addr == fn)
+		if (a->addr == fn){
+	//		pr_info("Yes. You are.\n");
 			return true;
+		}
 	}
-
+	//pr_info("No. you are not.\n");
 	return false;
 }
 EXPORT_SYMBOL(is_skb_helper);
@@ -255,6 +260,23 @@ static __always_inline bool is_xdp_helper(u64 prog_id, u64 fn)
 }
 
 
+void record_map_ops(u64 prog_id, const struct bpf_map_ops *ops)
+{
+	if (is_allowed_helper(prog_id, (u64)ops->map_lookup_elem))
+		return;
+
+	func_ht_add(prog_id, (u64)ops->map_lookup_elem);
+	func_ht_add(prog_id, (u64)ops->map_update_elem);
+	func_ht_add(prog_id, (u64)ops->map_delete_elem);
+	func_ht_add(prog_id, (u64)ops->map_push_elem);
+	func_ht_add(prog_id, (u64)ops->map_pop_elem);
+	func_ht_add(prog_id, (u64)ops->map_peek_elem);
+	func_ht_add(prog_id, (u64)ops->map_redirect);
+	func_ht_add(prog_id, (u64)ops->map_for_each_callback);
+	func_ht_add(prog_id, (u64)ops->map_lookup_percpu_elem);
+}
+
+
 u64 sandbox_tramp(void)
 {
 	u64 prog_id;
@@ -262,19 +284,17 @@ u64 sandbox_tramp(void)
 	volatile u64 call_target = bpf_sandbox_get_trampoline_target(&prog_id);
 
 
-//	if (unlikely(is_skb_helper(prog_id, call_target)) || unlikely(is_xdp_helper(prog_id, call_target))) {
-//		convert_bpf_ctx_to_kernel_ctx();
-//	}
-/*
-	if (unlikely(!is_allowed_helper(prog_id, call_target))) {
-		return 0;
+	if (unlikely(is_skb_helper(prog_id, call_target)) || unlikely(is_xdp_helper(prog_id, call_target))) {
+		convert_bpf_ctx_to_kernel_ctx();
 	}
-*/
+
+//	if (prog_id != 33 && unlikely(!is_allowed_helper(prog_id, call_target))) {
+//		return 0;
+//	} 
 	return bpf_sandbox_call_trampoline_target(call_target);
 
 }
 EXPORT_SYMBOL(sandbox_tramp);
-
 
 void init_sandbox_env(void *env)
 {
@@ -315,4 +335,3 @@ void init_sandbox_env(void *env)
         }
     }
 }
-

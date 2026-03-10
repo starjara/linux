@@ -183,6 +183,17 @@ static void emit_imm(u8 rd, s64 val, struct rv_jit_context *ctx)
 	 *
 	 * This also means that we need to process LSB to MSB.
 	 */
+	/* Garden : Copying SafeBPF */
+
+	if (virt_addr_valid(val) && is_active_map(val)) {
+		struct bpf_map *map = (struct bpf_map *)val;
+		if (ctx->prog && ctx->prog->map_info) {
+			ctx->prog->map_info->current_active_map = map;
+		}
+	}
+	/* End of Garden */
+
+
 	s64 upper = (val + (1 << 11)) >> 12;
 	/* Sign-extend lower 12 bits to 64 bits since immediates for li, addiw,
 	 * and addi are signed and RVC checks will perform signed comparisons.
@@ -1069,9 +1080,14 @@ static u8 emit_sfi(u8 rs, int off, struct rv_jit_context *ctx, bool is_map)
     emit_add(temp_reg, temp_reg, rs, ctx);
 
     if (is_map) {
-    
+
     struct bpf_map *map = ctx->prog->map_info->current_active_map;	
-	   
+
+    pr_info("current_active_map address: %p\n", map);
+
+    if(!(map->map_type == BPF_MAP_TYPE_ARRAY || map->map_type == BPF_MAP_TYPE_HASH))
+	return temp_reg;    
+
     if (map->sandbox_and_mask && map->sandbox_or_mask) {
 	mask = (u64)map->sandbox_and_mask;
 	emit_imm(and_mask_reg, mask, ctx);
@@ -1132,14 +1148,14 @@ int bpf_jit_emit_insn(const struct bpf_insn *insn, struct rv_jit_context *ctx,
 		emit_mv(rd, rs, ctx);
 		
 		/* Garden Start */
-		
-		if (is_sandboxed && is_map_reg(ctx->prog, rs))
+		if (is_sandboxed && ctx->prog &&  ctx->prog->map_info) {		
+		if (is_map_reg(ctx->prog, rs))
 		{
 			bitmap_set(ctx->prog->map_info->map_reg_bitmap, rd, 1);
 		} else if (is_sandboxed && is_map_reg(ctx->prog, rd)) {
 			bitmap_clear(ctx->prog->map_info->map_reg_bitmap, rd, 1);
 		}
-		
+		}
 		/* End of Garden */
 		if (!is64 && !aux->verifier_zext)
 			emit_zext_32(rd, ctx);
@@ -1300,9 +1316,9 @@ out_be:
 		emit_imm(rd, imm, ctx);
 
 		/* Garden Start */
-		if (is_sandboxed) {
-			clear_bit(insn->dst_reg, ctx->prog->ctx_read_write_bitmap);
-		}
+//		if (is_sandboxed) {
+//			clear_bit(insn->dst_reg, ctx->prog->ctx_read_write_bitmap);
+//		}
 		/* End of Garden */
 		if (!is64 && !aux->verifier_zext)
 			emit_zext_32(rd, ctx);

@@ -15,7 +15,7 @@
 #include "bpf_lru_list.h"
 #include "map_in_map.h"
 #include <linux/bpf_mem_alloc.h>
-
+#include <linux/bpf_sandbox.h>
 
 
 
@@ -506,12 +506,19 @@ static struct bpf_map *htab_map_alloc(union bpf_attr *attr)
 	/* hash table size must be power of 2 */
 	htab->n_buckets = roundup_pow_of_two(htab->map.max_entries);
 
+	/* Garden Start : Adding hashmap */
+
+	bpf_sandbox_add_map(&htab->map);
+	if (!is_power_of_2(round_up(htab->map.value_size, 16)))
+		htab->map.value_size = __roundup_pow_of_two(htab->map.value_size);
+
+	/* End of Garden */
 	htab->elem_size = sizeof(struct htab_elem) +
-			  round_up(htab->map.key_size, 8);
+			  round_up(htab->map.key_size, 16); // Garden : Original was 8
 	if (percpu)
 		htab->elem_size += sizeof(void *);
 	else
-		htab->elem_size += round_up(htab->map.value_size, 8);
+		htab->elem_size += round_up(htab->map.value_size, 16); // Garden : Original was 8
 
 	err = -E2BIG;
 	/* prevent zero size kmalloc and check for u32 overflow */
@@ -584,7 +591,7 @@ static struct bpf_map *htab_map_alloc(union bpf_attr *attr)
 			goto free_map_locked;
 		if (percpu) {
 			err = bpf_mem_alloc_init(&htab->pcpu_ma,
-						 round_up(htab->map.value_size, 8), true);
+						 round_up(htab->map.value_size, 16), true); // Garden : Original was 8
 			if (err)
 				goto free_map_locked;
 		}

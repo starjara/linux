@@ -15,6 +15,9 @@
 
 #include "map_in_map.h"
 
+#include <linux/bpf_sandbox.h>
+#include <linux/bpf_map.h>
+
 #define ARRAY_CREATE_FLAG_MASK \
 	(BPF_F_NUMA_NODE | BPF_F_MMAPABLE | BPF_F_ACCESS_MASK | \
 	 BPF_F_PRESERVE_ELEMS | BPF_F_INNER_MAP)
@@ -86,6 +89,9 @@ static struct bpf_map *array_map_alloc(union bpf_attr *attr)
 	u64 array_size, mask64;
 	struct bpf_array *array;
 
+	void *data;
+	u64 total_elem_size;
+
 	elem_size = round_up(attr->value_size, 8);
 
 	max_entries = attr->max_entries;
@@ -108,14 +114,28 @@ static struct bpf_map *array_map_alloc(union bpf_attr *attr)
 		if (max_entries < attr->max_entries)
 			return ERR_PTR(-E2BIG);
 	}
+	/* Garden Start : Copying SafeBPF */
+	total_elem_size = percpu ?
+				__roundup_pow_of_two((u64) max_entries * sizeof(void *)) :
+				__roundup_pow_of_two((u64) max_entries * elem_size);
 
+	array_size = PAGE_ALIGN(sizeof(*array)) + PAGE_ALIGN(total_elem_size);
+	data = attr->map_flags & BPF_F_MMAPABLE ?
+		bpf_map_area_mmapable_alloc(array_size, numa_node) :
+		bpf_map_area_alloc(array_size, numa_node);
+
+	if (!data)
+		return ERR_PTR(-ENOMEM);
+
+	array = data + PAGE_ALIGN(sizeof(struct bpf_array)) - offsetof(struct bpf_array, value);
+
+
+
+	/*
 	array_size = sizeof(*array);
 	if (percpu) {
 		array_size += (u64) max_entries * sizeof(void *);
 	} else {
-		/* rely on vmalloc() to return page-aligned memory and
-		 * ensure array->value is exactly page-aligned
-		 */
 		if (attr->map_flags & BPF_F_MMAPABLE) {
 			array_size = PAGE_ALIGN(array_size);
 			array_size += PAGE_ALIGN((u64) max_entries * elem_size);
@@ -123,10 +143,10 @@ static struct bpf_map *array_map_alloc(union bpf_attr *attr)
 			array_size += (u64) max_entries * elem_size;
 		}
 	}
-
+	*/
 	/* allocate all map elements and zero-initialize them */
 	if (attr->map_flags & BPF_F_MMAPABLE) {
-		void *data;
+	//	void *data;
 
 		/* kmalloc'ed memory can't be mmap'ed, use explicit vmalloc */
 		data = bpf_map_area_mmapable_alloc(array_size, numa_node);
@@ -150,6 +170,16 @@ static struct bpf_map *array_map_alloc(union bpf_attr *attr)
 		bpf_map_area_free(array);
 		return ERR_PTR(-ENOMEM);
 	}
+
+	/* Garden Start: Copying SafeBPF */
+	bpf_sandbox_add_map(&array->map);
+	array->map.sandbox_or_mask = gen_or_mask(array->value, total_elem_size);
+	array->map.sandbox_and_mask = gen_and_mask(total_elem_size);
+	/* End of Garden */
+
+
+
+
 
 	return &array->map;
 }

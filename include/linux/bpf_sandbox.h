@@ -23,13 +23,19 @@
 
 #define MAX_SYNC_PAIRS 10
 
-#define IS_SANDBOX_ENABLED(type) ((type) == BPF_PROG_TYPE_XDP || (type) == BPF_PROG_TYPE_SOCKET_FILTER || (type) == BPF_PROG_TYPE_KPROBE || (type) == BPF_PROG_TYPE_RAW_TRACEPOINT)
+#define IS_SANDBOX_ENABLED(type) ((type) == BPF_PROG_TYPE_XDP || (type) == BPF_PROG_TYPE_SOCKET_FILTER || (type) == BPF_PROG_TYPE_KPROBE || (type) == BPF_PROG_TYPE_PERF_EVENT)
 
 #define current_sandbox (&sandboxes[smp_processor_id()])
 
 #define current_sandbox_info (&current_sandbox->info)
 
 #define current_sandbox_mem ((void *)&current_sandbox->mem.private)
+
+
+void bpf_sandbox_add_map(struct bpf_map *map);
+
+void record_map_ops(u64 prog_id, const struct bpf_map_ops *ops);
+
 
 struct bpf_sandbox_info {
         u64     prog_brk;
@@ -143,7 +149,6 @@ static __always_inline void *sandbox_alloc(const struct bpf_prog *prog, const vo
 static __always_inline void sandbox_free(const struct bpf_prog *prog)
 {
 	bpf_sync_kernel_ctx(prog, (void *)current_sandbox_info->kern_ctx, current_sandbox_mem);
-	sandbox_ctx = NULL;
 }
 
 #endif
