@@ -131,7 +131,6 @@ noinline u64 gbpf_helper_call_trampoline(u64 arg1, u64 arg2, u64 arg3, u64 arg4,
   pr_info("\tTarget Call: [%llu], %px\n", target_id,  (void *)call_target);
   pr_info("\tArgs : [%llx, %llx, %llx, %llx, %llx]\n", arg1, arg2, arg3, arg4, arg5);
 
-  /*
   desc = gbpf_get_helper_desc(target_id);
   
   if (desc) {
@@ -146,7 +145,6 @@ noinline u64 gbpf_helper_call_trampoline(u64 arg1, u64 arg2, u64 arg3, u64 arg4,
 
   ret = gbpf_convert_helper_ret(desc, ret);
   
-  */
 
   pr_info("[GBPF] Tramptest ret = 0x%llx\n", ret);
   

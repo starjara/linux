@@ -1540,17 +1540,22 @@ out_be:
 		  if (ret)
 		    return ret;
 		} else {
-		  emit_imm(rd, imm64, ctx);
+		  //emit_imm(rd, imm64, ctx);
+
 		  /* JARA: Maybe map base addr */
-		  /*
-		    if (gbpf_ready) {
-		      imm64 = GBPF_MAP_BASE;
-		      emit_imm(rd, imm64, ctx);
+		  if (gbpf_ready)  {
+		    if (insn->src_reg == BPF_PSEUDO_MAP_VALUE) {
+		      pr_info("src is BPF_PSEUDO_MAP_VALUE\n");
 		    }
-		    else {
-		      emit_imm(rd, imm64, ctx);
+		    if (insn->dst_reg == BPF_PSEUDO_MAP_VALUE) {
+		      pr_info("dst is BPF_PSEUDO_MAP_VALUE\n");
 		    }
-		  */
+		    imm64 = GBPF_MAP_BASE + 0x10;
+		    emit_imm(rd, imm64, ctx);
+		  }
+		  else {
+		    emit_imm(rd, imm64, ctx);
+		  }
 		  /* End of JARA */
 		}
 		return 1;
@@ -1625,9 +1630,17 @@ out_be:
 				/* JARA: check hlv.w */
 				insns_start = ctx->ninsns;
 				if (gbpf_ready) {
-				  emit_addi(rs, rs, off, ctx);
-				  emit_hvmi(HLV_W, rd, rs, 0, ctx);
-				  emit_addi(rs, rs, -off, ctx);
+				  if (gbpf_ready && insn->src_reg == BPF_PSEUDO_MAP_VALUE) {
+				    pr_info("HLV_W MAP value direct access\n");
+				    emit_imm(rs, GBPF_MAP_BASE + off, ctx);
+				    emit_hvmi(HLV_W, rd, rs, 0, ctx);
+				    emit_addi(rs, rs, -off, ctx);
+				  }
+				  else {
+				    emit_addi(rs, rs, off, ctx);
+				    emit_hvmi(HLV_W, rd, rs, 0, ctx);
+				    emit_addi(rs, rs, -off, ctx);
+				  }
 				}
 				else {
 				  emit(rv_lwu(rd, off, rs), ctx);
@@ -1656,18 +1669,25 @@ out_be:
 			  /* JARA: check hlv.d */
 			  insns_start = ctx->ninsns;
 			  if (gbpf_ready) {
-			    emit_addi(rs, rs, off, ctx);
-			    emit_hvmi(HLV_D, rd, rs, 0, ctx);
-			    emit_addi(rs, rs, -off, ctx);
+			    if (gbpf_ready && insn->src_reg == BPF_PSEUDO_MAP_VALUE) {
+			      pr_info("HLV_D MAP value direct access\n");
+
+			      emit_imm(rs, GBPF_MAP_BASE + off, ctx);
+			      emit_hvmi(HLV_D, rd, rs, 0, ctx);
+			      emit_addi(rs, rs, -off, ctx);
+			    }
+			    else {
+			      emit_addi(rs, rs, off, ctx);
+			      emit_hvmi(HLV_D, rd, rs, 0, ctx);
+			      emit_addi(rs, rs, -off, ctx);
+			    }
 			  }
 			  else {
 			    emit_ld(rd, off, rs, ctx);
 			  }
 			  insn_len = ctx->ninsns - insns_start;
 			  /* End of JARA */
-			  
-			  
-				break;
+			  break;
 			}
 
 			emit_imm(RV_REG_T1, off, ctx);
