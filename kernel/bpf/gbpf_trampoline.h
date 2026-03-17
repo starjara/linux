@@ -13,7 +13,8 @@ enum gbpf_arg_kind {
 };
 
 enum gbpf_ret_kind {
-  GBPF_RET_SCALAR = 0,
+  GBPF_RET_UNUSED = 0,
+  GBPF_RET_SCALAR,
   GBPF_RET_PTR_TO_MAP_VALUE,
   GBPF_RET_PTR_TO_MEM,
 };
@@ -24,6 +25,19 @@ struct gbpf_helper_desc {
   u8 nr_args;
   u8 arg_kind[5];
   u8 ret_kind;
+};
+
+/* gbpf_trampoline.h */
+
+struct gbpf_helper_meta {
+  u64 frame_base;
+  u64 old_hgatp;
+  u64 ctx_base;
+  u64 pkt_base;
+  u64 map_base;
+  u64 helper_id;
+  u64 call_imm;
+  u64 orig_ctx;
 };
 
 typedef u64 (*gbpf_helper_fn_t)(u64, u64, u64, u64, u64);
@@ -50,20 +64,45 @@ static __always_inline u64 gbpf_read_helper_call_target(void)
   return call_target;
 }
 
-static __always_inline u64 gbpf_read_helper_meta(u64 *target_id)
+/*
+static __always_inline u64 gbpf_read_helper_meta(u64 *base_addr)
 {
   u64 call_target;
-  u64 tmp_target_id;
+  u64 tmp_base_addr;
 
   asm volatile (
 		"mv %0, s10\n\t"
 		"mv %1, s11\n\t"
-		: "=r"(tmp_target_id), "=r"(call_target)
+		: "=r"(tmp_base_addr), "=r"(call_target)
 		:
 		:);
   
-  *target_id = tmp_target_id;
+  *base_addr = tmp_base_addr;
   return call_target;
 }
+*/
 
+static __always_inline struct gbpf_helper_meta gbpf_read_helper_meta(void)
+{
+    struct gbpf_helper_meta m;
+    u64 fp;
+
+    asm volatile(
+        "mv %0, s10\n\t"
+	"mv %1, s11\n\t"
+        : "=r"(fp), "=r"(m.call_imm)
+        :
+        : "memory");
+
+    m.frame_base = fp;
+    m.old_hgatp  = *(u64 *)(fp + GBPF_STK_OLD_HGATP);
+    m.ctx_base   = *(u64 *)(fp + GBPF_STK_CTX_BASE);
+    m.pkt_base   = *(u64 *)(fp + GBPF_STK_PKT_BASE);
+    m.map_base   = *(u64 *)(fp + GBPF_STK_MAP_BASE);
+    m.orig_ctx   = (u64)(fp + GBPF_ORG_CTX);
+    //m.helper_id  = *(u64 *)(fp + GBPF_STK_HELPER_ID);
+    //m.call_imm   = *(u64 *)(fp + GBPF_STK_CALL_IMM);
+
+    return m;
+}
 #endif /* _GBPF_HELPERS_H */

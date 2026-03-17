@@ -25,7 +25,8 @@ EXPORT_SYMBOL_GPL(gbpf_ready);
 #define RV_REG_TCC_SAVED RV_REG_S6 /* Store A6 in S6 if program do calls */
 
 /* JARA: Define macros */
-#define LOG_E pr_info("[bpf_jit_comp64.c] Enter: %s\n", __func__)
+//#define LOG_E pr_info("[bpf_jit_comp64.c] Enter: %s\n", __func__)
+#define LOG_E
 /* End of JARA */
 
 static const int regmap[] = {
@@ -253,6 +254,7 @@ static void __build_epilogue(bool is_tail_call, struct rv_jit_context *ctx)
 	if (gbpf_ready) {
 	  emit(rv_nop(), ctx);
 	  
+	  /*
 	  // Restore HGATP from kernel SP
 	  store_offset -= 16;
 	  emit_ld(RV_REG_S11, store_offset, RV_REG_SP, ctx);
@@ -264,6 +266,26 @@ static void __build_epilogue(bool is_tail_call, struct rv_jit_context *ctx)
 	  store_offset += 8;
 	  emit_ld(RV_REG_S11, store_offset, RV_REG_SP, ctx);
 	  store_offset -= 16;
+	  */
+
+	  /*
+	   * S10 is still the fixed trampoline/frame base here.
+	   * Restore old HGATP first.
+	   */
+	  emit_ld(RV_REG_S11, GBPF_STK_OLD_HGATP, RV_REG_S10, ctx);
+	  emit_csrw(0, RV_REG_S11, RV_CSR_HGATP, ctx);
+	  
+	  /*
+	   * Restore saved S11 from frame slot.
+	   */
+	  emit_ld(RV_REG_S11, GBPF_STK_SAVE_S11, RV_REG_S10, ctx);
+	  
+	  /*
+	   * Restore saved S10 last.
+	   * After this point S10-based frame slots must not be accessed anymore.
+	   */
+	  emit_ld(RV_REG_S10, GBPF_STK_SAVE_S10, RV_REG_S10, ctx);
+
 	  
 	  emit(rv_nop(), ctx);
 	}
@@ -1500,7 +1522,7 @@ out_be:
 		  pr_info("helper_id(imm) : 0x%llx\n", (u64)insn->imm);
 		  pr_info("helper_id(off) : 0x%llx\n", (u64)insn->off);
 		  // S10 has base page addr
-		  emit_imm(RV_REG_S10, (u64)(page_to_virt(ctx->prog->aux->gbpf_page)), ctx);
+		  //emit_imm(RV_REG_S10, (u64)(page_to_virt(ctx->prog->aux->gbpf_page)), ctx);
 		  //emit_imm(RV_REG_S10, (u64)(page_to_virt(ctx->prog->aux->gbpf_pkt_page)), ctx);
 		  //emit_imm(RV_REG_S10, insn->imm, ctx);
 		  
@@ -1976,7 +1998,8 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 
 	/* JARA: Add stack adjust for kernel stack pointer value */
 	if (gbpf_ready)
-	  stack_adjust += 16;
+	  //stack_adjust += 16;
+	  stack_adjust += GBPF_TR_FRAME_SIZE;
 	/* End of JARA */
 	
 	if (seen_reg(RV_REG_RA, ctx))
@@ -2050,32 +2073,68 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 	  emit(rv_nop(), ctx);
 	  
 	  pr_info("gpgd_phys : %0llx\n", page_to_phys(ctx->prog->aux->gpgd));
+	  
 	  u64 hgatp = ctx->prog->aux->vmid;
 	  hgatp = hgatp << HGATP_VMID_SHIFT;
 	  hgatp |= HGATP_MODE_SV48X4 << HGATP_MODE_SHIFT;
 	  hgatp |= ((page_to_phys(ctx->prog->aux->gpgd) >> PAGE_SHIFT) & HGATP_PPN);
+	  
 	  pr_info("HGATP: %0llx\n", hgatp);
 	  
 	  // Backup S11 and S10 reg
+	  /*
 	  emit_sd(RV_REG_SP, store_offset, RV_REG_S11, ctx);
 	  store_offset -= 8;
 	  emit_sd(RV_REG_SP, store_offset, RV_REG_S10, ctx);
 	  store_offset -= 8;
+	  emit_addi(RV_REG_S10, RV_REG_SP, 0, ctx);
+	  */
+	  emit_sd(RV_REG_SP, GBPF_STK_SAVE_S11, RV_REG_S11, ctx);
+	  emit_sd(RV_REG_SP, GBPF_STK_SAVE_S10, RV_REG_S10, ctx);
+
+	  emit_addi(RV_REG_S10, RV_REG_SP, 0, ctx);   /* mv s10, sp */
 	  
 	  // Read HGATP to S11 and backup HGATP to kernel SP
+	  /*
 	  emit_csrw(RV_REG_S11, 0, RV_CSR_HGATP, ctx);
 	  emit_sd(RV_REG_SP, store_offset, RV_REG_S11, ctx);
 	  store_offset -= 8;
+	  */
+	  emit_csrw(RV_REG_S11, 0, RV_CSR_HGATP, ctx);
+	  emit_sd(RV_REG_S10, GBPF_STK_OLD_HGATP, RV_REG_S11, ctx);
 
-	  // Set HGATP target value to S11 register
-	  emit_imm(RV_REG_S11, hgatp, ctx);
+	  /*
+	   * Stash fixed page bases into frame slots.
+	   * These are later read by helper trampoline / memory access paths.
+	   */
+	  emit_imm(RV_REG_T0, (u64)page_to_virt(ctx->prog->aux->gbpf_page), ctx);
+	  emit_sd(RV_REG_S10, GBPF_STK_CTX_BASE, RV_REG_T0, ctx);
 	  
-	  // Write S11 to HGATP
+	  if (ctx->prog->aux->gbpf_pkt_page) {
+	    emit_imm(RV_REG_T0, (u64)page_to_virt(ctx->prog->aux->gbpf_pkt_page), ctx);
+	    emit_sd(RV_REG_S10, GBPF_STK_PKT_BASE, RV_REG_T0, ctx);
+	  }
+	  
+	  if (ctx->prog->aux->used_map_cnt) {
+	    emit_imm(RV_REG_T0, (u64)(ctx->prog->aux->used_maps[0]), ctx);
+	    emit_sd(RV_REG_S10, GBPF_STK_MAP_BASE, RV_REG_T0, ctx);
+	  }
+	  
+	  //emit_imm(RV_REG_T0, (u64)ctx->prog->aux->orig_ctx, ctx);
+	  emit_sd(RV_REG_S10, GBPF_ORG_CTX, RV_REG_A0, ctx);  
+
+	  emit_imm(RV_REG_A0, GBPF_CTX_BASE, ctx);
+	  /*
+	   * Switch HGATP to GBPF page-table.
+	   */
+	  emit_imm(RV_REG_S11, hgatp, ctx);
 	  emit_csrw(0, RV_REG_S11, RV_CSR_HGATP, ctx);
 	  
-	  // Store BPF SP start address to BPF SP reg
+	  /*
+	   * Initialize BPF virtual stack pointer.
+	   */
 	  emit_imm(RV_REG_S5, GBPF_CTX_BASE + PAGE_SIZE, ctx);
-	  //emit_imm(RV_REG_T6, page_to_phys(ctx->prog->aux->gbpf_page), ctx);
+
 	  pr_info("GBPF page base: %px\n", page_to_virt(ctx->prog->aux->gbpf_page));
 
 	  if (bpf_stack_adjust) {

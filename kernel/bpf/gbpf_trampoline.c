@@ -96,6 +96,7 @@ static u64 gbpf_call_helper_generic(u64 call_target,
 }
 
 
+/*
 static u64 gbpf_from_gbpf_space_to_kernel(u64 arg)
 {
   u64 ret = arg;
@@ -123,8 +124,39 @@ static u64 gbpf_from_gbpf_space_to_kernel(u64 arg)
 
   return ret;
 }
+*/
 
-static u64 gbpf_call_helper_desc(const struct gbpf_helper_desc *desc, u64 func_addr,
+static u64 gbpf_from_gbpf_space_to_kernel(const struct gbpf_helper_meta *m, u64 arg)
+{
+    u64 ret = arg;
+
+  LOG_E;
+  pr_info("\tBPF to kernel : %llx\n", arg);
+  
+  if (arg == GBPF_CTX_BASE) {
+    ret = m->orig_ctx;
+  }
+  else if (GBPF_CTX_BASE <= arg && arg < GBPF_CTX_BASE + GBPF_PAGE_SIZE) {
+    pr_info("CTX PAGE\n");
+    ret -= GBPF_CTX_BASE;
+    ret += m->ctx_base;
+  } else if (GBPF_PKT_BASE <= arg && arg < GBPF_PKT_BASE + GBPF_PAGE_SIZE) {
+    pr_info("PKT PAGE\n");
+    ret -= GBPF_PKT_BASE;
+    ret += m->pkt_base;
+  } else if (GBPF_MAP_BASE <= arg && arg < GBPF_MAP_BASE + GBPF_PAGE_SIZE) {
+    pr_info("MAP PAGE\n");
+    ret -= GBPF_MAP_BASE;
+    ret += m->map_base;
+  }
+  
+  pr_info("\tBPF to kernel : %llx\n", ret);
+  
+  return ret;
+}
+
+static u64 gbpf_call_helper_desc(const struct gbpf_helper_desc *desc, const struct gbpf_helper_meta *meta,
+				 u64 func_addr,
 				 u64 arg1, u64 arg2, u64 arg3,
 				 u64 arg4, u64 arg5)
 {
@@ -140,15 +172,13 @@ static u64 gbpf_call_helper_desc(const struct gbpf_helper_desc *desc, u64 func_a
 	marshaled[4] = arg5;
 
 	for (int i=0; i<5; i++) {
-	    marshaled[i] = gbpf_from_gbpf_space_to_kernel(marshaled[i]);
+	  marshaled[i] = gbpf_from_gbpf_space_to_kernel(meta, marshaled[i]);
 	}
 
-	/*
 	ret = gbpf_call_helper_generic(func_addr,
 				       marshaled[0], marshaled[1],
 				       marshaled[2], marshaled[3],
 				       marshaled[4]);
-	*/
 
 	return ret;
 }
@@ -177,6 +207,7 @@ static u64 gbpf_convert_helper_ret(const struct gbpf_helper_desc *desc, u64 ret)
 
 noinline u64 gbpf_helper_call_trampoline(u64 arg1, u64 arg2, u64 arg3, u64 arg4, u64 arg5)
 {
+  struct gbpf_helper_meta meta;
   u64 call_target;
   u64 ret;
   const struct gbpf_helper_desc *desc = NULL;
@@ -184,22 +215,22 @@ noinline u64 gbpf_helper_call_trampoline(u64 arg1, u64 arg2, u64 arg3, u64 arg4,
   LOG_E;
 
   // Get target index
-  call_target = gbpf_read_helper_meta(&ctx_base);
+  //call_target = gbpf_read_helper_meta(&ctx_base);
+  meta = gbpf_read_helper_meta();
 
+  pr_info("\tBPF_call_base : %px\n", (u8 *)__bpf_call_base);
+  call_target = (u64)((u8 *)__bpf_call_base + (s32)meta.call_imm);
+  
   pr_info("\tTarget Call: [0x%llx], %px\n", ctx_base,  (void *)call_target);
   pr_info("\tArgs : [%llx, %llx, %llx, %llx, %llx]\n", arg1, arg2, arg3, arg4, arg5);
 
   pr_info("\ttarget_imm : %lx\n", (s32)call_target);
   
-  pr_info("\tBPF_call_base : %px\n", (u8 *)__bpf_call_base);
-  call_target = (u64)((u8 *)__bpf_call_base + call_target);
-  
-  pr_info("\tBPF_call_base : %px\n", call_target);
   pr_info("Func id printk: %lx\n",  BPF_FUNC_ktime_get_ns);
   pr_info("Func id printk: %lx\n", BPF_FUNC_trace_printk);
   pr_info("Func id printk: %lx\n", BPF_FUNC_get_prandom_u32);
 
-  ret = gbpf_call_helper_desc(NULL, call_target,  arg1, arg2, arg3, arg4, arg5);
+  ret = gbpf_call_helper_desc(NULL, &meta, call_target, arg1, arg2, arg3, arg4, arg5);
  
   ret = gbpf_convert_helper_ret(NULL, ret);
   

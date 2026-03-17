@@ -4808,6 +4808,43 @@ static int check_packet_access(struct bpf_verifier_env *env, u32 regno, int off,
 	return err;
 }
 
+/* JARA : Record ctx access cases */
+enum gbpf_ctx_field_id {
+	GBPF_CTX_FIELD_LEN = 0,
+	GBPF_CTX_FIELD_PROTOCOL,
+	GBPF_CTX_FIELD_IFINDEX,
+	GBPF_CTX_FIELD_DATA,
+	GBPF_CTX_FIELD_DATA_END,
+};
+
+static void gbpf_record_ctx_access(struct bpf_verifier_env *env, int off, int size)
+{
+	u64 bit = 0;
+
+	switch (off) {
+	case offsetof(struct __sk_buff, len):
+		bit = 1ULL << GBPF_CTX_FIELD_LEN;
+		break;
+	case offsetof(struct __sk_buff, protocol):
+		bit = 1ULL << GBPF_CTX_FIELD_PROTOCOL;
+		break;
+	case offsetof(struct __sk_buff, ifindex):
+		bit = 1ULL << GBPF_CTX_FIELD_IFINDEX;
+		break;
+	case offsetof(struct __sk_buff, data):
+		bit = 1ULL << GBPF_CTX_FIELD_DATA;
+		break;
+	case offsetof(struct __sk_buff, data_end):
+		bit = 1ULL << GBPF_CTX_FIELD_DATA_END;
+		break;
+	default:
+		break;
+	}
+
+	env->prog->aux->gbpf_ctx_access_mask |= bit;
+}
+/* End of JARA */
+
 /* check access to 'struct bpf_context' fields.  Supports fixed offsets only */
 static int check_ctx_access(struct bpf_verifier_env *env, int insn_idx, int off, int size,
 			    enum bpf_access_type t, enum bpf_reg_type *reg_type,
@@ -4838,6 +4875,13 @@ static int check_ctx_access(struct bpf_verifier_env *env, int insn_idx, int off,
 		/* remember the offset of last byte accessed in ctx */
 		if (env->prog->aux->max_ctx_offset < off + size)
 			env->prog->aux->max_ctx_offset = off + size;
+
+		/* JARA : record ctx access */
+		/*
+		if (env->prog->type == BPF_PROG_TYPE_SOCKET_FILTER)
+		  gbpf_record_ctx_access(env, off, size);
+		*/
+		/* End of JARA */
 		return 0;
 	}
 
@@ -8854,6 +8898,31 @@ static void update_loop_inline_state(struct bpf_verifier_env *env, u32 subprogno
 				 state->callback_subprogno == subprogno);
 }
 
+/* JARA : Check helper use raw ctx */
+static bool gbpf_is_raw_ctx_helper(enum bpf_prog_type prog_type, u32 func_id)
+{
+	switch (prog_type) {
+	case BPF_PROG_TYPE_SOCKET_FILTER:
+	case BPF_PROG_TYPE_SCHED_CLS:
+	case BPF_PROG_TYPE_SCHED_ACT:
+		switch (func_id) {
+		case BPF_FUNC_skb_load_bytes:
+		case BPF_FUNC_skb_store_bytes:
+		case BPF_FUNC_l3_csum_replace:
+		case BPF_FUNC_l4_csum_replace:
+		case BPF_FUNC_clone_redirect:
+		case BPF_FUNC_redirect:
+			return true;
+		default:
+			return false;
+		}
+	default:
+		return false;
+	}
+}
+/* End of JARA */
+
+
 static int check_helper_call(struct bpf_verifier_env *env, struct bpf_insn *insn,
 			     int *insn_idx_p)
 {
@@ -8882,6 +8951,13 @@ static int check_helper_call(struct bpf_verifier_env *env, struct bpf_insn *insn
 			func_id);
 		return -EINVAL;
 	}
+
+	/* JARA : Set raw ctx helper */ 
+	/*
+	if (gbpf_is_raw_ctx_helper(env->prog->type, func_id))
+	  env->prog->aux->gbpf_uses_raw_ctx_helpers = true;
+	*/
+	/* End of JARA */
 
 	/* eBPF programs must be GPL compatible to use GPL-ed functions */
 	if (!env->prog->gpl_compatible && fn->gpl_only) {

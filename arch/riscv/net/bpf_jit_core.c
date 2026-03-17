@@ -14,7 +14,8 @@
 #define NR_JIT_ITERATIONS	32
 
 /* JARA: Define macros */
-#define LOG_E pr_info("[bpf_jit_core.c] Enter: %s\n", __func__);
+//#define LOG_E pr_info("[bpf_jit_core.c] Enter: %s\n", __func__);
+#define LOG_E 
 /* End of JARA */
 
 static int build_body(struct rv_jit_context *ctx, bool extra_pass, int *offset)
