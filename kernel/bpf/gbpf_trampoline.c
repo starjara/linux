@@ -1,11 +1,40 @@
 #include <linux/kernel.h>
 #include <linux/gbpf.h>
+#include <uapi/linux/bpf.h>
 #include "gbpf_trampoline.h"
 
 #define LOG_E pr_info("[gbpf_trampoline.c] Enter: %s\n", __func__)
 
+u64 ctx_base;
 
-const struct gbpf_helper_desc gbpf_helper_descs[] = {
+
+const struct gbpf_helper_desc gbpf_helper_descs[__BPF_FUNC_MAX_ID] = {
+  [BPF_FUNC_unspec] = {
+    .helper_id = BPF_FUNC_unspec,
+    .name = "bpf_unspec",
+    .nr_args = 0,
+    .arg_kind = {
+      GBPF_ARG_UNUSED,
+      GBPF_ARG_UNUSED,
+      GBPF_ARG_UNUSED,
+      GBPF_ARG_UNUSED,
+      GBPF_ARG_UNUSED,
+    },
+    .ret_kind = GBPF_RET_UNUSED,
+  },
+  [BPF_FUNC_ktime_get_ns] = {
+    .helper_id = BPF_FUNC_ktime_get_ns,
+    .name = "bpf_ktime_get_ns", 
+    .nr_args = 5,
+    .arg_kind = {
+      GBPF_ARG_UNUSED,
+      GBPF_ARG_UNUSED,
+      GBPF_ARG_UNUSED,
+      GBPF_ARG_UNUSED,
+      GBPF_ARG_UNUSED,
+    },
+    .ret_kind = GBPF_RET_SCALAR,
+  },
   [BPF_FUNC_trace_printk] = {
     .helper_id = BPF_FUNC_trace_printk,
     .name = "bpf_trace_printk",
@@ -16,6 +45,19 @@ const struct gbpf_helper_desc gbpf_helper_descs[] = {
       GBPF_ARG_SCALAR,
       GBPF_ARG_SCALAR,
       GBPF_ARG_SCALAR,
+    },
+    .ret_kind = GBPF_RET_SCALAR,
+  },
+  [BPF_FUNC_get_prandom_u32] = {
+    .helper_id = BPF_FUNC_get_prandom_u32,
+    .name = "bpf_get_prandom_u32",
+    .nr_args = 5,
+    .arg_kind = {
+      GBPF_ARG_UNUSED,
+      GBPF_ARG_UNUSED,
+      GBPF_ARG_UNUSED,
+      GBPF_ARG_UNUSED,
+      GBPF_ARG_UNUSED,
     },
     .ret_kind = GBPF_RET_SCALAR,
   },
@@ -59,12 +101,25 @@ static u64 gbpf_from_gbpf_space_to_kernel(u64 arg)
   u64 ret = arg;
   
   LOG_E;
-  pr_info("\t%llx\n", arg);
+  pr_info("\tBPF to kernel : %llx\n", arg);
 
   // In GBPF stack space 
   if (GBPF_CTX_BASE <= arg && arg <= GBPF_CTX_BASE + GBPF_PAGE_SIZE) {
     ret -= GBPF_CTX_BASE;
+    ret += ctx_base;
   }
+  // In GBPF ptk space 
+  else if (GBPF_PKT_BASE <= arg && arg <= GBPF_PKT_BASE + GBPF_PAGE_SIZE) {
+    ret -= GBPF_PKT_BASE;
+    ret += ctx_base;
+  }
+  // In GBPF map space
+  else if (GBPF_MAP_BASE <= arg && arg <= GBPF_MAP_BASE + GBPF_PAGE_SIZE) {
+    ret -= GBPF_MAP_BASE;
+    ret += ctx_base;
+  }
+
+  pr_info("\tBPF to kernel : %llx\n", ret);
 
   return ret;
 }
@@ -84,13 +139,16 @@ static u64 gbpf_call_helper_desc(const struct gbpf_helper_desc *desc, u64 func_a
 	marshaled[3] = arg4;
 	marshaled[4] = arg5;
 
-	if (desc->arg_kind[0] == GBPF_ARG_GBPF_STACK)
-		marshaled[0] = gbpf_from_gbpf_space_to_kernel(arg1);
+	for (int i=0; i<5; i++) {
+	    marshaled[i] = gbpf_from_gbpf_space_to_kernel(marshaled[i]);
+	}
 
+	/*
 	ret = gbpf_call_helper_generic(func_addr,
 				       marshaled[0], marshaled[1],
 				       marshaled[2], marshaled[3],
 				       marshaled[4]);
+	*/
 
 	return ret;
 }
@@ -120,30 +178,30 @@ static u64 gbpf_convert_helper_ret(const struct gbpf_helper_desc *desc, u64 ret)
 noinline u64 gbpf_helper_call_trampoline(u64 arg1, u64 arg2, u64 arg3, u64 arg4, u64 arg5)
 {
   u64 call_target;
-  u64 target_id;
   u64 ret;
-  //const struct gbpf_helper_desc *desc = NULL;
+  const struct gbpf_helper_desc *desc = NULL;
 
   LOG_E;
 
-  call_target = gbpf_read_helper_meta(&target_id);
+  // Get target index
+  call_target = gbpf_read_helper_meta(&ctx_base);
 
-  pr_info("\tTarget Call: [%llu], %px\n", target_id,  (void *)call_target);
+  pr_info("\tTarget Call: [0x%llx], %px\n", ctx_base,  (void *)call_target);
   pr_info("\tArgs : [%llx, %llx, %llx, %llx, %llx]\n", arg1, arg2, arg3, arg4, arg5);
 
-  desc = gbpf_get_helper_desc(target_id);
+  pr_info("\ttarget_imm : %lx\n", (s32)call_target);
   
-  if (desc) {
-    pr_info("\t\tWith desc\n");
+  pr_info("\tBPF_call_base : %px\n", (u8 *)__bpf_call_base);
+  call_target = (u64)((u8 *)__bpf_call_base + call_target);
+  
+  pr_info("\tBPF_call_base : %px\n", call_target);
+  pr_info("Func id printk: %lx\n",  BPF_FUNC_ktime_get_ns);
+  pr_info("Func id printk: %lx\n", BPF_FUNC_trace_printk);
+  pr_info("Func id printk: %lx\n", BPF_FUNC_get_prandom_u32);
 
-    ret = gbpf_call_helper_desc(desc, call_target,  arg1, arg2, arg3, arg4, arg5);
-  }
-  else {
-    pr_info("\t\tWithout desc\n");
-    ret = gbpf_call_helper_generic(call_target, arg1, arg2, arg3, arg4, arg5); 
-  }
-
-  ret = gbpf_convert_helper_ret(desc, ret);
+  ret = gbpf_call_helper_desc(NULL, call_target,  arg1, arg2, arg3, arg4, arg5);
+ 
+  ret = gbpf_convert_helper_ret(NULL, ret);
   
 
   pr_info("[GBPF] Tramptest ret = 0x%llx\n", ret);

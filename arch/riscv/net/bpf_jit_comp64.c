@@ -1075,6 +1075,7 @@ int bpf_jit_emit_insn(const struct bpf_insn *insn, struct rv_jit_context *ctx,
 		emit_mv(rd, rs, ctx);
 		/* JARA: when src is BPF frame pointer */
 		// Used for helper call arg
+		/*
 		if (gbpf_ready && rs == RV_REG_S5) {
 		  // BPF space to kernel space 
 		    unsigned long long dst_addr = (unsigned long long)page_to_virt(ctx->prog->aux->gbpf_page)
@@ -1084,6 +1085,7 @@ int bpf_jit_emit_insn(const struct bpf_insn *insn, struct rv_jit_context *ctx,
 		else {
 		  emit_mv(rd, rs, ctx);
 		}
+		*/
 		/* End of JARA */
 		if (!is64 && !aux->verifier_zext)
 			emit_zext_32(rd, ctx);
@@ -1481,32 +1483,41 @@ out_be:
 		if (ret < 0)
 			return ret;
 
+		/*
+		ret = emit_call(addr, fixed_addr, ctx);
+		if (ret)
+		  return ret;
+		  
+		emit_mv(bpf_to_rv_reg(BPF_REG_0, ctx), RV_REG_A0, ctx);
+		*/
+
 		/* JARA: Save helper call info */
 		if (gbpf_ready) {
-		  //ret = emit_call(addr, fixed_addr, ctx);
 
-		  // S11 has call taget addr
-		  emit_addr(RV_REG_S11, addr, fixed_addr, ctx);
-		  // S10 has helper id
-		  emit_imm(RV_REG_S10, insn->imm, ctx);
+		  // S11 has call taget offset
+		  //emit_addr(RV_REG_S11, addr, fixed_addr, ctx);
+		  emit_imm(RV_REG_S11, insn->imm, ctx);
+		  pr_info("helper_id(imm) : 0x%llx\n", (u64)insn->imm);
+		  pr_info("helper_id(off) : 0x%llx\n", (u64)insn->off);
+		  // S10 has base page addr
+		  emit_imm(RV_REG_S10, (u64)(page_to_virt(ctx->prog->aux->gbpf_page)), ctx);
+		  //emit_imm(RV_REG_S10, (u64)(page_to_virt(ctx->prog->aux->gbpf_pkt_page)), ctx);
+		  //emit_imm(RV_REG_S10, insn->imm, ctx);
 		  
 		  ret = emit_call((u64)&gbpf_helper_call_trampoline, true, ctx);
 			
 		  if (ret)
 		    return ret;
-		  
-		  
-		  emit_mv(bpf_to_rv_reg(BPF_REG_0, ctx), RV_REG_A0, ctx);
-		  break;
 		}
+		else {
+		  ret = emit_call(addr, fixed_addr, ctx);
+		  if (ret)
+		    return ret;
+		  
+		}
+		emit_mv(bpf_to_rv_reg(BPF_REG_0, ctx), RV_REG_A0, ctx);
 		/* End of JARA */
 
-		ret = emit_call(addr, fixed_addr, ctx);
-		if (ret)
-			return ret;
-
-		emit_mv(bpf_to_rv_reg(BPF_REG_0, ctx), RV_REG_A0, ctx);
-		
 		break;
 	}
 	/* tail call */
@@ -1550,7 +1561,13 @@ out_be:
 		    if (insn->dst_reg == BPF_PSEUDO_MAP_VALUE) {
 		      pr_info("dst is BPF_PSEUDO_MAP_VALUE\n");
 		    }
-		    imm64 = GBPF_MAP_BASE + 0x10;
+		    pr_info("imm64: %llx\n", imm64);
+		    if (imm64 >= 0xff60000000000000) {
+		      pr_info("Kernel addr, convert to BPF space map page from %llx to", imm64);
+		      imm64 = GBPF_MAP_BASE;// + page_off((void *)imm64);
+		      imm64 -= 0x110;
+		      pr_info("%llx\n", imm64);
+		    }
 		    emit_imm(rd, imm64, ctx);
 		  }
 		  else {
@@ -1584,9 +1601,17 @@ out_be:
 	      /* JARA: check hlv.b */
 	      insns_start = ctx->ninsns;
 	      if (gbpf_ready) {
-		emit_addi(rs, rs, off, ctx);
-		emit_hvmi(HLV_B, rd, rs, 0, ctx);
-		emit_addi(rs, rs, -off, ctx);
+		if (gbpf_ready && insn->src_reg == BPF_PSEUDO_MAP_VALUE) {
+		  pr_info("HLV_B MAP value direct access\n");
+		  emit_imm(rs, GBPF_MAP_BASE + off, ctx);
+		  emit_hvmi(HLV_B, rd, rs, 0, ctx);
+		  emit_addi(rs, rs, -off, ctx);
+		}
+		else {
+		  emit_addi(rs, rs, off, ctx);
+		  emit_hvmi(HLV_B, rd, rs, 0, ctx);
+		  emit_addi(rs, rs, -off, ctx);
+		}
 	      }
 	      else {
 		emit(rv_lbu(rd, off, rs), ctx);
@@ -1606,9 +1631,31 @@ out_be:
 		    break;
 	    case BPF_H:
 		    if (is_12b_int(off)) {
+		      /*
 			    insns_start = ctx->ninsns;
 			    emit(rv_lhu(rd, off, rs), ctx);
 			    insn_len = ctx->ninsns - insns_start;
+		      */
+		      /* JARA: check hlv.h */
+		      insns_start = ctx->ninsns;
+		      if (gbpf_ready) {
+			if (gbpf_ready && insn->src_reg == BPF_PSEUDO_MAP_VALUE) {
+			  pr_info("HLV_H MAP value direct access\n");
+			  emit_imm(rs, GBPF_MAP_BASE + off, ctx);
+			  emit_hvmi(HLV_H, rd, rs, 0, ctx);
+			  emit_addi(rs, rs, -off, ctx);
+			}
+			else {
+			  emit_addi(rs, rs, off, ctx);
+			  emit_hvmi(HLV_H, rd, rs, 0, ctx);
+			  emit_addi(rs, rs, -off, ctx);
+			}
+		      }
+		      else {
+			emit(rv_lhu(rd, off, rs), ctx);
+		      }
+		      insn_len = ctx->ninsns - insns_start;
+		      /* End of JARA */
 			    break;
 		    }
 
@@ -1841,7 +1888,7 @@ out_be:
 	case BPF_STX | BPF_MEM | BPF_DW:
 		if (is_12b_int(off)) {
 		  // emit_sd(rd, off, rs, ctx);
-		  /* JARA: check hsv.h */
+		  /* JARA: check hsv.d */
 		  if(gbpf_ready ) {
 		    emit(rv_nop(), ctx);
 		    
@@ -1864,9 +1911,51 @@ out_be:
 		break;
 	case BPF_STX | BPF_ATOMIC | BPF_W:
 	case BPF_STX | BPF_ATOMIC | BPF_DW:
+	  /*
 		emit_atomic(rd, rs, off, imm,
 			    BPF_SIZE(code) == BPF_DW, ctx);
-		break;
+	  */
+	  /* JARA : Atomic ha... */
+	  if (gbpf_ready) {
+	    u8 tmp = RV_REG_T0;
+	    
+	    if (off) {
+	      if (is_12b_int(off)) {
+		emit_addi(RV_REG_T1, rd, off, ctx);
+	      } else {
+		emit_imm(RV_REG_T1, off, ctx);
+		emit_add(RV_REG_T1, RV_REG_T1, rd, ctx);
+	      }
+	      rd = RV_REG_T1;
+	    }
+	    
+	    switch(imm) {
+	    case BPF_ADD:
+	      if(BPF_SIZE(code) == BPF_DW) {
+		emit(rv_fence(0x3, 0x3), ctx);
+		emit_hvmi(HLV_D, tmp, rd, 0, ctx);
+		emit_add(RV_REG_T1, tmp, rs, ctx);
+		emit_hvmi(HSV_D, 0, rd, RV_REG_T1, ctx);
+		emit(rv_fence(0x3, 0x3), ctx);
+	      }
+	      else {
+		emit(rv_fence(0x3, 0x3), ctx);
+		emit_hvmi(HLV_W, tmp, rd, 0, ctx);
+		emit_add(RV_REG_T1, tmp, rs, ctx);
+		emit_hvmi(HSV_W, 0, rd, RV_REG_T1, ctx);	
+		emit(rv_fence(0x3, 0x3), ctx);
+	      }
+	      break;
+	    default:
+	      pr_err("gbpf-jit: unknown case\n");
+	    }
+	  }
+	  else {
+		emit_atomic(rd, rs, off, imm,
+			    BPF_SIZE(code) == BPF_DW, ctx);
+	  }
+	  /* End of JARA */
+	  break;
 	default:
 		pr_err("bpf-jit: unknown opcode %02x\n", code);
 		return -EINVAL;
@@ -1994,10 +2083,12 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 	  }
 
 	  // Test code
+	  /*
 	  emit_addi(RV_REG_S5, RV_REG_S5, -8, ctx);
 	  emit_hvmi(HSV_D, 0, RV_REG_S5, RV_REG_S5, ctx);
 	  emit_hvmi(HLV_D, RV_REG_S5, RV_REG_S5, 0, ctx);
 	  emit_addi(RV_REG_S5, RV_REG_S5, 8, ctx);
+	  */
 	  
 	  emit(rv_nop(), ctx);
 	}

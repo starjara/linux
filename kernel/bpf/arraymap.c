@@ -138,6 +138,7 @@ static struct bpf_map *array_map_alloc(union bpf_attr *attr)
 	
 	  // Meta data page + value page
 	  array_size = PAGE_ALIGN(sizeof(*array)) + PAGE_ALIGN(total_elem_size);
+	  pr_info("array_size : 0x%llx\n", array_size);
 	  
 	  // Alloc data memory 
 	  data = attr->map_flags & BPF_F_MMAPABLE ?
@@ -150,6 +151,24 @@ static struct bpf_map *array_map_alloc(union bpf_attr *attr)
 	  // Change value base addr 
 	  array = data + PAGE_ALIGN(sizeof(struct bpf_array))
 	    - offsetof(struct bpf_array, value);
+	  
+	  pr_info("array : %px, map : %px, data : %px, elem_ptr_base : %px\n", array, &array->map, data, &array->value);
+	  
+	  if (!array)
+	    return ERR_PTR(-ENOMEM);
+	  array->index_mask = index_mask;
+	  array->map.bypass_spec_v1 = bypass_spec_v1;
+	  
+	  /* copy mandatory map attributes */
+	  bpf_map_init_from_attr(&array->map, attr);
+	  array->elem_size = elem_size;
+	  
+	  if (percpu && bpf_array_alloc_percpu(array)) {
+	    bpf_map_area_free(array);
+	    return ERR_PTR(-ENOMEM);
+	  }
+	  
+	  return &array->map;
 	}
 	else {
 	  array_size = sizeof(*array);
@@ -197,6 +216,10 @@ static struct bpf_map *array_map_alloc(union bpf_attr *attr)
 		return ERR_PTR(-ENOMEM);
 	}
 
+	/* JARA : Debug print */
+	pr_info("array : %px, map : %px, data : %px, elem_ptr_base : %px\n", array, &array->map, data, &array->value);
+	/* End of JARA */
+	  
 	return &array->map;
 }
 
@@ -212,6 +235,8 @@ static void *array_map_lookup_elem(struct bpf_map *map, void *key)
 	u32 index = *(u32 *)key;
 
 	LOG_E;
+	pr_info("Target addr : %px\n", array->value + (u64)array->elem_size * (index & array->index_mask));
+	pr_info("Target value : %px\n", *(array->value + (u64)array->elem_size * (index & array->index_mask)));
 
 	if (unlikely(index >= array->map.max_entries))
 		return NULL;

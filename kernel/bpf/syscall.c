@@ -2719,7 +2719,9 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr, u32 uattr_size)
 	  pr_info("Map count : %d\n", prog->aux->used_map_cnt);
 	  // Mapping MAP value page into the gbpf space 
 	  for (i=0; i<prog->aux->used_map_cnt; i++) {
-	    gbpf_call_map_ext(prog, prog->aux->used_maps[i] + PAGE_SIZE, PAGE_SIZE, MAP);
+	    pr_info("prog->aux->used_maps[%d] : %px, %px\n", i,
+		    prog->aux->used_maps[i], PAGE_ALIGN((u64)prog->aux->used_maps[i]));
+	    gbpf_call_map_ext(prog, PAGE_ALIGN((u64)prog->aux->used_maps[i]), PAGE_SIZE, MAP);
 	  }
 	}
 	/* End of JARA */
