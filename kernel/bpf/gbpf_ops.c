@@ -93,7 +93,7 @@ int gbpf_call_map_ext(const struct bpf_prog *prog, const void *kaddr, size_t len
     idx = srcu_read_lock(&gbpf_srcu);
     ops = gbpf_ops_ptr;
 
-    if (ops && ops->map)
+    if (ops && ops->map_ext)
       ret = ops->map_ext(prog, kaddr, len, type);
 
     srcu_read_unlock(&gbpf_srcu, idx);
@@ -127,7 +127,7 @@ u32 gbpf_call_get_vmid(void)
     idx = srcu_read_lock(&gbpf_srcu);
     ops = gbpf_ops_ptr;
 
-    if (ops && ops->destroy_pgtable)
+    if (ops && ops->get_vmid)
       ret = ops->get_vmid();
 
     srcu_read_unlock(&gbpf_srcu, idx);

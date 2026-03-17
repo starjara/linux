@@ -1514,7 +1514,7 @@ out_be:
 		*/
 
 		/* JARA: Save helper call info */
-		if (gbpf_ready) {
+		if (gbpf_ready && insn->src_reg == 0) {
 
 		  // S11 has call taget offset
 		  //emit_addr(RV_REG_S11, addr, fixed_addr, ctx);
@@ -2107,6 +2107,8 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 	   * Stash fixed page bases into frame slots.
 	   * These are later read by helper trampoline / memory access paths.
 	   */
+	  emit_sd(RV_REG_S10, GBPF_ORG_CTX, RV_REG_A0, ctx);  
+
 	  emit_imm(RV_REG_T0, (u64)page_to_virt(ctx->prog->aux->gbpf_page), ctx);
 	  emit_sd(RV_REG_S10, GBPF_STK_CTX_BASE, RV_REG_T0, ctx);
 	  
@@ -2121,7 +2123,7 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 	  }
 	  
 	  //emit_imm(RV_REG_T0, (u64)ctx->prog->aux->orig_ctx, ctx);
-	  emit_sd(RV_REG_S10, GBPF_ORG_CTX, RV_REG_A0, ctx);  
+	  //emit_sd(RV_REG_S10, GBPF_ORG_CTX, RV_REG_T0, ctx);  
 
 	  emit_imm(RV_REG_A0, GBPF_CTX_BASE, ctx);
 	  /*
