@@ -1513,19 +1513,25 @@ out_be:
 		emit_mv(bpf_to_rv_reg(BPF_REG_0, ctx), RV_REG_A0, ctx);
 		*/
 
-		/* JARA: Save helper call info */
+		/*
+		 * GBPF helper trampoline expects:
+		 * - insn->imm: __bpf_call_base-relative call target
+		 * - insn->off: original helper ID preserved by verifier
+		 * S11: bpf_call_base-relative call taget
+		 * S10: Kernel based frame pointer 
+		 */
 		if (gbpf_ready && insn->src_reg == 0) {
 
 		  // S11 has call taget offset
 		  //emit_addr(RV_REG_S11, addr, fixed_addr, ctx);
 		  emit_imm(RV_REG_S11, insn->imm, ctx);
-		  pr_info("helper_id(imm) : 0x%llx\n", (u64)insn->imm);
-		  pr_info("helper_id(off) : 0x%llx\n", (u64)insn->off);
-		  // S10 has base page addr
-		  //emit_imm(RV_REG_S10, (u64)(page_to_virt(ctx->prog->aux->gbpf_page)), ctx);
-		  //emit_imm(RV_REG_S10, (u64)(page_to_virt(ctx->prog->aux->gbpf_pkt_page)), ctx);
-		  //emit_imm(RV_REG_S10, insn->imm, ctx);
-		  
+		  /* Added */
+		  emit_imm(RV_REG_T0, insn->off, ctx);
+		  emit_sd(RV_REG_S10, GBPF_STK_HELPER_ID, RV_REG_T0, ctx);
+		  pr_info("helper_call_imm : 0x%llx\n", (u64)insn->imm);
+		  pr_info("helper_id(off)  : 0x%llx\n", (u64)insn->off);
+		  /* End of Added */
+
 		  ret = emit_call((u64)&gbpf_helper_call_trampoline, true, ctx);
 			
 		  if (ret)

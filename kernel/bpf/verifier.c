@@ -18042,6 +18042,9 @@ patch_call_imm:
 				func_id_name(insn->imm), insn->imm);
 			return -EFAULT;
 		}
+		/* JARA : Helper call index value */
+		insn->off = insn->imm;
+		/* End of JARA */
 		insn->imm = fn->func - __bpf_call_base;
 	}
 
