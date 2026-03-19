@@ -2131,6 +2131,8 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 	  //emit_imm(RV_REG_T0, (u64)ctx->prog->aux->orig_ctx, ctx);
 	  //emit_sd(RV_REG_S10, GBPF_ORG_CTX, RV_REG_T0, ctx);  
 
+	  emit_sd(RV_REG_S10, GBPF_ORG_CTX, RV_REG_A0, ctx);  
+	  
 	  emit_imm(RV_REG_A0, GBPF_CTX_BASE, ctx);
 	  /*
 	   * Switch HGATP to GBPF page-table.
