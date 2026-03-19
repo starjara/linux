@@ -7,6 +7,68 @@
 #define LOG_E pr_info("[gbpf_trampoline.c] Enter: %s\n", __func__)
 static DEFINE_PER_CPU(struct gbpf_helper_desc, gbpf_helper_fallback_desc);
 
+/////////////////////////////// Internal helper fast path
+#include <linux/filter.h>
+#include <net/sock.h>
+#include <linux/skbuff.h>
+
+/* net/core/filter.c 쪽 internal helper들 */
+extern u64 bpf_skb_load_helper_8_no_cache(const struct sk_buff *skb, u64 off);
+extern u64 bpf_skb_load_helper_16_no_cache(const struct sk_buff *skb, u64 off);
+extern u64 bpf_skb_load_helper_32_no_cache(const struct sk_buff *skb, u64 off);
+
+extern u64 bpf_skb_load_helper_8(const struct sk_buff *skb, u64 off,
+                                 const void *data, u64 len);
+extern u64 bpf_skb_load_helper_16(const struct sk_buff *skb, u64 off,
+                                  const void *data, u64 len);
+extern u64 bpf_skb_load_helper_32(const struct sk_buff *skb, u64 off,
+                                  const void *data, u64 len);
+
+static __always_inline bool gbpf_is_internal_skb_load_helper(u64 target)
+{
+    return target == (u64)(unsigned long)&bpf_skb_load_helper_8_no_cache  ||
+           target == (u64)(unsigned long)&bpf_skb_load_helper_16_no_cache ||
+           target == (u64)(unsigned long)&bpf_skb_load_helper_32_no_cache ||
+           target == (u64)(unsigned long)&bpf_skb_load_helper_8           ||
+           target == (u64)(unsigned long)&bpf_skb_load_helper_16          ||
+           target == (u64)(unsigned long)&bpf_skb_load_helper_32;
+}
+
+static __always_inline u64
+gbpf_call_internal_skb_load_helper(u64 target,
+                                   const struct gbpf_helper_meta *meta,
+                                   u64 a0, u64 a1, u64 a2, u64 a3, u64 a4)
+{
+    /* arg0는 무조건 원래 skb */
+    u64 skb = meta->orig_ctx;
+
+    if (target == (u64)(unsigned long)&bpf_skb_load_helper_8_no_cache)
+        return bpf_skb_load_helper_8_no_cache((const struct sk_buff *)skb, a1);
+
+    if (target == (u64)(unsigned long)&bpf_skb_load_helper_16_no_cache)
+        return bpf_skb_load_helper_16_no_cache((const struct sk_buff *)skb, a1);
+
+    if (target == (u64)(unsigned long)&bpf_skb_load_helper_32_no_cache)
+        return bpf_skb_load_helper_32_no_cache((const struct sk_buff *)skb, a1);
+
+    if (target == (u64)(unsigned long)&bpf_skb_load_helper_8)
+        return bpf_skb_load_helper_8((const struct sk_buff *)skb, a1,
+                                     (const void *)a2, a3);
+
+    if (target == (u64)(unsigned long)&bpf_skb_load_helper_16)
+        return bpf_skb_load_helper_16((const struct sk_buff *)skb, a1,
+                                      (const void *)a2, a3);
+
+    if (target == (u64)(unsigned long)&bpf_skb_load_helper_32)
+        return bpf_skb_load_helper_32((const struct sk_buff *)skb, a1,
+                                      (const void *)a2, a3);
+
+    return 0;
+}
+
+
+/////////////////////////////// Internal helper fast path End
+
 static u8 gbpf_arg_kind_from_bpf_arg_type(enum bpf_arg_type arg_type);
 static u8 gbpf_ret_kind_from_bpf_ret_type(enum bpf_return_type ret_type);
 
@@ -185,6 +247,8 @@ const struct gbpf_helper_desc *gbpf_get_helper_desc(u32 helper_id)
 	u32 nr_args = 0;
 	int i;
 
+	LOG_E;
+
 	if (helper_id >= ARRAY_SIZE(gbpf_helper_descs))
 		return NULL;
 	if (gbpf_helper_descs[helper_id].helper_id != helper_id)
@@ -193,6 +257,8 @@ const struct gbpf_helper_desc *gbpf_get_helper_desc(u32 helper_id)
 	return &gbpf_helper_descs[helper_id];
 
 build_fallback:
+	pr_info("Build fall back\n");
+	
 	proto = bpf_base_func_proto(helper_id);
 	if (!proto)
 		return NULL;
@@ -353,11 +419,13 @@ static u64 gbpf_call_helper_desc(const struct gbpf_helper_desc *desc, const stru
 	}
 	  
 
+	/*
 
 	ret = gbpf_call_helper_generic(func_addr,
 				       marshaled[0], marshaled[1],
 				       marshaled[2], marshaled[3],
 				       marshaled[4]);
+	*/
 
 	return ret;
 }
@@ -396,6 +464,14 @@ noinline u64 gbpf_helper_call_trampoline(u64 arg1, u64 arg2, u64 arg3, u64 arg4,
 
   meta = gbpf_read_helper_meta();
   call_target = (u64)((u8 *)__bpf_call_base + (s32)meta.call_imm);
+
+  /* Test code */
+  if (gbpf_is_internal_skb_load_helper(call_target)) {
+    return gbpf_call_internal_skb_load_helper(call_target, &meta,
+                                              arg1, arg2, arg3, arg4, arg5);
+  }
+  /* Test code End */
+ 
   desc = gbpf_get_helper_desc((u32)meta.helper_id);
   
   pr_info("\tBPF_call_base : %px\n", (u8 *)__bpf_call_base);
