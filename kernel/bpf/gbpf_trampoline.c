@@ -1,9 +1,36 @@
 #include <linux/kernel.h>
 #include <linux/gbpf.h>
+#include <linux/percpu.h>
 #include <uapi/linux/bpf.h>
 #include "gbpf_trampoline.h"
 
 #define LOG_E pr_info("[gbpf_trampoline.c] Enter: %s\n", __func__)
+static DEFINE_PER_CPU(struct gbpf_helper_desc, gbpf_helper_fallback_desc);
+
+static u8 gbpf_arg_kind_from_bpf_arg_type(enum bpf_arg_type arg_type);
+static u8 gbpf_ret_kind_from_bpf_ret_type(enum bpf_return_type ret_type);
+
+static bool gbpf_arg_needs_translation(u8 kind)
+{
+	return kind == GBPF_ARG_GBPF_STACK || kind == GBPF_ARG_PTR;
+}
+
+static bool gbpf_helper_uses_orig_ctx(const struct gbpf_helper_desc *desc)
+{
+	int i;
+
+	if (!desc)
+		return false;
+
+	for (i = 0; i < desc->nr_args; i++) {
+		if (desc->arg_kind[i] == GBPF_ARG_CTX)
+			return true;
+	}
+
+	return false;
+}
+
+
 
 const struct gbpf_helper_desc gbpf_helper_descs[__BPF_FUNC_MAX_ID] = {
   [BPF_FUNC_unspec] = {
@@ -153,12 +180,103 @@ const struct gbpf_helper_desc gbpf_helper_descs[__BPF_FUNC_MAX_ID] = {
 
 const struct gbpf_helper_desc *gbpf_get_helper_desc(u32 helper_id)
 {
-  if (helper_id >= ARRAY_SIZE(gbpf_helper_descs))
-    return NULL;
-  if (gbpf_helper_descs[helper_id].helper_id != helper_id)
-    return NULL;
-  
-  return &gbpf_helper_descs[helper_id];
+  	struct gbpf_helper_desc *desc;
+	const struct bpf_func_proto *proto;
+	u32 nr_args = 0;
+	int i;
+
+	if (helper_id >= ARRAY_SIZE(gbpf_helper_descs))
+		return NULL;
+	if (gbpf_helper_descs[helper_id].helper_id != helper_id)
+		goto build_fallback;
+
+	return &gbpf_helper_descs[helper_id];
+
+build_fallback:
+	proto = bpf_base_func_proto(helper_id);
+	if (!proto)
+		return NULL;
+
+	desc = this_cpu_ptr(&gbpf_helper_fallback_desc);
+	memset(desc, 0, sizeof(*desc));
+	desc->helper_id = helper_id;
+	desc->ret_kind = gbpf_ret_kind_from_bpf_ret_type(proto->ret_type);
+
+	for (i = 0; i < ARRAY_SIZE(desc->arg_kind); i++) {
+		desc->arg_kind[i] = gbpf_arg_kind_from_bpf_arg_type(proto->arg_type[i]);
+		if (desc->arg_kind[i] != GBPF_ARG_UNUSED)
+			nr_args = i + 1;
+	}
+	desc->nr_args = nr_args;
+
+	return desc;
+}
+
+static u32 gbpf_base_bpf_arg_type(enum bpf_arg_type arg_type)
+{
+	return arg_type & GENMASK(BPF_BASE_TYPE_BITS - 1, 0);
+}
+
+static u32 gbpf_base_bpf_ret_type(enum bpf_return_type ret_type)
+{
+	return ret_type & GENMASK(BPF_BASE_TYPE_BITS - 1, 0);
+}
+
+static u8 gbpf_arg_kind_from_bpf_arg_type(enum bpf_arg_type arg_type)
+{
+	switch (gbpf_base_bpf_arg_type(arg_type)) {
+	case ARG_DONTCARE:
+		return GBPF_ARG_UNUSED;
+	case ARG_ANYTHING:
+	case ARG_CONST_SIZE:
+	case ARG_CONST_SIZE_OR_ZERO:
+	case ARG_CONST_ALLOC_SIZE_OR_ZERO:
+		return GBPF_ARG_SCALAR;
+	case ARG_PTR_TO_CTX:
+		return GBPF_ARG_CTX;
+	case ARG_CONST_MAP_PTR:
+	case ARG_PTR_TO_MAP_KEY:
+	case ARG_PTR_TO_MAP_VALUE:
+	case ARG_PTR_TO_MEM:
+	case ARG_PTR_TO_SPIN_LOCK:
+	case ARG_PTR_TO_INT:
+	case ARG_PTR_TO_LONG:
+	case ARG_PTR_TO_SOCKET:
+	case ARG_PTR_TO_BTF_ID:
+	case ARG_PTR_TO_RINGBUF_MEM:
+	case ARG_PTR_TO_BTF_ID_SOCK_COMMON:
+	case ARG_PTR_TO_PERCPU_BTF_ID:
+	case ARG_PTR_TO_FUNC:
+	case ARG_PTR_TO_STACK:
+	case ARG_PTR_TO_TIMER:
+	case ARG_PTR_TO_KPTR:
+	case ARG_PTR_TO_DYNPTR:
+		return GBPF_ARG_PTR;
+	case ARG_PTR_TO_CONST_STR:
+		return GBPF_ARG_GBPF_STACK;
+	default:
+		return GBPF_ARG_PTR;
+	}
+}
+
+static u8 gbpf_ret_kind_from_bpf_ret_type(enum bpf_return_type ret_type)
+{
+	switch (gbpf_base_bpf_ret_type(ret_type)) {
+	case RET_VOID:
+		return GBPF_RET_UNUSED;
+	case RET_PTR_TO_MAP_VALUE:
+		return GBPF_RET_PTR_TO_MAP_VALUE;
+	case RET_PTR_TO_MEM:
+	case RET_PTR_TO_MEM_OR_BTF_ID:
+	case RET_PTR_TO_BTF_ID:
+	case RET_PTR_TO_SOCKET:
+	case RET_PTR_TO_TCP_SOCK:
+	case RET_PTR_TO_SOCK_COMMON:
+		return GBPF_RET_PTR_TO_MEM;
+	case RET_INTEGER:
+	default:
+		return GBPF_RET_SCALAR;
+	}
 }
 
 static u64 gbpf_call_helper_generic(u64 call_target,
@@ -209,6 +327,7 @@ static u64 gbpf_call_helper_desc(const struct gbpf_helper_desc *desc, const stru
 	u64 ret;
 
 	LOG_E;
+	int nr_args = desc ? desc->nr_args : ARRAY_SIZE(marshaled);
 
 	marshaled[0] = arg1;
 	marshaled[1] = arg2;
@@ -221,7 +340,7 @@ static u64 gbpf_call_helper_desc(const struct gbpf_helper_desc *desc, const stru
 	  marshaled[i] = gbpf_from_gbpf_space_to_kernel(meta, marshaled[i]);
 	}
 	*/
-	for (int i = 0; i < 5; i++) {
+	for (int i = 0; i < nr_args; i++) {
 	  u8 kind = desc ? desc->arg_kind[i] : GBPF_ARG_UNUSED;
 	  
 	  if (kind == GBPF_ARG_CTX) {
@@ -229,10 +348,10 @@ static u64 gbpf_call_helper_desc(const struct gbpf_helper_desc *desc, const stru
 	    continue;
 	  }
 	  
-	  if (kind == GBPF_ARG_GBPF_STACK || kind == GBPF_ARG_PTR)
+	  if (gbpf_arg_needs_translation(kind))
 	    marshaled[i] = gbpf_from_gbpf_space_to_kernel(meta, marshaled[i]);
 	}
-
+	  
 
 
 	ret = gbpf_call_helper_generic(func_addr,
@@ -289,6 +408,10 @@ noinline u64 gbpf_helper_call_trampoline(u64 arg1, u64 arg2, u64 arg3, u64 arg4,
   if (!desc)
     pr_warn("gbpf: unknown helper id %llu, call target=%px\n",
 	    meta.helper_id, (void *)call_target);
+  else if (gbpf_helper_uses_orig_ctx(desc) && !meta.orig_ctx)
+    pr_warn("gbpf: helper %u expects kernel ctx but orig_ctx is missing\n",
+	    desc->helper_id);
+
 
   ret = gbpf_call_helper_desc(desc, &meta, call_target,
 			      arg1, arg2, arg3, arg4, arg5);
