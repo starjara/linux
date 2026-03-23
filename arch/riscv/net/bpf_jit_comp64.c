@@ -27,6 +27,7 @@ EXPORT_SYMBOL_GPL(gbpf_ready);
 /* JARA: Define macros */
 //#define LOG_E pr_info("[bpf_jit_comp64.c] Enter: %s\n", __func__)
 #define LOG_E
+#define GBPF_DEGUB 1
 /* End of JARA */
 
 static const int regmap[] = {
@@ -251,7 +252,7 @@ static void __build_epilogue(bool is_tail_call, struct rv_jit_context *ctx)
 	
 	
 	/* JARA: Restore HGATP and S11 */
-	if (gbpf_ready) {
+	if (gbpf_ready && ctx->prog->aux->gbpf_page) {
 	  emit(rv_nop(), ctx);
 	  
 	  /*
@@ -1528,8 +1529,10 @@ out_be:
 		  /* Added */
 		  emit_imm(RV_REG_T0, insn->off, ctx);
 		  emit_sd(RV_REG_S10, GBPF_STK_HELPER_ID, RV_REG_T0, ctx);
+#ifdef GBPF_DEBUG 
 		  pr_info("helper_call_imm : 0x%llx\n", (u64)insn->imm);
 		  pr_info("helper_id(off)  : 0x%llx\n", (u64)insn->off);
+#endif
 		  /* End of Added */
 
 		  ret = emit_call((u64)&gbpf_helper_call_trampoline, true, ctx);
@@ -1583,6 +1586,7 @@ out_be:
 
 		  /* JARA: Maybe map base addr */
 		  if (gbpf_ready)  {
+		    /*
 		    if (insn->src_reg == BPF_PSEUDO_MAP_VALUE) {
 		      pr_info("src is BPF_PSEUDO_MAP_VALUE\n");
 		    }
@@ -1590,11 +1594,12 @@ out_be:
 		      pr_info("dst is BPF_PSEUDO_MAP_VALUE\n");
 		    }
 		    pr_info("imm64: %llx\n", imm64);
+		    */
 		    if (imm64 >= 0xff60000000000000) {
-		      pr_info("Kernel addr, convert to BPF space map page from %llx to", imm64);
+		      // pr_info("Kernel addr, convert to BPF space map page from %llx to", imm64);
 		      imm64 = GBPF_MAP_BASE;// + page_off((void *)imm64);
 		      imm64 -= 0x110;
-		      pr_info("%llx\n", imm64);
+		      // pr_info("%llx\n", imm64);
 		    }
 		    emit_imm(rd, imm64, ctx);
 		  }
@@ -1630,8 +1635,8 @@ out_be:
 	      insns_start = ctx->ninsns;
 	      if (gbpf_ready) {
 		if (gbpf_ready && insn->src_reg == BPF_PSEUDO_MAP_VALUE) {
-		  pr_info("HLV_B MAP value direct access\n");
-		  emit_imm(rs, GBPF_MAP_BASE + off, ctx);
+		  // pr_info("HLV_B MAP value direct access\n");
+		  emit_addi(rs, rs, off, ctx);
 		  emit_hvmi(HLV_B, rd, rs, 0, ctx);
 		  emit_addi(rs, rs, -off, ctx);
 		}
@@ -1668,8 +1673,8 @@ out_be:
 		      insns_start = ctx->ninsns;
 		      if (gbpf_ready) {
 			if (gbpf_ready && insn->src_reg == BPF_PSEUDO_MAP_VALUE) {
-			  pr_info("HLV_H MAP value direct access\n");
-			  emit_imm(rs, GBPF_MAP_BASE + off, ctx);
+			  // pr_info("HLV_H MAP value direct access\n");
+			  emit_addi(rs, rs, off, ctx);
 			  emit_hvmi(HLV_H, rd, rs, 0, ctx);
 			  emit_addi(rs, rs, -off, ctx);
 			}
@@ -1706,8 +1711,8 @@ out_be:
 				insns_start = ctx->ninsns;
 				if (gbpf_ready) {
 				  if (gbpf_ready && insn->src_reg == BPF_PSEUDO_MAP_VALUE) {
-				    pr_info("HLV_W MAP value direct access\n");
-				    emit_imm(rs, GBPF_MAP_BASE + off, ctx);
+				    // pr_info("HLV_W MAP value direct access\n");
+				    emit_addi(rs, rs, off, ctx);
 				    emit_hvmi(HLV_W, rd, rs, 0, ctx);
 				    emit_addi(rs, rs, -off, ctx);
 				  }
@@ -1745,9 +1750,9 @@ out_be:
 			  insns_start = ctx->ninsns;
 			  if (gbpf_ready) {
 			    if (gbpf_ready && insn->src_reg == BPF_PSEUDO_MAP_VALUE) {
-			      pr_info("HLV_D MAP value direct access\n");
+			      // pr_info("HLV_D MAP value direct access\n");
 
-			      emit_imm(rs, GBPF_MAP_BASE + off, ctx);
+			      emit_addi(rs, rs, off, ctx);
 			      emit_hvmi(HLV_D, rd, rs, 0, ctx);
 			      emit_addi(rs, rs, -off, ctx);
 			    }
@@ -2075,17 +2080,17 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 
 	
 	/* JARA: Write hgatp for bpf program */
-	if (gbpf_ready) {
+	if (gbpf_ready && ctx->prog->aux->gbpf_page) {
 	  emit(rv_nop(), ctx);
 	  
-	  pr_info("gpgd_phys : %0llx\n", page_to_phys(ctx->prog->aux->gpgd));
+	  // pr_info("gpgd_phys : %0llx\n", page_to_phys(ctx->prog->aux->gpgd));
 	  
 	  u64 hgatp = ctx->prog->aux->vmid;
 	  hgatp = hgatp << HGATP_VMID_SHIFT;
 	  hgatp |= HGATP_MODE_SV48X4 << HGATP_MODE_SHIFT;
 	  hgatp |= ((page_to_phys(ctx->prog->aux->gpgd) >> PAGE_SHIFT) & HGATP_PPN);
 	  
-	  pr_info("HGATP: %0llx\n", hgatp);
+	  // pr_info("HGATP: %0llx\n", hgatp);
 	  
 	  // Backup S11 and S10 reg
 	  /*
@@ -2143,7 +2148,7 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 	   */
 	  emit_imm(RV_REG_S5, GBPF_CTX_BASE + PAGE_SIZE, ctx);
 
-	  pr_info("GBPF page base: %px\n", page_to_virt(ctx->prog->aux->gbpf_page));
+	  // pr_info("GBPF page base: %px\n", page_to_virt(ctx->prog->aux->gbpf_page));
 
 	  if (bpf_stack_adjust) {
 	    ctx->prog->aux->bpf_stack_adjust = bpf_stack_adjust;

@@ -40,7 +40,8 @@ static const struct bpf_verifier_ops * const bpf_verifier_ops[] = {
 };
 
 /* JARA: Define macros */
-#define LOG_E pr_info("[verifier.c] Enter: %s\n", __func__)
+//#define LOG_E pr_info("[verifier.c] Enter: %s\n", __func__)
+#define LOG_E ;
 /* End of JARA */
 
 /* bpf_check() is a static code analyzer that walks eBPF program

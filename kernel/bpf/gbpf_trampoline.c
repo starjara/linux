@@ -5,6 +5,8 @@
 #include "gbpf_trampoline.h"
 
 #define LOG_E pr_info("[gbpf_trampoline.c] Enter: %s\n", __func__)
+//#define LOG_E ;
+#define GBPF_DEBUG 1
 static DEFINE_PER_CPU(struct gbpf_helper_desc, gbpf_helper_fallback_desc);
 
 /////////////////////////////// Internal helper fast path
@@ -34,12 +36,12 @@ static __always_inline bool gbpf_is_internal_skb_load_helper(u64 target)
            target == (u64)(unsigned long)&bpf_skb_load_helper_32;
 }
 
+/*
 static __always_inline u64
 gbpf_call_internal_skb_load_helper(u64 target,
                                    const struct gbpf_helper_meta *meta,
                                    u64 a0, u64 a1, u64 a2, u64 a3, u64 a4)
 {
-    /* arg0는 무조건 원래 skb */
     u64 skb = meta->orig_ctx;
 
     if (target == (u64)(unsigned long)&bpf_skb_load_helper_8_no_cache)
@@ -65,6 +67,7 @@ gbpf_call_internal_skb_load_helper(u64 target,
 
     return 0;
 }
+*/
 
 
 /////////////////////////////// Internal helper fast path End
@@ -152,8 +155,8 @@ const struct gbpf_helper_desc gbpf_helper_descs[__BPF_FUNC_MAX_ID] = {
     .name = "bpf_map_lookup_elem",
     .nr_args = 2,
     .arg_kind = {
-      GBPF_ARG_PTR,
-      GBPF_ARG_PTR,
+      GBPF_ARG_MAP_PTR,
+      GBPF_ARG_GBPF_STACK,
       GBPF_ARG_UNUSED,
       GBPF_ARG_UNUSED,
       GBPF_ARG_UNUSED,
@@ -257,7 +260,9 @@ const struct gbpf_helper_desc *gbpf_get_helper_desc(u32 helper_id)
 	return &gbpf_helper_descs[helper_id];
 
 build_fallback:
+	#ifdef GBPF_DEBUG
 	pr_info("Build fall back\n");
+	#endif
 	
 	proto = bpf_base_func_proto(helper_id);
 	if (!proto)
@@ -357,29 +362,40 @@ static u64 gbpf_call_helper_generic(u64 call_target,
 
 static u64 gbpf_from_gbpf_space_to_kernel(const struct gbpf_helper_meta *m, u64 arg)
 {
-    u64 ret = arg;
+  u64 ret = arg;
 
   LOG_E;
-  pr_info("\tBPF to kernel : %llx\n", arg);
-  
+#ifdef GBPF_DEBUG
+  pr_info("\tBPF to kernel : %lx\n", arg);
+  pr_info("Orig_ctx : 0x%lx", m->orig_ctx); 
+#endif
+
   if (arg == GBPF_CTX_BASE) {
     ret = m->orig_ctx;
   }
   else if (GBPF_CTX_BASE <= arg && arg < GBPF_CTX_BASE + GBPF_PAGE_SIZE) {
+#ifdef GBPF_DEBUG
     pr_info("CTX PAGE\n");
+#endif
     ret -= GBPF_CTX_BASE;
     ret += m->ctx_base;
   } else if (GBPF_PKT_BASE <= arg && arg < GBPF_PKT_BASE + GBPF_PAGE_SIZE) {
+#ifdef GBPF_DEBUG
     pr_info("PKT PAGE\n");
+#endif
     ret -= GBPF_PKT_BASE;
     ret += m->pkt_base;
-  } else if (GBPF_MAP_BASE <= arg && arg < GBPF_MAP_BASE + GBPF_PAGE_SIZE) {
+  } else if (GBPF_MAP_BASE - 0x110 <= arg && arg < GBPF_MAP_BASE + GBPF_PAGE_SIZE) {
+#ifdef GBPF_DEBUG
     pr_info("MAP PAGE\n");
+#endif
     ret -= GBPF_MAP_BASE;
     ret += m->map_base;
   }
   
-  pr_info("\tBPF to kernel : %llx\n", ret);
+#ifdef GBPF_DEBUG 
+  pr_info("\tBPF to kernel : %lx\n", ret);
+#endif
   
   return ret;
 }
@@ -393,6 +409,10 @@ static u64 gbpf_call_helper_desc(const struct gbpf_helper_desc *desc, const stru
 	u64 ret;
 
 	LOG_E;
+	
+#ifdef GBPF_DEBUG
+	pr_info("Orig_ctx : 0x%lx", meta->orig_ctx); 
+#endif
 	int nr_args = desc ? desc->nr_args : ARRAY_SIZE(marshaled);
 
 	marshaled[0] = arg1;
@@ -401,11 +421,10 @@ static u64 gbpf_call_helper_desc(const struct gbpf_helper_desc *desc, const stru
 	marshaled[3] = arg4;
 	marshaled[4] = arg5;
 
-	/*
 	for (int i=0; i<5; i++) {
 	  marshaled[i] = gbpf_from_gbpf_space_to_kernel(meta, marshaled[i]);
 	}
-	*/
+	
 	for (int i = 0; i < nr_args; i++) {
 	  u8 kind = desc ? desc->arg_kind[i] : GBPF_ARG_UNUSED;
 	  
@@ -417,15 +436,17 @@ static u64 gbpf_call_helper_desc(const struct gbpf_helper_desc *desc, const stru
 	  if (gbpf_arg_needs_translation(kind))
 	    marshaled[i] = gbpf_from_gbpf_space_to_kernel(meta, marshaled[i]);
 	}
-	  
-
+	
 	/*
-
+	if (gbpf_is_internal_skb_load_helper(func_addr)) {
+	  marshaled[0] = meta->orig_ctx;
+	}
+	*/
+	  
 	ret = gbpf_call_helper_generic(func_addr,
 				       marshaled[0], marshaled[1],
 				       marshaled[2], marshaled[3],
 				       marshaled[4]);
-	*/
 
 	return ret;
 }
@@ -465,21 +486,16 @@ noinline u64 gbpf_helper_call_trampoline(u64 arg1, u64 arg2, u64 arg3, u64 arg4,
   meta = gbpf_read_helper_meta();
   call_target = (u64)((u8 *)__bpf_call_base + (s32)meta.call_imm);
 
-  /* Test code */
-  if (gbpf_is_internal_skb_load_helper(call_target)) {
-    return gbpf_call_internal_skb_load_helper(call_target, &meta,
-                                              arg1, arg2, arg3, arg4, arg5);
-  }
-  /* Test code End */
- 
   desc = gbpf_get_helper_desc((u32)meta.helper_id);
   
+#ifdef GBPF_DEBUG
   pr_info("\tBPF_call_base : %px\n", (u8 *)__bpf_call_base);
   pr_info("\tTarget Call: %px\n", (void *)call_target);
   pr_info("\ttarget_imm : %d\n", (s32)meta.call_imm);
   pr_info("\thelper_id  : %llu\n", meta.helper_id);
   pr_info("\tArgs : [%llx, %llx, %llx, %llx, %llx]\n",
 	  arg1, arg2, arg3, arg4, arg5);
+#endif
 
   if (!desc)
     pr_warn("gbpf: unknown helper id %llu, call target=%px\n",
@@ -491,9 +507,9 @@ noinline u64 gbpf_helper_call_trampoline(u64 arg1, u64 arg2, u64 arg3, u64 arg4,
 
   ret = gbpf_call_helper_desc(desc, &meta, call_target,
 			      arg1, arg2, arg3, arg4, arg5);
+  // pr_info("[GBPF] Tramptest ret = 0x%lx\n", ret);
   ret = gbpf_convert_helper_ret(desc, ret);
 
-  pr_info("[GBPF] Tramptest ret = 0x%llx\n", ret);
   
   return ret;
 }

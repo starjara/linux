@@ -620,7 +620,8 @@ static __always_inline u32 __bpf_prog_run(const struct bpf_prog *prog,
 		if (prog->aux->gpgd != NULL) {
 		  void *sandboxed_ctx;
 		  sandboxed_ctx = gbpf_copy_ctx(ctx, prog);
-		  ret = dfunc(sandboxed_ctx, prog->insnsi, prog->bpf_func);
+		  //ret = dfunc(sandboxed_ctx, prog->insnsi, prog->bpf_func);
+		  ret = dfunc(ctx, prog->insnsi, prog->bpf_func);
 		}
 		else
 		  ret = dfunc(ctx, prog->insnsi, prog->bpf_func);

@@ -69,7 +69,8 @@
 #define IMM	insn->imm
 
 /* JARA: Macro define */
-#define LOG_E pr_info("[core.c] Enter: %s\n", __func__)
+// #define LOG_E pr_info("[core.c] Enter: %s\n", __func__)
+#define LOG_E ; 
 /* End of JARA */
 
 struct bpf_mem_alloc bpf_global_ma;

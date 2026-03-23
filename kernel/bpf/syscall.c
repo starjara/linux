@@ -74,7 +74,9 @@ static const struct bpf_map_ops * const bpf_map_types[] = {
 };
 
 /* JARA: Define macros */
-#define LOG_E pr_info("[syscall.c] Enter: %s\n", __func__)
+//#define LOG_E pr_info("[syscall.c] Enter: %s\n", __func__)
+#define LOG_E ;
+#define GBPF_DEBUG 1
 /* End of JARA */
 
 /*
@@ -2716,11 +2718,15 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr, u32 uattr_size)
 	/* JARA: Map used map value pages */
 	if (is_gbpf) {
 	  int i;
+#ifdef GBPF_DEBUG
 	  pr_info("Map count : %d\n", prog->aux->used_map_cnt);
+#endif
 	  // Mapping MAP value page into the gbpf space 
 	  for (i=0; i<prog->aux->used_map_cnt; i++) {
+#ifdef GBPF_DEBUG
 	    pr_info("prog->aux->used_maps[%d] : %px, %px\n", i,
 		    prog->aux->used_maps[i], PAGE_ALIGN((u64)prog->aux->used_maps[i]));
+#endif
 	    gbpf_call_map_ext(prog, PAGE_ALIGN((u64)prog->aux->used_maps[i]), PAGE_SIZE, MAP);
 	  }
 	}
@@ -5065,7 +5071,6 @@ static int __sys_bpf(int cmd, bpfptr_t uattr, unsigned int size)
 	bool capable;
 	int err;
 
-	pr_info("\n");
 	LOG_E;
 
 	capable = bpf_capable() || !sysctl_unprivileged_bpf_disabled;

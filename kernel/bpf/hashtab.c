@@ -16,6 +16,11 @@
 #include "map_in_map.h"
 #include <linux/bpf_mem_alloc.h>
 
+/* JARA : Define macros */
+#define LOG_E pr_info("[hashtab.c] Enter: %s\n", __func__)
+#define GBPF_DEBUG 1
+/* End of JARA */
+
 #define HTAB_CREATE_FLAG_MASK						\
 	(BPF_F_NO_PREALLOC | BPF_F_NO_COMMON_LRU | BPF_F_NUMA_NODE |	\
 	 BPF_F_ACCESS_MASK | BPF_F_ZERO_SEED)
@@ -480,6 +485,8 @@ static struct bpf_map *htab_map_alloc(union bpf_attr *attr)
 	struct bpf_htab *htab;
 	int err, i;
 
+	LOG_E;
+
 	htab = bpf_map_area_alloc(sizeof(*htab), NUMA_NO_NODE);
 	if (!htab)
 		return ERR_PTR(-ENOMEM);
@@ -670,17 +677,35 @@ static void *__htab_map_lookup_elem(struct bpf_map *map, void *key)
 	struct htab_elem *l;
 	u32 hash, key_size;
 
+	LOG_E;
+
 	WARN_ON_ONCE(!rcu_read_lock_held() && !rcu_read_lock_trace_held() &&
 		     !rcu_read_lock_bh_held());
+
+#ifdef GBPF_DEBUG
+	pr_info("key : [%px] 0x%lx\n", key, *(u64 *)key);
+#endif
+
 
 	key_size = map->key_size;
 
 	hash = htab_map_hash(key, key_size, htab->hashrnd);
 
+#ifdef GBPF_DEBUG
+	pr_info("hash : 0x%x\n", hash);
+#endif
+
 	head = select_bucket(htab, hash);
 
+#ifdef GBPF_DEBUG
+	pr_info("head : 0x%x\n", head);
+#endif
+	
 	l = lookup_nulls_elem_raw(head, hash, key, key_size, htab->n_buckets);
-
+	
+#ifdef GBPF_DEBUG
+	pr_info("elem.key : %s\n", l->key);
+#endif
 	return l;
 }
 

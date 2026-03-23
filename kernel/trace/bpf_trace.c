@@ -47,7 +47,8 @@ struct bpf_trace_module {
 };
 
 /* JARA: Log print */
-#define LOG_E pr_info("[bpf_trace.c] Enter: %s\n", __func__)
+//#define LOG_E pr_info("[bpf_trace.c] Enter: %s\n", __func__)
+#define LOG_E
 /* End of JARA */
 
 static LIST_HEAD(bpf_trace_modules);
