@@ -76,7 +76,7 @@ static const struct bpf_map_ops * const bpf_map_types[] = {
 /* JARA: Define macros */
 //#define LOG_E pr_info("[syscall.c] Enter: %s\n", __func__)
 #define LOG_E ;
-#define GBPF_DEBUG 1
+//#define GBPF_DEBUG 1
 /* End of JARA */
 
 /*

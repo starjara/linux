@@ -260,9 +260,9 @@ const struct gbpf_helper_desc *gbpf_get_helper_desc(u32 helper_id)
 	return &gbpf_helper_descs[helper_id];
 
 build_fallback:
-	#ifdef GBPF_DEBUG
+#ifdef GBPF_DEBUG
 	pr_info("Build fall back\n");
-	#endif
+#endif
 	
 	proto = bpf_base_func_proto(helper_id);
 	if (!proto)

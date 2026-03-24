@@ -27,7 +27,7 @@ EXPORT_SYMBOL_GPL(gbpf_ready);
 /* JARA: Define macros */
 //#define LOG_E pr_info("[bpf_jit_comp64.c] Enter: %s\n", __func__)
 #define LOG_E
-#define GBPF_DEGUB 1
+//#define GBPF_DEBUG 1
 /* End of JARA */
 
 static const int regmap[] = {

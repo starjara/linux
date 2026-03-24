@@ -20,8 +20,9 @@
 /* End of JARA */
 
 /* JARA: Define macros */
-// #define LOG_E pr_info("[arraymap.c] Enter: %s\n", __func__)
-#define LOG_E ;
+#define LOG_E pr_info("[arraymap.c] Enter: %s\n", __func__)
+//#define LOG_E ;
+#define GBPF_DEBUG 1
 /* End of JARA */
 
 #define ARRAY_CREATE_FLAG_MASK \
@@ -139,7 +140,9 @@ static struct bpf_map *array_map_alloc(union bpf_attr *attr)
 	
 	  // Meta data page + value page
 	  array_size = PAGE_ALIGN(sizeof(*array)) + PAGE_ALIGN(total_elem_size);
-	  // pr_info("array_size : 0x%llx\n", array_size);
+#ifdef GBPF_DEBUG
+	  pr_info("array_size : 0x%llx\n", array_size);
+#endif
 	  
 	  // Alloc data memory 
 	  data = attr->map_flags & BPF_F_MMAPABLE ?
@@ -153,7 +156,9 @@ static struct bpf_map *array_map_alloc(union bpf_attr *attr)
 	  array = data + PAGE_ALIGN(sizeof(struct bpf_array))
 	    - offsetof(struct bpf_array, value);
 	  
-	  // pr_info("array : %px, map : %px, data : %px, elem_ptr_base : %px\n", array, &array->map, data, &array->value);
+#ifdef GBPF_DEBUG
+	  pr_info("array : %px, map : %px, data : %px, elem_ptr_base : %px\n", array, &array->map, data, &array->value);
+#endif
 	  
 	  if (!array)
 	    return ERR_PTR(-ENOMEM);
@@ -218,7 +223,9 @@ static struct bpf_map *array_map_alloc(union bpf_attr *attr)
 	}
 
 	/* JARA : Debug print */
-	// pr_info("array : %px, map : %px, data : %px, elem_ptr_base : %px\n", array, &array->map, data, &array->value);
+#ifdef GBPF_DEBUG
+	pr_info("array : %px, map : %px, data : %px, elem_ptr_base : %px\n", array, &array->map, data, &array->value);
+#endif
 	/* End of JARA */
 	  
 	return &array->map;
@@ -236,11 +243,12 @@ static void *array_map_lookup_elem(struct bpf_map *map, void *key)
 	u32 index = *(u32 *)key;
 
 	LOG_E;
-	/*
+#ifdef GBPF_DEBUG
 	pr_info("Target base : %px\n", array->value);
+	pr_info("index : %u\n", index);
 	pr_info("Target addr : %px\n", array->value + (u64)array->elem_size * (index & array->index_mask));
 	pr_info("Target value : %px\n", *(array->value + (u64)array->elem_size * (index & array->index_mask)));
-	*/
+#endif
 
 	if (unlikely(index >= array->map.max_entries))
 		return NULL;

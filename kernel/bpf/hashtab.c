@@ -18,6 +18,7 @@
 
 /* JARA : Define macros */
 #define LOG_E pr_info("[hashtab.c] Enter: %s\n", __func__)
+//#define LOG_E
 #define GBPF_DEBUG 1
 /* End of JARA */
 
@@ -683,7 +684,7 @@ static void *__htab_map_lookup_elem(struct bpf_map *map, void *key)
 		     !rcu_read_lock_bh_held());
 
 #ifdef GBPF_DEBUG
-	pr_info("key : [%px] 0x%lx\n", key, *(u64 *)key);
+	pr_info("key : [%px] 0x%lx\n", key, *(u32 *)key);
 #endif
 
 
@@ -698,13 +699,16 @@ static void *__htab_map_lookup_elem(struct bpf_map *map, void *key)
 	head = select_bucket(htab, hash);
 
 #ifdef GBPF_DEBUG
-	pr_info("head : 0x%x\n", head);
+	pr_info("head : %px\n", head);
 #endif
 	
 	l = lookup_nulls_elem_raw(head, hash, key, key_size, htab->n_buckets);
 	
 #ifdef GBPF_DEBUG
-	pr_info("elem.key : %s\n", l->key);
+	if (l)
+	  pr_info("elem.key : %s\n", l->key);
+	else
+	  pr_info("Failed to get elem\n");
 #endif
 	return l;
 }
