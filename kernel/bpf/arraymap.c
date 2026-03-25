@@ -59,39 +59,47 @@ static int bpf_array_alloc_percpu(struct bpf_array *array)
 }
 
 /* JARA : htab element alloc/free helpers */
-static int array_alloc_elems(struct bpf_array *array, u64 array_size)
+static int array_alloc_elems(struct bpf_array **array, u64 array_size)
 {
-	struct gbpf_page_region *region = &array->map.value_region;
-	u64 size;
+  struct gbpf_page_region region;
+  u64 size;
 
-	size = PAGE_ALIGN(array_size);
-	if (!size)
-		return -EINVAL;
-
-	region->size = size;
-	region->nr_pages = size >> PAGE_SHIFT;
-	region->order = get_order(size);
-	region->page = alloc_pages(GFP_KERNEL | __GFP_ZERO, region->order);
-	if (!region->page)
-		return -ENOMEM;
-
-	region->vaddr = page_to_virt(region->page);
-	if (!region->vaddr) {
-		__free_pages(region->page, region->order);
-		memset(region, 0, sizeof(*region));
-		return -ENOMEM;
-	}
-
-	region->allocated = true;
-	//array->ptrs = region->vaddr;
-
+  LOG_E;
 #ifdef GBPF_DEBUG
-	pr_info("array elem size\t: %u\n", array->elem_size);
-	pr_info("array elem alloc\t: size=%llu nr_pages=%lu order=%u base=%px\n",
-		region->size, region->nr_pages, region->order, region->vaddr);
+  pr_info("Array_size : 0x%lx\n", array_size);
 #endif
+	
+  size = PAGE_ALIGN(array_size);
+  if (!size)
+    return -EINVAL;
+  
+  region.size = size;
+  region.nr_pages = size >> PAGE_SHIFT;
+  region.order = get_order(size);
+  region.page = alloc_pages(GFP_KERNEL | __GFP_ZERO, region.order);
+  if (!region.page)
+    return -ENOMEM;
+  
+  region.vaddr = page_to_virt(region.page);
+  if (!region.vaddr) {
+    __free_pages(region.page, region.order);
+    //memset(region, 0, sizeof(*region));
+    return -ENOMEM;
+  }
+  
+  region.allocated = true;
+  //array->ptrs = region->vaddr;
 
-	return 0;
+  *array = region.vaddr;
+  memcpy(&(*array)->map.value_region, &region, sizeof(struct gbpf_page_region));
+  
+#ifdef GBPF_DEBUG
+  pr_info("array=%px\n", *array);
+  pr_info("array elem alloc\t: size=%llu nr_pages=%lu order=%u base=%px\n",
+	  region.size, region.nr_pages, region.order, region.vaddr);
+#endif
+  
+  return 0;
 }
 
 static void array_free_elem_region(struct bpf_array *htab)
@@ -187,7 +195,7 @@ static struct bpf_map *array_map_alloc(union bpf_attr *attr)
 			return ERR_PTR(-E2BIG);
 	}
 
-	// array_size = sizeof(*array);
+	array_size = sizeof(*array);
 	/* JARA: Disjoint value and metadata */
 	// Check module 
 	/*
@@ -244,7 +252,10 @@ static struct bpf_map *array_map_alloc(union bpf_attr *attr)
 	/* End of JARA */
 
 	if (percpu) {
-		array_size += (u64) max_entries * sizeof(void *);
+	  //array_size += (u64) max_entries * sizeof(void *);
+	  /* JARA : ?? */
+	  array_size += (u64) num_online_cpus() * sizeof(void*); 
+	  /* End of JARA */
 	} else {
 		// rely on vmalloc() to return page-aligned memory and
 		// ensure array->value is exactly page-aligned
@@ -284,8 +295,11 @@ static struct bpf_map *array_map_alloc(union bpf_attr *attr)
 
 	int nr_pages = PAGE_ALIGN(array_size) / PAGE_SIZE;
 
-	if (array_alloc_elems(array, array_size)) {
-	  pr_err("Failed to alloc array value page\n");
+	array_alloc_elems(&array, array_size);
+	pr_info("array=%px\n", array);
+
+	if (!array) {
+	  pr_err("Failed to alloc array page\n");
 	}
 	
 	int avail_off = nr_pages * PAGE_SIZE - array_size;
