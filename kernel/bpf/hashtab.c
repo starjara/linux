@@ -306,6 +306,7 @@ static int htab_alloc_elems(struct bpf_htab *htab, u32 num_entries)
 
 	region->allocated = true;
 	htab->elems = region->vaddr;
+	htab->map.gbpf_alloc_base = region->vaddr;
 
 #ifdef GBPF_DEBUG
 	pr_info("htab elem size\t: %u, %u\n", htab->elem_size, num_entries);
@@ -822,6 +823,7 @@ static void *__htab_map_lookup_elem(struct bpf_map *map, void *key)
 
 
 	key_size = map->key_size;
+	
 
 	hash = htab_map_hash(key, key_size, htab->hashrnd);
 

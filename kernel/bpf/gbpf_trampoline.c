@@ -385,7 +385,7 @@ static u64 gbpf_from_gbpf_space_to_kernel(const struct gbpf_helper_meta *m, u64 
 #endif
     ret -= GBPF_PKT_BASE;
     ret += m->pkt_base;
-  } else if (GBPF_MAP_BASE - 0x110 <= arg && arg < GBPF_MAP_BASE + GBPF_PAGE_SIZE) {
+  } else if (GBPF_MAP_BASE - 0x1000 <= arg && arg < GBPF_MAP_BASE + GBPF_PAGE_SIZE) {
 #ifdef GBPF_DEBUG
     pr_info("MAP PAGE\n");
 #endif

@@ -69,6 +69,7 @@ static int array_alloc_elems(struct bpf_array **array, u64 array_size)
   pr_info("Array_size : 0x%lx\n", array_size);
 #endif
 	
+  array_size += PAGE_SIZE;
   size = PAGE_ALIGN(array_size);
   if (!size)
     return -EINVAL;
@@ -88,10 +89,13 @@ static int array_alloc_elems(struct bpf_array **array, u64 array_size)
   }
   
   region.allocated = true;
-  //array->ptrs = region->vaddr;
+  //array->ptrs = region->vaddr
 
-  *array = region.vaddr;
+  *array = region.vaddr + PAGE_SIZE - offsetof(struct bpf_array, value);
+  
   memcpy(&(*array)->map.value_region, &region, sizeof(struct gbpf_page_region));
+  
+  (*array)->map.gbpf_alloc_base = (*array)->map.value_region.vaddr + PAGE_SIZE;
   
 #ifdef GBPF_DEBUG
   pr_info("array=%px\n", *array);
@@ -296,7 +300,6 @@ static struct bpf_map *array_map_alloc(union bpf_attr *attr)
 	int nr_pages = PAGE_ALIGN(array_size) / PAGE_SIZE;
 
 	array_alloc_elems(&array, array_size);
-	pr_info("array=%px\n", array);
 
 	if (!array) {
 	  pr_err("Failed to alloc array page\n");
@@ -305,11 +308,8 @@ static struct bpf_map *array_map_alloc(union bpf_attr *attr)
 	int avail_off = nr_pages * PAGE_SIZE - array_size;
 	int off = ALIGN(get_random_u32_below(avail_off), 8);
 
-	array = array->map.value_region.vaddr + off;
-
-	if (attr->map_flags & BPF_F_MMAPABLE)
-	  array = array->map.value_region.vaddr +
-	    PAGE_ALIGN(sizeof(struct bpf_array)) - offsetof(struct bpf_array, value);
+	
+	
 	/* End of JARA */
 	
 	
@@ -329,7 +329,8 @@ static struct bpf_map *array_map_alloc(union bpf_attr *attr)
 
 	/* JARA : Debug print */
 #ifdef GBPF_DEBUG
-	pr_info("array : %px, map : %px, data : %px, elem_ptr_base : %px\n", array, &array->map, data, &array->value);
+	pr_info("array : %px, map : %px, elem_ptr_base : %px, gbpf_alloc_base : %px\n",
+		array, array->map, array->value, array->map.gbpf_alloc_base);
 #endif
 	/* End of JARA */
 	  

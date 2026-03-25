@@ -1596,11 +1596,12 @@ out_be:
 		    pr_info("imm64_org : %llx\n", imm64);
 #endif
 		    if (imm64 >= 0xff60000000000000) {
+		      u64 off = PAGE_ALIGN(imm64) - imm64;
 #ifdef GBPF_DEBUG
-		      pr_info("Kernel addr, convert to BPF space map page from %llx to", imm64);
+		      pr_info("Kernel addr, convert to BPF space map page 0x%lx, off 0x%lx ", imm64, off);
 #endif
 		      imm64 = GBPF_MAP_BASE;// + page_off((void *)imm64);
-		      imm64 -= 0x110;
+		      imm64 -= off;
 #ifdef GBPF_DEBUG
 		      pr_info("imm64_map base : %llx\n", imm64);
 #endif
@@ -2132,8 +2133,19 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 	    emit_sd(RV_REG_S10, GBPF_STK_PKT_BASE, RV_REG_T0, ctx);
 	  }
 	  
+	    
 	  if (ctx->prog->aux->used_map_cnt) {
-	    emit_imm(RV_REG_T0, (u64)(ctx->prog->aux->used_maps[0]), ctx);
+
+#ifdef GBPF_DEBUG
+	    struct bpf_map *map = (struct bpf_map *)ctx->prog->aux->used_maps[0];
+	    pr_info("prog->aux->used_maps : %px, %px\n", 
+		    map, map->gbpf_alloc_base);
+#endif
+	    
+	    if (map->map_type == BPF_MAP_TYPE_ARRAY)
+	      emit_imm(RV_REG_T0, (u64)(ctx->prog->aux->used_maps[0]), ctx);
+	    if (map->map_type == BPF_MAP_TYPE_HASH)
+	      emit_imm(RV_REG_T0, (u64)(ctx->prog->aux->used_maps[0]->gbpf_alloc_base), ctx);
 	    emit_sd(RV_REG_S10, GBPF_STK_MAP_BASE, RV_REG_T0, ctx);
 	  }
 	  

@@ -2723,15 +2723,14 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr, u32 uattr_size)
 #endif
 	  // Mapping MAP value page into the gbpf space 
 	  for (i=0; i<prog->aux->used_map_cnt; i++) {
+
+	    struct bpf_map *map = (struct bpf_map *)prog->aux->used_maps[i];
+	    
 #ifdef GBPF_DEBUG
 	    pr_info("prog->aux->used_maps[%d] : %px, %px\n", i,
-		    prog->aux->used_maps[i], PAGE_ALIGN((u64)prog->aux->used_maps[i]));
+		    map, map->gbpf_alloc_base);
 #endif
-	    struct bpf_map *map = (struct bpf_map *)prog->aux->used_maps[i];
-	    if (map->map_type == BPF_MAP_TYPE_HASH)
-	      gbpf_call_map_ext(prog, map->value_region.vaddr, PAGE_SIZE, MAP);
-	    else if (map->map_type == BPF_MAP_TYPE_ARRAY)
-	      gbpf_call_map_ext(prog, map->value_region.vaddr + PAGE_SIZE, PAGE_SIZE, MAP);
+	      gbpf_call_map_ext(prog, map->gbpf_alloc_base, PAGE_SIZE, MAP);
 	  }
 	}
 	/* End of JARA */
