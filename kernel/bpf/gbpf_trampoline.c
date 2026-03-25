@@ -453,25 +453,37 @@ static u64 gbpf_call_helper_desc(const struct gbpf_helper_desc *desc, const stru
 
 static u64 gbpf_convert_helper_ret(const struct gbpf_helper_desc *desc, u64 ret)
 {
-  if (!ret || !desc)
+  LOG_E;
+  
+  if (!ret)
     return ret;
 
+  if (ret >= 0xff60000000000000) {
+    u64 off = PAGE_ALIGN(ret) - ret;
+    ret = GBPF_MAP_BASE + off;
+  }
+
+  return ret;
+  
+  /*
+  if (!ret || !desc)
+    return ret;
   
   switch (desc->ret_kind) {
   case GBPF_RET_SCALAR:
     return ret;
     
-  case GBPF_RET_PTR_TO_MAP_VALUE:
-    /* TODO: kernel ptr -> BPF-space ptr 변환 */
+ 
     return ret;
     
   case GBPF_RET_PTR_TO_MEM:
-    /* TODO: 필요하면 나중에 변환 */
     return ret;
     
   default:
     return ret;
   }
+  */
+  
 }
 
 noinline u64 gbpf_helper_call_trampoline(u64 arg1, u64 arg2, u64 arg3, u64 arg4, u64 arg5)
@@ -487,6 +499,13 @@ noinline u64 gbpf_helper_call_trampoline(u64 arg1, u64 arg2, u64 arg3, u64 arg4,
   call_target = (u64)((u8 *)__bpf_call_base + (s32)meta.call_imm);
 
   desc = gbpf_get_helper_desc((u32)meta.helper_id);
+
+#ifdef GBPF_DEBUG
+  if(desc)
+    pr_info("Desc exist\n");
+  else
+    pr_info("Desc not found\n");
+#endif
   
 #ifdef GBPF_DEBUG
   pr_info("\tBPF_call_base : %px\n", (u8 *)__bpf_call_base);
@@ -507,7 +526,7 @@ noinline u64 gbpf_helper_call_trampoline(u64 arg1, u64 arg2, u64 arg3, u64 arg4,
 
   ret = gbpf_call_helper_desc(desc, &meta, call_target,
 			      arg1, arg2, arg3, arg4, arg5);
-  // pr_info("[GBPF] Tramptest ret = 0x%lx\n", ret);
+  pr_info("[GBPF] Tramptest ret = 0x%lx\n", ret);
   ret = gbpf_convert_helper_ret(desc, ret);
 
   

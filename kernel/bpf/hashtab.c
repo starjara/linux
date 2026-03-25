@@ -818,8 +818,8 @@ static void *__htab_map_lookup_elem(struct bpf_map *map, void *key)
 		     !rcu_read_lock_bh_held());
 
 #ifdef GBPF_DEBUG
-	pr_info("key : [%px] 0x%lx\n", key, *(u32 *)key);
 #endif
+	pr_info("key : [%px] 0x%lx\n", key, *(u32 *)key);
 
 
 	key_size = map->key_size;
@@ -840,10 +840,12 @@ static void *__htab_map_lookup_elem(struct bpf_map *map, void *key)
 	l = lookup_nulls_elem_raw(head, hash, key, key_size, htab->n_buckets);
 	
 #ifdef GBPF_DEBUG
+	/*
 	if (l)
-	  pr_info("elem.key : %s\n", l->key);
+	  pr_info("elem.key : %lx\n", l->key);
 	else
 	  pr_info("Failed to get elem\n");
+	*/
 #endif
 	return l;
 }

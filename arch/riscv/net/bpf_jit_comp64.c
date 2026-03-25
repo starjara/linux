@@ -2142,10 +2142,7 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 		    map, map->gbpf_alloc_base);
 #endif
 	    
-	    if (map->map_type == BPF_MAP_TYPE_ARRAY)
-	      emit_imm(RV_REG_T0, (u64)(ctx->prog->aux->used_maps[0]), ctx);
-	    if (map->map_type == BPF_MAP_TYPE_HASH)
-	      emit_imm(RV_REG_T0, (u64)(ctx->prog->aux->used_maps[0]->gbpf_alloc_base), ctx);
+	    emit_imm(RV_REG_T0, (u64)(ctx->prog->aux->used_maps[0]), ctx);
 	    emit_sd(RV_REG_S10, GBPF_STK_MAP_BASE, RV_REG_T0, ctx);
 	  }
 	  
