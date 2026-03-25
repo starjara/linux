@@ -2727,7 +2727,11 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr, u32 uattr_size)
 	    pr_info("prog->aux->used_maps[%d] : %px, %px\n", i,
 		    prog->aux->used_maps[i], PAGE_ALIGN((u64)prog->aux->used_maps[i]));
 #endif
-	    gbpf_call_map_ext(prog, PAGE_ALIGN((u64)prog->aux->used_maps[i]), PAGE_SIZE, MAP);
+	    struct bpf_map *map = (struct bpf_map *)prog->aux->used_maps[i];
+	    if (map->map_type == BPF_MAP_TYPE_HASH)
+	      gbpf_call_map_ext(prog, map->value_region.vaddr, PAGE_SIZE, MAP);
+	    else if (map->map_type == BPF_MAP_TYPE_ARRAY)
+	      gbpf_call_map_ext(prog, map->value_region.vaddr + PAGE_SIZE, PAGE_SIZE, MAP);
 	  }
 	}
 	/* End of JARA */

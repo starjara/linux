@@ -76,6 +76,11 @@ struct gbpf_page_region {
   unsigned int order;         /* buddy order used for alloc_pages() */
   bool allocated;
 };
+
+struct gbpf_region {
+	struct list_head entry;
+	struct gbpf_page_region region;
+};
 /* End of JARA */
 
 struct bpf_iter_seq_info {
@@ -273,6 +278,7 @@ struct bpf_map {
 	 */
   /* JARA : gBPF Region list */
   struct gbpf_page_region value_region;
+  void *gbpf_alloc_base;
   /* End of JARA */
 	atomic64_t refcnt ____cacheline_aligned;
 	atomic64_t usercnt;

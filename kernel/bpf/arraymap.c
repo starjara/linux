@@ -58,12 +58,70 @@ static int bpf_array_alloc_percpu(struct bpf_array *array)
 	return 0;
 }
 
+/* JARA : htab element alloc/free helpers */
+static int array_alloc_elems(struct bpf_array *array, u64 array_size)
+{
+	struct gbpf_page_region *region = &array->map.value_region;
+	u64 size;
+
+	size = PAGE_ALIGN(array_size);
+	if (!size)
+		return -EINVAL;
+
+	region->size = size;
+	region->nr_pages = size >> PAGE_SHIFT;
+	region->order = get_order(size);
+	region->page = alloc_pages(GFP_KERNEL | __GFP_ZERO, region->order);
+	if (!region->page)
+		return -ENOMEM;
+
+	region->vaddr = page_to_virt(region->page);
+	if (!region->vaddr) {
+		__free_pages(region->page, region->order);
+		memset(region, 0, sizeof(*region));
+		return -ENOMEM;
+	}
+
+	region->allocated = true;
+	//array->ptrs = region->vaddr;
+
+#ifdef GBPF_DEBUG
+	pr_info("array elem size\t: %u\n", array->elem_size);
+	pr_info("array elem alloc\t: size=%llu nr_pages=%lu order=%u base=%px\n",
+		region->size, region->nr_pages, region->order, region->vaddr);
+#endif
+
+	return 0;
+}
+
+static void array_free_elem_region(struct bpf_array *htab)
+{
+	struct gbpf_page_region *region = &htab->map.value_region;
+
+	if (!region->allocated)
+		return;
+
+	if (region->page)
+		__free_pages(region->page, region->order);
+
+	memset(region, 0, sizeof(*region));
+	//htab->ptrs = NULL;
+}
+/* End of JARA */
+
+
+
 /* Called from syscall */
 int array_map_alloc_check(union bpf_attr *attr)
 {
 	bool percpu = attr->map_type == BPF_MAP_TYPE_PERCPU_ARRAY;
 	int numa_node = bpf_map_attr_numa_node(attr);
 
+	/* JARA : Disable per cpu map */
+	if (percpu)
+	  return -EOPNOTSUPP;
+	/* End of JARA */
+	
 	/* check sanity of attributes */
 	if (attr->max_entries == 0 || attr->key_size != 4 ||
 	    attr->value_size == 0 ||
@@ -132,6 +190,7 @@ static struct bpf_map *array_map_alloc(union bpf_attr *attr)
 	// array_size = sizeof(*array);
 	/* JARA: Disjoint value and metadata */
 	// Check module 
+	/*
 	is_gbpf = gbpf_call_check_module();
 	if (is_gbpf) {
 	  total_elem_size = percpu ?
@@ -155,7 +214,9 @@ static struct bpf_map *array_map_alloc(union bpf_attr *attr)
 	  // Change value base addr 
 	  array = data + PAGE_ALIGN(sizeof(struct bpf_array))
 	    - offsetof(struct bpf_array, value);
-	  
+
+	  // Set base addr
+	  array->map.gbpf_alloc_base = data;
 #ifdef GBPF_DEBUG
 	  pr_info("array : %px, map : %px, data : %px, elem_ptr_base : %px\n", array, &array->map, data, &array->value);
 #endif
@@ -165,7 +226,7 @@ static struct bpf_map *array_map_alloc(union bpf_attr *attr)
 	  array->index_mask = index_mask;
 	  array->map.bypass_spec_v1 = bypass_spec_v1;
 	  
-	  /* copy mandatory map attributes */
+	  // copy mandatory map attributes 
 	  bpf_map_init_from_attr(&array->map, attr);
 	  array->elem_size = elem_size;
 	  
@@ -179,14 +240,15 @@ static struct bpf_map *array_map_alloc(union bpf_attr *attr)
 	else {
 	  array_size = sizeof(*array);
 	}
+	*/
 	/* End of JARA */
 
 	if (percpu) {
 		array_size += (u64) max_entries * sizeof(void *);
 	} else {
-		/* rely on vmalloc() to return page-aligned memory and
-		 * ensure array->value is exactly page-aligned
-		 */
+		// rely on vmalloc() to return page-aligned memory and
+		// ensure array->value is exactly page-aligned
+		
 		if (attr->map_flags & BPF_F_MMAPABLE) {
 			array_size = PAGE_ALIGN(array_size);
 			array_size += PAGE_ALIGN((u64) max_entries * elem_size);
@@ -196,10 +258,11 @@ static struct bpf_map *array_map_alloc(union bpf_attr *attr)
 	}
 
 	/* allocate all map elements and zero-initialize them */
+	/*
 	if (attr->map_flags & BPF_F_MMAPABLE) {
 		void *data;
 
-		/* kmalloc'ed memory can't be mmap'ed, use explicit vmalloc */
+		// kmalloc'ed memory can't be mmap'ed, use explicit vmalloc
 		data = bpf_map_area_mmapable_alloc(array_size, numa_node);
 		if (!data)
 			return ERR_PTR(-ENOMEM);
@@ -208,6 +271,34 @@ static struct bpf_map *array_map_alloc(union bpf_attr *attr)
 	} else {
 		array = bpf_map_area_alloc(array_size, numa_node);
 	}
+	*/
+	
+	/* JARA : Alloc separated value page */
+	/*
+	array_size = sizeof(struct bpf_array);
+	if (array_alloc_elems(array, array_size)) {
+	  pr_err("Failed to alloc array value page\n");
+	}
+	array->map.gbpf_alloc_base = array->map.value_region.vaddr;
+	*/
+
+	int nr_pages = PAGE_ALIGN(array_size) / PAGE_SIZE;
+
+	if (array_alloc_elems(array, array_size)) {
+	  pr_err("Failed to alloc array value page\n");
+	}
+	
+	int avail_off = nr_pages * PAGE_SIZE - array_size;
+	int off = ALIGN(get_random_u32_below(avail_off), 8);
+
+	array = array->map.value_region.vaddr + off;
+
+	if (attr->map_flags & BPF_F_MMAPABLE)
+	  array = array->map.value_region.vaddr +
+	    PAGE_ALIGN(sizeof(struct bpf_array)) - offsetof(struct bpf_array, value);
+	/* End of JARA */
+	
+	
 	if (!array)
 		return ERR_PTR(-ENOMEM);
 	array->index_mask = index_mask;

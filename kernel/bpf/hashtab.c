@@ -205,11 +205,14 @@ static bool htab_is_percpu(const struct bpf_htab *htab)
 static inline void htab_elem_set_ptr(struct htab_elem *l, u32 key_size,
 				     void __percpu *pptr)
 {
+
+  LOG_E;
 	*(void __percpu **)(l->key + key_size) = pptr;
 }
 
 static inline void __percpu *htab_elem_get_ptr(struct htab_elem *l, u32 key_size)
 {
+  LOG_E;
 	return *(void __percpu **)(l->key + key_size);
 }
 
@@ -220,6 +223,7 @@ static void *fd_htab_map_get_ptr(const struct bpf_map *map, struct htab_elem *l)
 
 static struct htab_elem *get_htab_elem(struct bpf_htab *htab, int i)
 {
+  LOG_E;
 	return (struct htab_elem *) (htab->elems + i * (u64)htab->elem_size);
 }
 
@@ -541,6 +545,12 @@ static int htab_map_alloc_check(union bpf_attr *attr)
 	BUILD_BUG_ON(offsetof(struct htab_elem, fnode.next) !=
 		     offsetof(struct htab_elem, hash_node.pprev));
 
+	/* JARA : per cpu hash disabling */
+	if (attr->map_type == BPF_MAP_TYPE_PERCPU_HASH ||
+	    attr->map_type == BPF_MAP_TYPE_LRU_PERCPU_HASH)
+	return -EOPNOTSUPP;
+	/* End of JARA */
+	
 	if (lru && !bpf_capable())
 		/* LRU implementation is much complicated than other
 		 * maps.  Hence, limit to CAP_BPF.
@@ -715,7 +725,7 @@ static struct bpf_map *htab_map_alloc(union bpf_attr *attr)
 
 #ifdef GBPF_DEBUG
 	pr_info("htab : %px, map : %px, buckets : %px, elems : %px\n",
-		htab, &htab->map, &htab->buckets, &htab->elems);
+		htab, &htab->map, htab->buckets, htab->elems);
 #endif
 	
 	return &htab->map;
