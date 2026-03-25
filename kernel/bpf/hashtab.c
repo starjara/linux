@@ -276,8 +276,60 @@ static void htab_free_prealloced_fields(struct bpf_htab *htab)
 	}
 }
 
+/* JARA : htab element alloc/free helpers */
+static int htab_alloc_elems(struct bpf_htab *htab, u32 num_entries)
+{
+	struct gbpf_page_region *region = &htab->map.value_region;
+	u64 size;
+
+	size = PAGE_ALIGN((u64)htab->elem_size * num_entries);
+	if (!size)
+		return -EINVAL;
+
+	region->size = size;
+	region->nr_pages = size >> PAGE_SHIFT;
+	region->order = get_order(size);
+	region->page = alloc_pages(GFP_KERNEL | __GFP_ZERO, region->order);
+	if (!region->page)
+		return -ENOMEM;
+
+	region->vaddr = page_to_virt(region->page);
+	if (!region->vaddr) {
+		__free_pages(region->page, region->order);
+		memset(region, 0, sizeof(*region));
+		return -ENOMEM;
+	}
+
+	region->allocated = true;
+	htab->elems = region->vaddr;
+
+#ifdef GBPF_DEBUG
+	pr_info("htab elem size\t: %u, %u\n", htab->elem_size, num_entries);
+	pr_info("htab elem alloc\t: size=%llu nr_pages=%lu order=%u base=%px\n",
+		region->size, region->nr_pages, region->order, region->vaddr);
+#endif
+
+	return 0;
+}
+
+static void htab_free_elem_region(struct bpf_htab *htab)
+{
+	struct gbpf_page_region *region = &htab->map.value_region;
+
+	if (!region->allocated)
+		return;
+
+	if (region->page)
+		__free_pages(region->page, region->order);
+
+	memset(region, 0, sizeof(*region));
+	htab->elems = NULL;
+}
+/* End of JARA */
+
 static void htab_free_elems(struct bpf_htab *htab)
 {
+  /*
 	int i;
 
 	if (!htab_is_percpu(htab))
@@ -293,6 +345,29 @@ static void htab_free_elems(struct bpf_htab *htab)
 	}
 free_elems:
 	bpf_map_area_free(htab->elems);
+  */
+
+  /* JARA : Free elems with region */
+
+  u32 num_entries = htab->map.max_entries;
+  int i;
+
+  if (htab_has_extra_elems(htab))
+    num_entries += num_possible_cpus();
+
+  if (htab_is_percpu(htab)) {
+    for (i = 0; i < num_entries; i++) {
+      void __percpu *pptr;
+
+      pptr = htab_elem_get_ptr(get_htab_elem(htab, i),
+			       htab->map.key_size);
+      free_percpu(pptr);
+      cond_resched();
+    }
+  }
+
+  htab_free_elem_region(htab);
+  /* End of JARA */
 }
 
 /* The LRU list has a lock (lru_lock). Each htab bucket has a lock
@@ -338,9 +413,13 @@ static int prealloc_init(struct bpf_htab *htab)
 	/*
 	htab->elems = bpf_map_area_alloc((u64)htab->elem_size * num_entries,
 					 htab->map.numa_node);
+
+	if (!htab->elems)
+		return -ENOMEM;
 	*/
 
 	/* JARA : Alloc elem page */
+	/*
 	size = PAGE_ALIGN((u64)htab->elem_size * num_entries);
 #ifdef GBPF_DEBUG
 	pr_info("htab elem size\t: %d, %d\n", htab->elem_size, num_entries);
@@ -353,10 +432,15 @@ static int prealloc_init(struct bpf_htab *htab)
 
 	htab->elems = page_to_virt(mem);
 	htab->map.value_page = mem;
+
+	*/
+
+	err = htab_alloc_elems(htab, num_entries);
+	if (err)
+	  return err;
+	
 	/* End of JARA */
 	
-	if (!htab->elems)
-		return -ENOMEM;
 
 	if (!htab_is_percpu(htab))
 		goto skip_percpu_elems;
