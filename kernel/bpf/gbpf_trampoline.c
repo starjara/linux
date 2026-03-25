@@ -451,7 +451,7 @@ static u64 gbpf_call_helper_desc(const struct gbpf_helper_desc *desc, const stru
 	return ret;
 }
 
-static u64 gbpf_convert_helper_ret(const struct gbpf_helper_desc *desc, u64 ret)
+static u64 gbpf_convert_helper_ret(const struct gbpf_helper_desc *desc, u64 ret, struct gbpf_helper_meta *m)
 {
   LOG_E;
   
@@ -459,7 +459,9 @@ static u64 gbpf_convert_helper_ret(const struct gbpf_helper_desc *desc, u64 ret)
     return ret;
 
   if (ret >= 0xff60000000000000) {
-    u64 off = PAGE_ALIGN(ret) - ret;
+    struct bpf_map *map = (struct bpf_map *)m->map_base;
+    u64 elem = (u64)map->gbpf_alloc_base;
+    u64 off = ret - elem;
     ret = GBPF_MAP_BASE + off;
   }
 
@@ -526,8 +528,9 @@ noinline u64 gbpf_helper_call_trampoline(u64 arg1, u64 arg2, u64 arg3, u64 arg4,
 
   ret = gbpf_call_helper_desc(desc, &meta, call_target,
 			      arg1, arg2, arg3, arg4, arg5);
-  pr_info("[GBPF] Tramptest ret = 0x%lx\n", ret);
-  ret = gbpf_convert_helper_ret(desc, ret);
+  pr_info("[GBPF] Tramptest ret_before = 0x%lx\n", ret);
+  ret = gbpf_convert_helper_ret(desc, ret, &meta);
+  pr_info("[GBPF] Tramptest ret_after = 0x%lx\n", ret);
 
   
   return ret;

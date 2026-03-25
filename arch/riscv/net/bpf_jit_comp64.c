@@ -1600,7 +1600,7 @@ out_be:
 #ifdef GBPF_DEBUG
 		      pr_info("Kernel addr, convert to BPF space map page 0x%lx, off 0x%lx ", imm64, off);
 #endif
-		      imm64 = GBPF_MAP_BASE;// + page_off((void *)imm64);
+		      imm64 = GBPF_MAP_BASE;
 		      imm64 -= off;
 #ifdef GBPF_DEBUG
 		      pr_info("imm64_map base : %llx\n", imm64);
@@ -1957,6 +1957,7 @@ out_be:
 	  if (gbpf_ready) {
 	    u8 tmp = RV_REG_T0;
 	    
+	    // Need interrupt disable and enable?
 	    if (off) {
 	      if (is_12b_int(off)) {
 		emit_addi(RV_REG_T1, rd, off, ctx);
@@ -1972,7 +1973,7 @@ out_be:
 	      if(BPF_SIZE(code) == BPF_DW) {
 		emit(rv_fence(0x3, 0x3), ctx);
 		emit_hvmi(HLV_D, tmp, rd, 0, ctx);
-		emit_add(RV_REG_T1, tmp, rs, ctx);
+		emit_add(tmp, tmp, rs, ctx);
 		emit_hvmi(HSV_D, 0, rd, RV_REG_T1, ctx);
 		emit(rv_fence(0x3, 0x3), ctx);
 	      }

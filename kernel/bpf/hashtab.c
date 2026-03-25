@@ -617,7 +617,8 @@ static struct bpf_map *htab_map_alloc(union bpf_attr *attr)
 
 	LOG_E;
 
-	htab = bpf_map_area_alloc(sizeof(*htab), NUMA_NO_NODE);
+	//htab = bpf_map_area_alloc(sizeof(*htab), NUMA_NO_NODE);
+	htab = get_zeroed_page(GFP_KERNEL);
 	if (!htab)
 		return ERR_PTR(-ENOMEM);
 

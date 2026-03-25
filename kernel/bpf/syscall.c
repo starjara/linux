@@ -2723,14 +2723,12 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr, u32 uattr_size)
 #endif
 	  // Mapping MAP value page into the gbpf space 
 	  for (i=0; i<prog->aux->used_map_cnt; i++) {
-
 	    struct bpf_map *map = (struct bpf_map *)prog->aux->used_maps[i];
-	    
 #ifdef GBPF_DEBUG
 	    pr_info("prog->aux->used_maps[%d] : %px, %px\n", i,
 		    map, map->gbpf_alloc_base);
 #endif
-	      gbpf_call_map_ext(prog, map->gbpf_alloc_base, PAGE_SIZE, MAP);
+	    gbpf_call_map_ext(prog, map->gbpf_alloc_base, map->value_region.size, MAP);
 	  }
 	}
 	/* End of JARA */
