@@ -25,9 +25,9 @@ EXPORT_SYMBOL_GPL(gbpf_ready);
 #define RV_REG_TCC_SAVED RV_REG_S6 /* Store A6 in S6 if program do calls */
 
 /* JARA: Define macros */
-//#define LOG_E pr_info("[bpf_jit_comp64.c] Enter: %s\n", __func__)
-#define LOG_E
-//#define GBPF_DEBUG 1
+#define LOG_E pr_info("[bpf_jit_comp64.c] Enter: %s\n", __func__)
+//#define LOG_E
+#define GBPF_DEBUG 1
 /* End of JARA */
 
 static const int regmap[] = {
@@ -1586,20 +1586,24 @@ out_be:
 
 		  /* JARA: Maybe map base addr */
 		  if (gbpf_ready)  {
-		    /*
+#ifdef GBPF_DEBUG
 		    if (insn->src_reg == BPF_PSEUDO_MAP_VALUE) {
 		      pr_info("src is BPF_PSEUDO_MAP_VALUE\n");
 		    }
 		    if (insn->dst_reg == BPF_PSEUDO_MAP_VALUE) {
 		      pr_info("dst is BPF_PSEUDO_MAP_VALUE\n");
 		    }
-		    pr_info("imm64: %llx\n", imm64);
-		    */
+		    pr_info("imm64_org : %llx\n", imm64);
+#endif
 		    if (imm64 >= 0xff60000000000000) {
-		      // pr_info("Kernel addr, convert to BPF space map page from %llx to", imm64);
+#ifdef GBPF_DEBUG
+		      pr_info("Kernel addr, convert to BPF space map page from %llx to", imm64);
+#endif
 		      imm64 = GBPF_MAP_BASE;// + page_off((void *)imm64);
 		      imm64 -= 0x110;
-		      // pr_info("%llx\n", imm64);
+#ifdef GBPF_DEBUG
+		      pr_info("imm64_map base : %llx\n", imm64);
+#endif
 		    }
 		    emit_imm(rd, imm64, ctx);
 		  }

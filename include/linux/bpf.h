@@ -258,6 +258,9 @@ struct bpf_map {
 	/* The 3rd and 4th cacheline with misc members to avoid false sharing
 	 * particularly with refcounting.
 	 */
+  /* JARA : gBPF Region list */
+  struct page *value_page;
+  /* End of JARA */
 	atomic64_t refcnt ____cacheline_aligned;
 	atomic64_t usercnt;
 	struct work_struct work;

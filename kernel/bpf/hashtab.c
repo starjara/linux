@@ -136,7 +136,12 @@ struct htab_elem {
 
 static inline bool htab_is_prealloc(const struct bpf_htab *htab)
 {
-	return !(htab->map.map_flags & BPF_F_NO_PREALLOC);
+  /*
+  return !(htab->map.map_flags & BPF_F_NO_PREALLOC);
+  /*
+  /* JARA : Pre alloc */
+  return true;
+  /* End of JARA */
 }
 
 static void htab_init_buckets(struct bpf_htab *htab)
@@ -321,11 +326,35 @@ static int prealloc_init(struct bpf_htab *htab)
 	u32 num_entries = htab->map.max_entries;
 	int err = -ENOMEM, i;
 
+	/* JARA : elem page variable */
+	struct page *mem;
+	u64 size;
+	/* End of JARA */
+	
+	
 	if (htab_has_extra_elems(htab))
 		num_entries += num_possible_cpus();
 
+	/*
 	htab->elems = bpf_map_area_alloc((u64)htab->elem_size * num_entries,
 					 htab->map.numa_node);
+	*/
+
+	/* JARA : Alloc elem page */
+	size = PAGE_ALIGN((u64)htab->elem_size * num_entries);
+#ifdef GBPF_DEBUG
+	pr_info("htab elem size\t: %d, %d\n", htab->elem_size, num_entries);
+	pr_info("htab elem pages\t: %d\n", size/PAGE_SIZE);
+#endif
+	mem = alloc_pages(GFP_KERNEL, get_order(size));
+
+	if (!mem)
+	  return -ENOMEM;
+
+	htab->elems = page_to_virt(mem);
+	htab->map.value_page = mem;
+	/* End of JARA */
+	
 	if (!htab->elems)
 		return -ENOMEM;
 
@@ -482,7 +511,12 @@ static struct bpf_map *htab_map_alloc(union bpf_attr *attr)
 	 * nothing to do with the map's value.
 	 */
 	bool percpu_lru = (attr->map_flags & BPF_F_NO_COMMON_LRU);
-	bool prealloc = !(attr->map_flags & BPF_F_NO_PREALLOC);
+	//bool prealloc = !(attr->map_flags & BPF_F_NO_PREALLOC);
+
+	/* JARA : Prealloc always true */
+	bool prealloc = true;
+	/* End of JARA */
+	
 	struct bpf_htab *htab;
 	int err, i;
 
@@ -595,6 +629,11 @@ static struct bpf_map *htab_map_alloc(union bpf_attr *attr)
 		}
 	}
 
+#ifdef GBPF_DEBUG
+	pr_info("htab : %px, map : %px, buckets : %px, elems : %px\n",
+		htab, &htab->map, &htab->buckets, &htab->elems);
+#endif
+	
 	return &htab->map;
 
 free_prealloc:
