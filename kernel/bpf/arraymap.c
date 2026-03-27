@@ -632,10 +632,16 @@ static void array_map_free(struct bpf_map *map)
 	if (array->map.map_type == BPF_MAP_TYPE_PERCPU_ARRAY)
 		bpf_array_free_percpu(array);
 
+	/* 
 	if (array->map.map_flags & BPF_F_MMAPABLE)
 	  bpf_map_area_free(array_map_vmalloc_addr(array));
 	else
 	  bpf_map_area_free(array);
+	*/
+
+	/* JARA : Free array map */
+	free_pages((u64)map->value_region.vaddr, map->value_region.order);
+	/* End of JARA */
 }
 
 static void array_map_seq_show_elem(struct bpf_map *map, void *key,

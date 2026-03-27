@@ -462,6 +462,12 @@ static u64 gbpf_convert_helper_ret(const struct gbpf_helper_desc *desc, u64 ret,
     struct bpf_map *map = (struct bpf_map *)m->map_base;
     u64 elem = (u64)map->gbpf_alloc_base;
     u64 off = ret - elem;
+    
+#ifdef GBPF_DEBUG
+    pr_info("[tramp] gbpf_alloc_base : 0x%lx\n", elem);
+    pr_info("[tramp] off : 0x%lx\n", off);
+#endif
+    
     ret = GBPF_MAP_BASE + off;
   }
 
