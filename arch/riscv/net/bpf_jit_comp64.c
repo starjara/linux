@@ -25,9 +25,9 @@ EXPORT_SYMBOL_GPL(gbpf_ready);
 #define RV_REG_TCC_SAVED RV_REG_S6 /* Store A6 in S6 if program do calls */
 
 /* JARA: Define macros */
-#define LOG_E pr_info("[bpf_jit_comp64.c] Enter: %s\n", __func__)
-//#define LOG_E
-#define GBPF_DEBUG 1
+//#define LOG_E pr_info("[bpf_jit_comp64.c] Enter: %s\n", __func__)
+#define LOG_E
+//#define GBPF_DEBUG 1
 /* End of JARA */
 
 static const int regmap[] = {

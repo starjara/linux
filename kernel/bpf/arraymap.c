@@ -20,9 +20,9 @@
 /* End of JARA */
 
 /* JARA: Define macros */
-#define LOG_E pr_info("[arraymap.c] Enter: %s\n", __func__)
-//#define LOG_E ;
-#define GBPF_DEBUG 1
+//#define LOG_E pr_info("[arraymap.c] Enter: %s\n", __func__)
+#define LOG_E ;
+//#define GBPF_DEBUG 1
 /* End of JARA */
 
 #define ARRAY_CREATE_FLAG_MASK \
@@ -130,8 +130,10 @@ int array_map_alloc_check(union bpf_attr *attr)
 	int numa_node = bpf_map_attr_numa_node(attr);
 
 	/* JARA : Disable per cpu map */
+	/*
 	if (percpu)
 	  return -EOPNOTSUPP;
+	*/
 	/* End of JARA */
 	
 	/* check sanity of attributes */

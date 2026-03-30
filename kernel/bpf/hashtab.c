@@ -17,9 +17,9 @@
 #include <linux/bpf_mem_alloc.h>
 
 /* JARA : Define macros */
-#define LOG_E pr_info("[hashtab.c] Enter: %s\n", __func__)
-//#define LOG_E
-#define GBPF_DEBUG 1
+//#define LOG_E pr_info("[hashtab.c] Enter: %s\n", __func__)
+#define LOG_E
+//#define GBPF_DEBUG 1
 /* End of JARA */
 
 #define HTAB_CREATE_FLAG_MASK						\

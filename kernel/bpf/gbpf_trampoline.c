@@ -4,9 +4,9 @@
 #include <uapi/linux/bpf.h>
 #include "gbpf_trampoline.h"
 
-#define LOG_E pr_info("[gbpf_trampoline.c] Enter: %s\n", __func__)
-//#define LOG_E ;
-#define GBPF_DEBUG 1
+//#define LOG_E pr_info("[gbpf_trampoline.c] Enter: %s\n", __func__)
+#define LOG_E ;
+//#define GBPF_DEBUG 1
 static DEFINE_PER_CPU(struct gbpf_helper_desc, gbpf_helper_fallback_desc);
 
 /////////////////////////////// Internal helper fast path
@@ -533,9 +533,15 @@ noinline u64 gbpf_helper_call_trampoline(u64 arg1, u64 arg2, u64 arg3, u64 arg4,
 
   ret = gbpf_call_helper_desc(desc, &meta, call_target,
 			      arg1, arg2, arg3, arg4, arg5);
+#ifdef GBPF_DEBUG
   pr_info("[GBPF] Tramptest ret_before = 0x%lx\n", ret);
+#endif
+
   ret = gbpf_convert_helper_ret(desc, ret, &meta);
+
+#ifdef GBPF_DEBUG
   pr_info("[GBPF] Tramptest ret_after = 0x%lx\n", ret);
+#endif
 
   
   return ret;
