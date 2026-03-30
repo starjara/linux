@@ -1076,6 +1076,28 @@ enum {
   HLV_D = 0b0110110,
 };
 
+static inline void emit_csrrci(u8 rd, u8 zimm, u16 csr, struct rv_jit_context *ctx)
+{
+	u32 instr = csr << 20;      /* csr field */
+	instr |= zimm << 15;        /* uimm[4:0] field */
+	instr |= 7 << 12;           /* funct3 = CSRRCI */
+	instr |= rd << 7;           /* rd field */
+	instr |= 0x73;              /* opcode = SYSTEM */
+
+	emit(instr, ctx);
+}
+
+static inline void emit_csrrsi(u8 rd, u8 zimm, u16 csr, struct rv_jit_context *ctx)
+{
+	u32 instr = csr << 20;
+	instr |= zimm << 15;
+	instr |= 6 << 12;           /* CSRRSI */
+	instr |= rd << 7;
+	instr |= 0x73;
+
+	emit(instr, ctx);
+}
+
 static inline void emit_csrw(u8 rd, u8 rs1, u16 csr, struct rv_jit_context *ctx)
 {
   u32 instr = csr << 20;     // Target csr field

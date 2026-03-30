@@ -1972,9 +1972,15 @@ out_be:
 	    case BPF_ADD:
 	      if(BPF_SIZE(code) == BPF_DW) {
 		emit(rv_fence(0x3, 0x3), ctx);
+
+		emit_csrrci(RV_REG_ZERO, SR_IE, CSR_STATUS, ctx);
+
 		emit_hvmi(HLV_D, tmp, rd, 0, ctx);
 		emit_add(tmp, tmp, rs, ctx);
-		emit_hvmi(HSV_D, 0, rd, RV_REG_T1, ctx);
+		emit_hvmi(HSV_D, 0, rd, tmp, ctx);
+
+		emit_csrrsi(RV_REG_ZERO, SR_IE, CSR_STATUS, ctx);	
+		
 		emit(rv_fence(0x3, 0x3), ctx);
 	      }
 	      else {

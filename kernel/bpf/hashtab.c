@@ -213,7 +213,7 @@ static inline void htab_elem_set_ptr(struct htab_elem *l, u32 key_size,
 static inline void __percpu *htab_elem_get_ptr(struct htab_elem *l, u32 key_size)
 {
   LOG_E;
-	return *(void __percpu **)(l->key + key_size);
+  return *(void __percpu **)(l->key + key_size);
 }
 
 static void *fd_htab_map_get_ptr(const struct bpf_map *map, struct htab_elem *l)
@@ -424,26 +424,15 @@ static int prealloc_init(struct bpf_htab *htab)
 	*/
 
 	/* JARA : Alloc elem page */
-	/*
-	size = PAGE_ALIGN((u64)htab->elem_size * num_entries);
-#ifdef GBPF_DEBUG
-	pr_info("htab elem size\t: %d, %d\n", htab->elem_size, num_entries);
-	pr_info("htab elem pages\t: %d\n", size/PAGE_SIZE);
-#endif
-	mem = alloc_pages(GFP_KERNEL, get_order(size));
-
-	if (!mem)
-	  return -ENOMEM;
-
-	htab->elems = page_to_virt(mem);
-	htab->map.value_page = mem;
-
-	*/
-
+	
 	err = htab_alloc_elems(htab, num_entries);
 	if (err)
 	  return err;
 	
+	if (htab_is_percpu(htab))
+	  pr_info("PreCPU\n");
+	else
+	  pr_info("not per CPU\n");
 	/* End of JARA */
 	
 
@@ -819,12 +808,10 @@ static void *__htab_map_lookup_elem(struct bpf_map *map, void *key)
 		     !rcu_read_lock_bh_held());
 
 #ifdef GBPF_DEBUG
-#endif
 	pr_info("key : [%px] 0x%lx\n", key, *(u32 *)key);
-
+#endif
 
 	key_size = map->key_size;
-	
 
 	hash = htab_map_hash(key, key_size, htab->hashrnd);
 
@@ -841,12 +828,12 @@ static void *__htab_map_lookup_elem(struct bpf_map *map, void *key)
 	l = lookup_nulls_elem_raw(head, hash, key, key_size, htab->n_buckets);
 	
 #ifdef GBPF_DEBUG
-	/*
-	if (l)
+	if (l) {
 	  pr_info("elem.key : %lx\n", l->key);
+	  pr_info("value : %lx\n", l->key + round_up(map->key_size, 8));
+	}
 	else
 	  pr_info("Failed to get elem\n");
-	*/
 #endif
 	return l;
 }
@@ -1157,6 +1144,8 @@ static struct htab_elem *alloc_htab_elem(struct bpf_htab *htab, void *key,
 	struct htab_elem *l_new, **pl_new;
 	void __percpu *pptr;
 
+	LOG_E;
+
 	if (prealloc) {
 		if (old_elem) {
 			/* if we're updating the existing element,
@@ -1196,7 +1185,8 @@ static struct htab_elem *alloc_htab_elem(struct bpf_htab *htab, void *key,
 		if (prealloc) {
 			pptr = htab_elem_get_ptr(l_new, key_size);
 		} else {
-			/* alloc_percpu zero-fills */
+		  /*
+			// alloc_percpu zero-fills
 			pptr = bpf_mem_cache_alloc(&htab->pcpu_ma);
 			if (!pptr) {
 				bpf_mem_cache_free(&htab->ma, l_new);
@@ -1205,12 +1195,19 @@ static struct htab_elem *alloc_htab_elem(struct bpf_htab *htab, void *key,
 			}
 			l_new->ptr_to_pptr = pptr;
 			pptr = *(void **)pptr;
+		  */
+
+		  /* JARA : BUG */
+		  BUG();
+		  /* End of JARA */
 		}
 
 		pcpu_init_value(htab, pptr, value, onallcpus);
 
+		/*
 		if (!prealloc)
 			htab_elem_set_ptr(l_new, key_size, pptr);
+		*/
 	} else if (fd_htab_map_needs_adjust(htab)) {
 		size = round_up(size, 8);
 		memcpy(l_new->key + round_up(key_size, 8), value, size);
@@ -1252,6 +1249,11 @@ static long htab_map_update_elem(struct bpf_map *map, void *key, void *value,
 	struct bucket *b;
 	u32 key_size, hash;
 	int ret;
+
+	LOG_E;
+#ifdef GBPF_DEBUG
+	pr_info("map : %px, key %px, value %px\n", map, key, value);
+#endif
 
 	if (unlikely((map_flags & ~BPF_F_LOCK) > BPF_EXIST))
 		/* unknown flags */

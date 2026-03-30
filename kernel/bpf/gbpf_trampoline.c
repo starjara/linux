@@ -367,7 +367,6 @@ static u64 gbpf_from_gbpf_space_to_kernel(const struct gbpf_helper_meta *m, u64 
   LOG_E;
 #ifdef GBPF_DEBUG
   pr_info("\tBPF to kernel : %lx\n", arg);
-  pr_info("Orig_ctx : 0x%lx", m->orig_ctx); 
 #endif
 
   if (arg == GBPF_CTX_BASE) {
