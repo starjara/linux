@@ -104,51 +104,93 @@ static void bpf_array_free_percpu(struct bpf_array *array)
 
 static int bpf_array_alloc_percpu(struct bpf_array *array)
 {
-	LOG_E;
-	
-	void __percpu *ptr;
-	int i;
-
-
+  LOG_E;
+  
+  void __percpu *ptr;
+  int i;
+  
+  
 #ifdef GBPF_DEBUG
-	pr_info("max_entries : %d\n", array->map.max_entries);
+  pr_info("max_entries : %d\n", array->map.max_entries);
 #endif
-
-	for (i = 0; i < array->map.max_entries; i++) {
-		ptr = bpf_map_alloc_percpu(&array->map, array->elem_size, 8,
-					   GFP_USER | __GFP_NOWARN);
-
-		if (!ptr) {
-			bpf_array_free_percpu(array);
-			return -ENOMEM;
-		}
-		
-		array->pptrs[i] = ptr;
-		cond_resched();
-	}
-
-	return 0;
-
+  
+  for (i = 0; i < array->map.max_entries; i++) {
+    
+    ptr = bpf_map_alloc_percpu(&array->map, array->elem_size, 8,
+			       GFP_USER | __GFP_NOWARN);
+    
+    
+    if (!ptr) {
+      bpf_array_free_percpu(array);
+      return -ENOMEM;
+    }
+    
+    array->pptrs[i] = ptr;
+    cond_resched();
+  }
+  
+  /*
+  ptr = array->map.gbpf_alloc_base;
+  for (i = 0; i < array->map.max_entries; i++) {
+    
+#ifdef GBPF_DEBUG
+    pr_info("ptr : %px\n", ptr);
+#endif
+    
+    if (!ptr) {
+      bpf_array_free_percpu(array);
+      return -ENOMEM;
+    }
+    
+    array->pptrs[i] = ptr;
+    cond_resched();
+    
+    ptr += array->elem_size;
+  }
+  */
+  
+  return 0;
+  
 	/*
-	int i;
-	unsigned long size;
-	
-	array->pptrs = bpf_map_alloc_percpu(&array->map, sizeof(void**), 8,
-					    GFP_USER | __GFP_NOWARN);
-	if (!array->pptrs) {
-	  bpf_array_free_percpu(array);
-	  return -ENOMEM;
-	}
-	size = array->elem_size * array->map.max_entries;
-	for_each_possible_cpu(i) {
-	  array_alloc_elems(&array, size);
-	  *per_cpu_ptr(array->pptrs, i) = array->map.value_region.vaddr;
-	  printk("[MOAT] precpu map @ %d is %llx\n", i, (u64)array->map.value_region.vaddr);
-	  cond_resched();
-	}
+    unsigned long size;
+    int nr_pages, cpu;
 
-	return 0;
-	*/
+    array->pptrs = bpf_map_alloc_percpu(&array->map, sizeof(void *), 8,
+                                        GFP_USER | __GFP_NOWARN);
+    if (!array->pptrs)
+        return -ENOMEM;
+
+    size = (unsigned long)array->elem_size * array->map.max_entries;
+    nr_pages = PAGE_ALIGN(size) >> PAGE_SHIFT;
+
+    for_each_possible_cpu(cpu) {
+        struct gbpf_page_region region;
+        void *base;
+
+        memset(&region, 0, sizeof(region));
+        region.size = (u64)nr_pages << PAGE_SHIFT;
+        region.nr_pages = nr_pages;
+        region.order = get_order(region.size);
+        region.page = alloc_pages(GFP_KERNEL | __GFP_ZERO, region.order);
+        if (!region.page)
+            goto err;
+
+        region.vaddr = page_to_virt(region.page);
+        region.allocated = true;
+        base = region.vaddr;
+
+        //gbpf_add_region_to_map(&array->map, &region); 
+
+        *per_cpu_ptr(array->pptrs, cpu) = base;
+    }
+
+    return 0;
+
+err:
+    bpf_array_free_percpu(array);
+    return -ENOMEM;
+*/
+
 }
 
 /* Called from syscall */
@@ -453,8 +495,8 @@ static void *percpu_array_map_lookup_elem(struct bpf_map *map, void *key)
 
 	/* JARA : per cpu array look up */
 	/*
-	  void *ret = this_cpu_ptr(array->pptrs) + (index & array->index_mask) * array->elem_size;
-	  pr_info("[MOAT] lookup percpu map @ %d is %llx\n", smp_processor_id(), (u64)ret);
+	void *ret = *this_cpu_ptr(array->pptrs) + (index & array->index_mask) * array->elem_size;
+	pr_info("[MOAT] lookup percpu map @ %d is [%llx] %d\n", smp_processor_id(), (u64)ret, *(u32 *)ret);
 	return ret;
 	*/
 	/* End of JARA */
@@ -475,6 +517,9 @@ static void *percpu_array_map_lookup_percpu_elem(struct bpf_map *map, void *key,
 		return NULL;
 
 	return per_cpu_ptr(array->pptrs[index & array->index_mask], cpu);
+	/* JARA */
+	//return *per_cpu_ptr(array->pptrs, cpu) + (index & array->index_mask) * array->elem_size;
+	/* End of JARA */
 }
 
 int bpf_percpu_array_copy(struct bpf_map *map, void *key, void *value)
@@ -498,16 +543,27 @@ int bpf_percpu_array_copy(struct bpf_map *map, void *key, void *value)
 	 * access 'value_size' of them, so copying rounded areas
 	 * will not leak any kernel data
 	 */
+
+
 	size = array->elem_size;
+	
 	rcu_read_lock();
 	pptr = array->pptrs[index & array->index_mask];
+	/* JARA */
+	//pptr = array->pptrs;
+	/* End of JARA */
 	for_each_possible_cpu(cpu) {
 	  copy_map_value_long(map, value + off, per_cpu_ptr(pptr, cpu));
+	  check_and_init_map_value(map, value + off);
+	  off += size;
 	  /* JARA : Copy value */
-	  //copy_map_value_long(map, value + off, per_cpu_ptr(pptr, cpu) + (index & array->index_mask) * array->elem_size);
+	  /*
+	  void *src = (void *)((char *)*per_cpu_ptr(array->pptrs, cpu) +
+			       (index & array->index_mask) * array->elem_size);
+	  copy_map_value_long(map, (void *)((char *)value + off), src);
+	  off += size;
+	  */
 	  /* End of JARA */
-		check_and_init_map_value(map, value + off);
-		off += size;
 	}
 	rcu_read_unlock();
 	return 0;
@@ -557,9 +613,12 @@ static long array_map_update_elem(struct bpf_map *map, void *key, void *value,
 		return -EINVAL;
 
 	if (array->map.map_type == BPF_MAP_TYPE_PERCPU_ARRAY) {
-		val = this_cpu_ptr(array->pptrs[index & array->index_mask]);
-		copy_map_value(map, val, value);
-		bpf_obj_free_fields(array->map.record, val);
+	  val = this_cpu_ptr(array->pptrs[index & array->index_mask]);
+	  /* JARA */
+	  //val = *this_cpu_ptr(array->pptrs) + (index & array->index_mask) * array->elem_size;
+	  /* End of JARA */
+	  copy_map_value(map, val, value);
+	  bpf_obj_free_fields(array->map.record, val);
 	} else {
 		val = array->value +
 			(u64)array->elem_size * (index & array->index_mask);
@@ -638,39 +697,45 @@ static void array_map_free_timers(struct bpf_map *map)
 /* Called when map->refcnt goes to zero, either from workqueue or from syscall */
 static void array_map_free(struct bpf_map *map)
 {
-	struct bpf_array *array = container_of(map, struct bpf_array, map);
-	int i;
-
-	if (!IS_ERR_OR_NULL(map->record)) {
-		if (array->map.map_type == BPF_MAP_TYPE_PERCPU_ARRAY) {
-			for (i = 0; i < array->map.max_entries; i++) {
-				void __percpu *pptr = array->pptrs[i & array->index_mask];
-				int cpu;
-
-				for_each_possible_cpu(cpu) {
-					bpf_obj_free_fields(map->record, per_cpu_ptr(pptr, cpu));
-					cond_resched();
-				}
-			}
-		} else {
-			for (i = 0; i < array->map.max_entries; i++)
-				bpf_obj_free_fields(map->record, array_map_elem_ptr(array, i));
-		}
-	}
-
-	if (array->map.map_type == BPF_MAP_TYPE_PERCPU_ARRAY)
-		bpf_array_free_percpu(array);
-
-	/* 
-	if (array->map.map_flags & BPF_F_MMAPABLE)
-	  bpf_map_area_free(array_map_vmalloc_addr(array));
-	else
-	  bpf_map_area_free(array);
-	*/
-
-	/* JARA : Free array map */
-	free_pages((u64)map->value_region.vaddr, map->value_region.order);
+  struct bpf_array *array = container_of(map, struct bpf_array, map);
+  int i;
+  
+  if (!IS_ERR_OR_NULL(map->record)) {
+    if (array->map.map_type == BPF_MAP_TYPE_PERCPU_ARRAY) {
+      for (i = 0; i < array->map.max_entries; i++) {
+	void __percpu *pptr = array->pptrs[i & array->index_mask];
+	/* JARA */
+	//void __percpu **pptr = array->pptrs;
 	/* End of JARA */
+	int cpu;
+	
+	for_each_possible_cpu(cpu) {
+	  bpf_obj_free_fields(map->record, per_cpu_ptr(pptr, cpu));
+	  /* JARA */
+	  //bpf_obj_free_fields(map->record, *per_cpu_ptr(pptr, cpu) + (i & array->index_mask) * array->elem_size);
+	  /* End of JARA */
+	  cond_resched();
+	}
+      }
+    } else {
+      for (i = 0; i < array->map.max_entries; i++)
+	bpf_obj_free_fields(map->record, array_map_elem_ptr(array, i));
+    }
+  }
+  
+  if (array->map.map_type == BPF_MAP_TYPE_PERCPU_ARRAY)
+    bpf_array_free_percpu(array);
+  
+  /* 
+     if (array->map.map_flags & BPF_F_MMAPABLE)
+     bpf_map_area_free(array_map_vmalloc_addr(array));
+     else
+     bpf_map_area_free(array);
+  */
+  
+  /* JARA : Free array map */
+  free_pages((u64)map->value_region.vaddr, map->value_region.order);
+  /* End of JARA */
 }
 
 static void array_map_seq_show_elem(struct bpf_map *map, void *key,

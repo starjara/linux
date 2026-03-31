@@ -604,6 +604,7 @@ static __always_inline u32 __bpf_prog_run(const struct bpf_prog *prog,
 		  sandboxed_ctx = gbpf_copy_ctx(ctx, prog);
 		  //ret = dfunc(sandboxed_ctx, prog->insnsi, prog->bpf_func);
 		  ret = dfunc(ctx, prog->insnsi, prog->bpf_func);
+		  __free_pages(prog->aux->gbpf_shadow_pkt_page, 0);
 		}
 		else
 		  ret = dfunc(ctx, prog->insnsi, prog->bpf_func);
@@ -622,6 +623,7 @@ static __always_inline u32 __bpf_prog_run(const struct bpf_prog *prog,
 		  sandboxed_ctx = gbpf_copy_ctx(ctx, prog);
 		  //ret = dfunc(sandboxed_ctx, prog->insnsi, prog->bpf_func);
 		  ret = dfunc(ctx, prog->insnsi, prog->bpf_func);
+		  __free_pages(prog->aux->gbpf_shadow_pkt_page, 0);
 		}
 		else
 		  ret = dfunc(ctx, prog->insnsi, prog->bpf_func);

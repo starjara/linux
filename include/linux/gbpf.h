@@ -183,13 +183,71 @@ static __always_inline void *gbpf_copy_ctx(const void *ctx, const struct bpf_pro
 
     return (void *)(uintptr_t)GBPF_CTX_BASE;
   }
+  if (prog->type == BPF_PROG_TYPE_SOCKET_FILTER) {
+    const struct sk_buff *skb = ctx;
+    struct sk_buff *shadow;
+    struct page *shadow_page;
+    void *shadow_pkt;
+    void *shadow_ctx;
+    u32 head_off, data_off, tail_off, end_off;
+    int err;
 
+    /* 일단 1-page linear skb만 지원 */
+    if (skb_headlen(skb) > PAGE_SIZE)
+        return NULL;
+    if (skb_is_nonlinear(skb))
+        return NULL;
+
+    shadow_page = alloc_pages(GFP_KERNEL | __GFP_ZERO, 0);
+    if (!shadow_page)
+        return NULL;
+
+    shadow_pkt = page_address(shadow_page);
+
+    head_off = offset_in_page(skb->head);
+    data_off = skb->data - skb->head;
+    tail_off = skb_tail_pointer(skb) - skb->head;
+    end_off  = skb_end_offset(skb);
+
+    if (head_off + end_off > PAGE_SIZE) {
+        __free_pages(shadow_page, 0);
+        return NULL;
+    }
+
+    memcpy((char *)shadow_pkt + head_off, skb->head, end_off);
+
+    err = gbpf_call_map_ext(prog,
+                            (void *)((unsigned long)shadow_pkt & PAGE_MASK),
+                            PAGE_SIZE,
+                            PKT);
+    if (err) {
+        __free_pages(shadow_page, 0);
+        return NULL;
+    }
+
+    shadow_ctx = page_to_virt(prog->aux->gbpf_page);
+    memcpy(shadow_ctx, skb, sizeof(*skb));
+    shadow = shadow_ctx;
+
+    shadow->head = (void *)(uintptr_t)(GBPF_PKT_BASE + head_off);
+    shadow->data = (void *)(uintptr_t)(GBPF_PKT_BASE + head_off + data_off);
+    shadow->tail = tail_off;
+    shadow->end  = end_off;
+
+    /* 나중에 cleanup path에서 shadow_page free 필요 */
+    prog->aux->gbpf_shadow_pkt_page = shadow_page;
+
+    return (void *)(uintptr_t)GBPF_CTX_BASE;
+  }
+
+  /*
   if (prog->type == BPF_PROG_TYPE_SOCKET_FILTER) {
     const struct sk_buff	*skb  = ctx;
     unsigned char		*head = skb->head;
     struct sk_buff		*shadow;
-    
+
     gbpf_call_map_ext(prog, head, skb_end_offset(skb), PKT);
+
     addr = page_to_virt(prog->aux->gbpf_page);
     memcpy(addr, skb, sizeof(*skb));
     shadow = addr;
@@ -199,6 +257,7 @@ static __always_inline void *gbpf_copy_ctx(const void *ctx, const struct bpf_pro
     
     return (void *)(uintptr_t)GBPF_CTX_BASE;
   }
+  */
   
   addr = page_to_virt(prog->aux->gbpf_page);
   memcpy(addr, ctx, ctx_size);

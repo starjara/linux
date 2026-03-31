@@ -1472,6 +1472,7 @@ struct bpf_prog_aux {
   struct page *gbpf_page; // gbpf space leaf page
   struct page *gbpf_pkt_page;
   struct page *gbpf_map_page;
+  struct page *gbpf_shadow_pkt_page;
   const void *orig_ctx;
   u32 vmid;
   u32 bpf_stack_adjust;
@@ -1691,9 +1692,16 @@ struct bpf_array {
 	u32 index_mask;
 	struct bpf_array_aux *aux;
 	union {
-		DECLARE_FLEX_ARRAY(char, value) __aligned(8);
-		DECLARE_FLEX_ARRAY(void *, ptrs) __aligned(8);
-		DECLARE_FLEX_ARRAY(void __percpu *, pptrs) __aligned(8);
+	  DECLARE_FLEX_ARRAY(char, value) __aligned(8);
+	  DECLARE_FLEX_ARRAY(void *, ptrs) __aligned(8);
+	  DECLARE_FLEX_ARRAY(void __percpu *, pptrs) __aligned(8);
+	  /* JARA */
+	  /*
+	  char value[0] __aligned(8);
+	  void *ptrs[0] __aligned(8);
+	  void __percpu **pptrs __aligned(8);
+	  */
+	  /* End of JARA */
 	};
 };
 

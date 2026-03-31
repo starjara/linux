@@ -485,6 +485,10 @@ static u64 gbpf_convert_helper_ret(const struct gbpf_helper_desc *desc, u64 ret,
     pr_info("[tramp] gbpf_alloc_base : 0x%lx\n", elem);
     pr_info("[tramp] off : 0x%lx\n", off);
 #endif
+    if (map->map_type == BPF_MAP_TYPE_PERCPU_ARRAY) {
+      struct bpf_array *array = (struct bpf_array *)map;
+      pr_info("[tramp] arr->pptrs = [0x%lx]\n", array->pptrs);
+    }
     
     ret = GBPF_MAP_BASE + off;
   }
