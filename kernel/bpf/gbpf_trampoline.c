@@ -4,9 +4,9 @@
 #include <uapi/linux/bpf.h>
 #include "gbpf_trampoline.h"
 
-//#define LOG_E pr_info("[gbpf_trampoline.c] Enter: %s\n", __func__)
-#define LOG_E ;
-//#define GBPF_DEBUG 1
+#define LOG_E pr_info("[gbpf_trampoline.c] Enter: %s\n", __func__)
+//#define LOG_E ;
+#define GBPF_DEBUG 1
 static DEFINE_PER_CPU(struct gbpf_helper_desc, gbpf_helper_fallback_desc);
 
 /////////////////////////////// Internal helper fast path
@@ -215,6 +215,19 @@ const struct gbpf_helper_desc gbpf_helper_descs[__BPF_FUNC_MAX_ID] = {
     },
     .ret_kind = GBPF_RET_SCALAR,
   },
+  [BPF_FUNC_xdp_adjust_tail] = {
+    .helper_id = BPF_FUNC_xdp_adjust_tail,
+    .name      = "bpf_xdp_adjust_tail",
+    .nr_args   = 2,
+    .arg_kind = {
+      GBPF_ARG_CTX,
+      GBPF_ARG_SCALAR,
+      GBPF_ARG_UNUSED,
+      GBPF_ARG_UNUSED,
+      GBPF_ARG_UNUSED,
+    },
+    .ret_kind = GBPF_RET_SCALAR,
+  },
   [BPF_FUNC_skb_load_bytes] = {
     .helper_id = BPF_FUNC_skb_load_bytes,
     .name = "bpf_skb_load_bytes",
@@ -388,8 +401,13 @@ static u64 gbpf_from_gbpf_space_to_kernel(const struct gbpf_helper_meta *m, u64 
 #ifdef GBPF_DEBUG
     pr_info("MAP PAGE\n");
 #endif
-    ret -= GBPF_MAP_BASE;
-    ret += m->map_base;
+    //ret -= GBPF_MAP_BASE;
+    if (ret == 0x9ffffeb0)
+      ret = m->map_base;
+    else {
+      ret = ret > GBPF_MAP_BASE ? ret - GBPF_MAP_BASE : GBPF_MAP_BASE - ret;
+      ret += m->map_base;
+    }
   }
   
 #ifdef GBPF_DEBUG 
@@ -457,12 +475,13 @@ static u64 gbpf_convert_helper_ret(const struct gbpf_helper_desc *desc, u64 ret,
   if (!ret)
     return ret;
 
-  if (ret >= 0xff60000000000000) {
+  if (ret >= 0xff50000000000000) {
     struct bpf_map *map = (struct bpf_map *)m->map_base;
     u64 elem = (u64)map->gbpf_alloc_base;
     u64 off = ret - elem;
     
 #ifdef GBPF_DEBUG
+    pr_info("[tramp] Tramptest ret_before = [0x%lx] %d\n", ret, *(u32 *)ret);
     pr_info("[tramp] gbpf_alloc_base : 0x%lx\n", elem);
     pr_info("[tramp] off : 0x%lx\n", off);
 #endif
