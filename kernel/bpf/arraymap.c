@@ -134,26 +134,6 @@ static int bpf_array_alloc_percpu(struct bpf_array *array)
   }
   */
   
-  /*
-  ptr = array->map.gbpf_alloc_base;
-  for (i = 0; i < array->map.max_entries; i++) {
-    
-#ifdef GBPF_DEBUG
-    pr_info("ptr : %px\n", ptr);
-#endif
-    
-    if (!ptr) {
-      bpf_array_free_percpu(array);
-      return -ENOMEM;
-    }
-    
-    array->pptrs[i] = ptr;
-    cond_resched();
-    
-    ptr += array->elem_size;
-  }
-  */
-  
   //  return 0;
   
     unsigned long size;
@@ -516,15 +496,17 @@ static void *percpu_array_map_lookup_percpu_elem(struct bpf_map *map, void *key,
 	struct bpf_array *array = container_of(map, struct bpf_array, map);
 	u32 index = *(u32 *)key;
 
+	LOG_E;
+
 	if (cpu >= nr_cpu_ids)
 		return NULL;
 
 	if (unlikely(index >= array->map.max_entries))
 		return NULL;
 
-	return per_cpu_ptr(array->pptrs[index & array->index_mask], cpu);
+	//return per_cpu_ptr(array->pptrs[index & array->index_mask], cpu);
 	/* JARA */
-	//return *per_cpu_ptr(array->pptrs, cpu) + (index & array->index_mask) * array->elem_size;
+	return *per_cpu_ptr(array->pptrs, cpu) + (index & array->index_mask) * array->elem_size;
 	/* End of JARA */
 }
 

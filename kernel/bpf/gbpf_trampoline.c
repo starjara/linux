@@ -489,7 +489,6 @@ static u64 gbpf_convert_helper_ret(const struct gbpf_helper_desc *desc, u64 ret,
     if (map->map_type == BPF_MAP_TYPE_PERCPU_ARRAY) {
       u32 cpu = raw_smp_processor_id();
       struct bpf_array *array = (struct bpf_array *)map;
-      pr_info("[tramp] arr->pptrs = [0x%lx]\n", array->pptrs);
       off = off % PAGE_SIZE;
       pr_info("[tramp] percpu_off : 0x%lx\n", off);
       u64 off2 =  ret - (u64) *per_cpu_ptr(array->pptrs, cpu);

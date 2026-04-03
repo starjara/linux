@@ -165,10 +165,18 @@ static __always_inline void *gbpf_copy_ctx(const void *ctx, const struct bpf_pro
   if (ctx_size == 8)
     ctx_size = 64;
   
+  /*
   if (prog->type == BPF_PROG_TYPE_XDP) {
     const struct xdp_buff *xdp = ctx;
     size_t len = (unsigned long)xdp->data_end - (unsigned long)xdp->data;
     struct xdp_buff *shadow;
+    shadow_page = alloc_pages(GFP_KERNEL | __GFP_ZERO, 0);
+    if (!shadow_page)
+        return NULL;
+
+    shadow_pkt = page_address(shadow_page);
+
+
     
     gbpf_call_map_ext(prog, xdp->data, len, PKT);
     addr = page_to_virt(prog->aux->gbpf_page);
@@ -184,6 +192,83 @@ static __always_inline void *gbpf_copy_ctx(const void *ctx, const struct bpf_pro
 
     return (void *)(uintptr_t)GBPF_CTX_BASE;
   }
+  */
+  if (prog->type == BPF_PROG_TYPE_XDP) {
+    const struct xdp_buff *xdp = ctx;
+    struct xdp_buff *shadow;
+    struct page *shadow_page;
+    void *shadow_pkt;
+    void *shadow_ctx;
+    void *base, *end;
+    u32 base_off, data_off, end_off, meta_off;
+    u32 copy_len;
+    int err;
+
+    /*
+     * 일단 1-page packet buffer만 지원
+     * data_hard_start ~ data_end 전체가 한 페이지 안에 있어야 함
+     */
+    base = xdp->data_hard_start;
+    end  = xdp->data_end;
+
+    if ((unsigned long)end < (unsigned long)base)
+      return NULL;
+
+    base_off = offset_in_page(base);
+    copy_len = (unsigned long)end - (unsigned long)base;
+
+    if (base_off + copy_len > PAGE_SIZE)
+      return NULL;
+
+    shadow_page = alloc_pages(GFP_KERNEL | __GFP_ZERO, 0);
+    if (!shadow_page)
+      return NULL;
+
+    shadow_pkt = page_address(shadow_page);
+
+    memcpy((char *)shadow_pkt + base_off, base, copy_len);
+
+    err = gbpf_call_map_ext(prog,
+                            (void *)((unsigned long)shadow_pkt & PAGE_MASK),
+                            PAGE_SIZE,
+                            PKT);
+    if (err) {
+      __free_pages(shadow_page, 0);
+      return NULL;
+    }
+
+    shadow_ctx = page_to_virt(prog->aux->gbpf_page);
+    memcpy(shadow_ctx, xdp, sizeof(*xdp));
+    shadow = shadow_ctx;
+
+    data_off = (unsigned long)xdp->data - (unsigned long)base;
+    end_off  = (unsigned long)xdp->data_end - (unsigned long)base;
+
+    shadow->data = (void *)(uintptr_t)(GBPF_PKT_BASE + base_off + data_off);
+    pr_info("shadow_data : %px\n", shadow->data);
+    shadow->data_end = (void *)(uintptr_t)(GBPF_PKT_BASE + base_off + end_off);
+
+    if (xdp->data_meta) {
+      if ((unsigned long)xdp->data_meta < (unsigned long)base ||
+          (unsigned long)xdp->data_meta > (unsigned long)xdp->data_end) {
+        __free_pages(shadow_page, 0);
+        return NULL;
+      }
+
+      meta_off = (unsigned long)xdp->data_meta - (unsigned long)base;
+      shadow->data_meta =
+        (void *)(uintptr_t)(GBPF_PKT_BASE + base_off + meta_off);
+    }
+
+    shadow->data_hard_start =
+      (void *)(uintptr_t)(GBPF_PKT_BASE + base_off);
+
+    /* cleanup path에서 free 필요 */
+    prog->aux->gbpf_shadow_pkt_page = shadow_page;
+
+    return (void *)(uintptr_t)GBPF_CTX_BASE;
+  }
+  
   if (prog->type == BPF_PROG_TYPE_SOCKET_FILTER) {
     const struct sk_buff *skb = ctx;
     struct sk_buff *shadow;

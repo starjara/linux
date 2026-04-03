@@ -2731,14 +2731,11 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr, u32 uattr_size)
 	    if (map->map_type == BPF_MAP_TYPE_PERCPU_ARRAY) {
 	      int cpu;
 	      struct bpf_array *array = (struct bpf_array *)map;
-	      void *base;
 	      
 	      for_each_possible_cpu(cpu) {
-		base = array->pptrs[cpu];
 
 #ifdef GBPF_DEBUG
-		base = *this_cpu_ptr(array->pptrs) + (0 & array->index_mask) * array->elem_size;
-		pr_info("[%d] : %px %px\n", cpu, base, *per_cpu_ptr(array->pptrs, cpu));
+		pr_info("[%d] : %px\n", cpu, *per_cpu_ptr(array->pptrs, cpu));
 #endif
 
 		gbpf_call_map_ext(prog, *per_cpu_ptr(array->pptrs, cpu), map->value_region.size, PERCPU_MAP);
