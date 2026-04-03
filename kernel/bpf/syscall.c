@@ -76,7 +76,7 @@ static const struct bpf_map_ops * const bpf_map_types[] = {
 /* JARA: Define macros */
 //#define LOG_E pr_info("[syscall.c] Enter: %s\n", __func__)
 #define LOG_E ;
-//#define GBPF_DEBUG 1
+#define GBPF_DEBUG 1
 /* End of JARA */
 
 /*
@@ -2728,7 +2728,25 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr, u32 uattr_size)
 	    pr_info("prog->aux->used_maps[%d] : %px, %px\n", i,
 		    map, map->gbpf_alloc_base);
 #endif
-	    gbpf_call_map_ext(prog, map->gbpf_alloc_base, map->value_region.size, MAP);
+	    if (map->map_type == BPF_MAP_TYPE_PERCPU_ARRAY) {
+	      int cpu;
+	      struct bpf_array *array = (struct bpf_array *)map;
+	      void *base;
+	      
+	      for_each_possible_cpu(cpu) {
+		base = array->pptrs[cpu];
+
+#ifdef GBPF_DEBUG
+		base = *this_cpu_ptr(array->pptrs) + (0 & array->index_mask) * array->elem_size;
+		pr_info("[%d] : %px %px\n", cpu, base, *per_cpu_ptr(array->pptrs, cpu));
+#endif
+
+		gbpf_call_map_ext(prog, *per_cpu_ptr(array->pptrs, cpu), map->value_region.size, PERCPU_MAP);
+	      }
+	    }
+	    else {
+	      gbpf_call_map_ext(prog, map->gbpf_alloc_base, map->value_region.size, MAP);
+	    }
 	  }
 	}
 	/* End of JARA */

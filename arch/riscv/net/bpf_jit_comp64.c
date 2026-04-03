@@ -1095,21 +1095,9 @@ int bpf_jit_emit_insn(const struct bpf_insn *insn, struct rv_jit_context *ctx,
 			emit_zext_32(rd, ctx);
 			break;
 		}
+		
 		emit_mv(rd, rs, ctx);
-		/* JARA: when src is BPF frame pointer */
-		// Used for helper call arg
-		/*
-		if (gbpf_ready && rs == RV_REG_S5) {
-		  // BPF space to kernel space 
-		    unsigned long long dst_addr = (unsigned long long)page_to_virt(ctx->prog->aux->gbpf_page)
-		      + PAGE_SIZE;
-		    emit_imm(rd, dst_addr, ctx);
-		}
-		else {
-		  emit_mv(rd, rs, ctx);
-		}
-		*/
-		/* End of JARA */
+
 		if (!is64 && !aux->verifier_zext)
 			emit_zext_32(rd, ctx);
 		break;
@@ -1514,6 +1502,8 @@ out_be:
 		emit_mv(bpf_to_rv_reg(BPF_REG_0, ctx), RV_REG_A0, ctx);
 		*/
 
+		/* JARA : Call trampoline */
+
 		/*
 		 * GBPF helper trampoline expects:
 		 * - insn->imm: __bpf_call_base-relative call target
@@ -1639,17 +1629,9 @@ out_be:
 	      /* JARA: check hlv.b */
 	      insns_start = ctx->ninsns;
 	      if (gbpf_ready) {
-		if (gbpf_ready && insn->src_reg == BPF_PSEUDO_MAP_VALUE) {
-		  // pr_info("HLV_B MAP value direct access\n");
-		  emit_addi(rs, rs, off, ctx);
-		  emit_hvmi(HLV_B, rd, rs, 0, ctx);
-		  emit_addi(rs, rs, -off, ctx);
-		}
-		else {
-		  emit_addi(rs, rs, off, ctx);
-		  emit_hvmi(HLV_B, rd, rs, 0, ctx);
-		  emit_addi(rs, rs, -off, ctx);
-		}
+		emit_addi(rs, rs, off, ctx);
+		emit_hvmi(HLV_B, rd, rs, 0, ctx);
+		emit_addi(rs, rs, -off, ctx);
 	      }
 	      else {
 		emit(rv_lbu(rd, off, rs), ctx);

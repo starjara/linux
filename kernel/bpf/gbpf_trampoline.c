@@ -2,6 +2,7 @@
 #include <linux/gbpf.h>
 #include <linux/percpu.h>
 #include <uapi/linux/bpf.h>
+#include <linux/smp.h>
 #include "gbpf_trampoline.h"
 
 #define LOG_E pr_info("[gbpf_trampoline.c] Enter: %s\n", __func__)
@@ -475,22 +476,30 @@ static u64 gbpf_convert_helper_ret(const struct gbpf_helper_desc *desc, u64 ret,
   if (!ret)
     return ret;
 
-  if (ret >= 0xff50000000000000) {
+  if (ret >= 0xff50000000000000 && ret <= 0xfff0000000000000 ) {
     struct bpf_map *map = (struct bpf_map *)m->map_base;
     u64 elem = (u64)map->gbpf_alloc_base;
     u64 off = ret - elem;
     
 #ifdef GBPF_DEBUG
-    pr_info("[tramp] Tramptest ret_before = [0x%lx] %d\n", ret, *(u32 *)ret);
+    //pr_info("[tramp] Tramptest ret_before = [0x%lx] %d\n", ret, *(u32 *)ret);
     pr_info("[tramp] gbpf_alloc_base : 0x%lx\n", elem);
     pr_info("[tramp] off : 0x%lx\n", off);
 #endif
     if (map->map_type == BPF_MAP_TYPE_PERCPU_ARRAY) {
+      u32 cpu = raw_smp_processor_id();
       struct bpf_array *array = (struct bpf_array *)map;
       pr_info("[tramp] arr->pptrs = [0x%lx]\n", array->pptrs);
+      off = off % PAGE_SIZE;
+      pr_info("[tramp] percpu_off : 0x%lx\n", off);
+      u64 off2 =  ret - (u64) *per_cpu_ptr(array->pptrs, cpu);
+      pr_info("[tramp] percpu_off2 : 0x%lx\n", off2);
+      //gbpf_call_map_ext(prog, map->gbpf_alloc_base, map->value_region.size, MAP);
+      ret = (GBPF_MAP_BASE * (cpu + 1)) + off;
     }
-    
-    ret = GBPF_MAP_BASE + off;
+    else {
+      ret = GBPF_MAP_BASE + off;
+    }
   }
 
   return ret;

@@ -33,6 +33,7 @@ extern size_t gbpf_ctx_size_map[];
 enum GBPF_MAP_TYPE {
   PKT,
   MAP,
+  PERCPU_MAP,
 };
 
 struct gbpf_ops {

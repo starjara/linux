@@ -1116,6 +1116,8 @@ static inline void emit_hvmi(u16 type, u8 rd, u8 rs1, u8 rs2, struct rv_jit_cont
   emit(instr, ctx);
 } 
 
+/* End of JARA */
+
 void bpf_jit_build_prologue(struct rv_jit_context *ctx);
 void bpf_jit_build_epilogue(struct rv_jit_context *ctx);
 

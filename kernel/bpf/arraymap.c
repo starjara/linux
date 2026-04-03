@@ -94,18 +94,22 @@ static void array_free_elem_region(struct bpf_array *htab)
 
 static void bpf_array_free_percpu(struct bpf_array *array)
 {
+  /*
 	int i;
 
 	for (i = 0; i < array->map.max_entries; i++) {
 		free_percpu(array->pptrs[i]);
 		cond_resched();
 	}
+  */
+  cond_resched();
 }
 
 static int bpf_array_alloc_percpu(struct bpf_array *array)
 {
   LOG_E;
   
+  /*
   void __percpu *ptr;
   int i;
   
@@ -128,6 +132,7 @@ static int bpf_array_alloc_percpu(struct bpf_array *array)
     array->pptrs[i] = ptr;
     cond_resched();
   }
+  */
   
   /*
   ptr = array->map.gbpf_alloc_base;
@@ -149,11 +154,11 @@ static int bpf_array_alloc_percpu(struct bpf_array *array)
   }
   */
   
-  return 0;
+  //  return 0;
   
-	/*
     unsigned long size;
     int nr_pages, cpu;
+    struct gbpf_page_region region;
 
     array->pptrs = bpf_map_alloc_percpu(&array->map, sizeof(void *), 8,
                                         GFP_USER | __GFP_NOWARN);
@@ -161,27 +166,31 @@ static int bpf_array_alloc_percpu(struct bpf_array *array)
         return -ENOMEM;
 
     size = (unsigned long)array->elem_size * array->map.max_entries;
-    nr_pages = PAGE_ALIGN(size) >> PAGE_SHIFT;
+    nr_pages = PAGE_ALIGN(size) / PAGE_SIZE;
 
     for_each_possible_cpu(cpu) {
-        struct gbpf_page_region region;
-        void *base;
+      void *base;
 
-        memset(&region, 0, sizeof(region));
-        region.size = (u64)nr_pages << PAGE_SHIFT;
-        region.nr_pages = nr_pages;
-        region.order = get_order(region.size);
-        region.page = alloc_pages(GFP_KERNEL | __GFP_ZERO, region.order);
-        if (!region.page)
-            goto err;
-
-        region.vaddr = page_to_virt(region.page);
-        region.allocated = true;
-        base = region.vaddr;
-
-        //gbpf_add_region_to_map(&array->map, &region); 
-
-        *per_cpu_ptr(array->pptrs, cpu) = base;
+      memset(&region, 0, sizeof(region));
+      region.size = (u64)nr_pages * PAGE_SIZE;
+      region.nr_pages = nr_pages;
+      region.order = get_order(region.size);
+      region.page = alloc_pages(GFP_KERNEL | __GFP_ZERO, region.order);
+      if (!region.page)
+	goto err;
+      
+      region.vaddr = page_to_virt(region.page);
+      region.allocated = true;
+      base = region.vaddr;
+      
+      //gbpf_add_region_to_map(&array->map, &region); 
+      
+      *per_cpu_ptr(array->pptrs, cpu) = base;
+#ifdef GBPF_DEBUG
+      pr_info("array->pptrs : %px\tbase : %px\n", array->pptrs, base);
+#endif
+      
+      cond_resched();
     }
 
     return 0;
@@ -189,7 +198,6 @@ static int bpf_array_alloc_percpu(struct bpf_array *array)
 err:
     bpf_array_free_percpu(array);
     return -ENOMEM;
-*/
 
 }
 
@@ -319,9 +327,9 @@ static struct bpf_map *array_map_alloc(union bpf_attr *attr)
 	/* End of JARA */
 
 	if (percpu) {
-	  array_size += (u64) max_entries * sizeof(void *);
+	  //array_size += (u64) max_entries * sizeof(void *);
 	  /* JARA : ?? */
-	  //array_size += (u64) num_online_cpus() * sizeof(void*); 
+	  array_size += (u64) num_online_cpus() * sizeof(void*); 
 	  /* End of JARA */
 	} else {
 		// rely on vmalloc() to return page-aligned memory and
@@ -494,14 +502,12 @@ static void *percpu_array_map_lookup_elem(struct bpf_map *map, void *key)
 
 
 	/* JARA : per cpu array look up */
-	/*
 	void *ret = *this_cpu_ptr(array->pptrs) + (index & array->index_mask) * array->elem_size;
 	pr_info("[MOAT] lookup percpu map @ %d is [%llx] %d\n", smp_processor_id(), (u64)ret, *(u32 *)ret);
 	return ret;
-	*/
 	/* End of JARA */
 	
-	return this_cpu_ptr(array->pptrs[index & array->index_mask]);
+	//return this_cpu_ptr(array->pptrs[index & array->index_mask]);
 	
 }
 
@@ -526,14 +532,15 @@ int bpf_percpu_array_copy(struct bpf_map *map, void *key, void *value)
 {
 	struct bpf_array *array = container_of(map, struct bpf_array, map);
 	u32 index = *(u32 *)key;
-	void __percpu *pptr;
+	//void __percpu *pptr;
+	void __percpu **pptr;
 	int cpu, off = 0;
 	u32 size;
 
-	LOG_E;
+	//LOG_E;
 
 #ifdef GBPF_DEBUG
-	pr_info("index : %d, max_entries : %d\n", index, array->map.max_entries);
+	//pr_info("index : %d, max_entries : %d\n", index, array->map.max_entries);
 #endif
 	
 	if (unlikely(index >= array->map.max_entries))
@@ -548,21 +555,20 @@ int bpf_percpu_array_copy(struct bpf_map *map, void *key, void *value)
 	size = array->elem_size;
 	
 	rcu_read_lock();
-	pptr = array->pptrs[index & array->index_mask];
+	//pptr = array->pptrs[index & array->index_mask];
 	/* JARA */
-	//pptr = array->pptrs;
+	pptr = array->pptrs;
 	/* End of JARA */
 	for_each_possible_cpu(cpu) {
+	  /*
 	  copy_map_value_long(map, value + off, per_cpu_ptr(pptr, cpu));
 	  check_and_init_map_value(map, value + off);
 	  off += size;
-	  /* JARA : Copy value */
-	  /*
-	  void *src = (void *)((char *)*per_cpu_ptr(array->pptrs, cpu) +
-			       (index & array->index_mask) * array->elem_size);
-	  copy_map_value_long(map, (void *)((char *)value + off), src);
-	  off += size;
 	  */
+	  /* JARA : Copy value */
+	  copy_map_value_long(map, value + off, *per_cpu_ptr(pptr, cpu) + (index & array->index_mask) * array->elem_size);
+	  check_and_init_map_value(map, value + off);
+	  off += size;
 	  /* End of JARA */
 	}
 	rcu_read_unlock();
