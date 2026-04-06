@@ -2681,6 +2681,8 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr, u32 uattr_size)
 	  gbpf_call_create_pgd(prog);
 	  gbpf_call_map(prog);
 	  prog->aux->vmid = gbpf_call_get_vmid();
+	  
+	  gbpf_init_prog_map_descs(prog);
 	}
 	/* End of JARA */
 
@@ -2738,11 +2740,14 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr, u32 uattr_size)
 		pr_info("[%d] : %px\n", cpu, *per_cpu_ptr(array->pptrs, cpu));
 #endif
 
-		gbpf_call_map_ext(prog, *per_cpu_ptr(array->pptrs, cpu), map->value_region.size, PERCPU_MAP);
+		gbpf_call_map_ext(prog, *per_cpu_ptr(array->pptrs, cpu), map->value_region.size-PAGE_SIZE, PERCPU_MAP, i, cpu);
 	      }
 	    }
 	    else {
-	      gbpf_call_map_ext(prog, map->gbpf_alloc_base, map->value_region.size, MAP);
+	      if (map->map_type == BPF_MAP_TYPE_ARRAY) 
+		gbpf_call_map_ext(prog, map->gbpf_alloc_base, map->value_region.size-PAGE_SIZE, MAP, i, 0);
+	      else
+		gbpf_call_map_ext(prog, map->gbpf_alloc_base, map->value_region.size, MAP, i, 0);
 	    }
 	  }
 	}

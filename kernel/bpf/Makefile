@@ -10,6 +10,7 @@ CFLAGS_core.o += $(call cc-disable-warning, override-init) $(cflags-nogcse-yy)
 obj-$(CONFIG_BPF_SYSCALL) += gbpf_ops.o
 obj-$(CONFIG_BPF_SYSCALL) += gbpf_ctx_size.o
 obj-$(CONFIG_BPF_SYSCALL) += gbpf_trampoline.o
+obj-$(CONFIG_BPF_SYSCALL) += gbpf_map_addr.o
 
 obj-$(CONFIG_BPF_SYSCALL) += syscall.o verifier.o inode.o helpers.o tnum.o log.o
 obj-$(CONFIG_BPF_SYSCALL) += bpf_iter.o map_iter.o task_iter.o prog_iter.o link_iter.o

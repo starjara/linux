@@ -1476,8 +1476,7 @@ struct bpf_prog_aux {
   const void *orig_ctx;
   u32 vmid;
   u32 bpf_stack_adjust;
-  u64 gbpf_ctx_access_mask;
-  bool gbpf_uses_raw_ctx_helpers;
+  struct gbpf_map_desc *gbpf_maps;
   /* End of JARA */
 
 };

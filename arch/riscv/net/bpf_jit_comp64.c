@@ -27,7 +27,7 @@ EXPORT_SYMBOL_GPL(gbpf_ready);
 /* JARA: Define macros */
 //#define LOG_E pr_info("[bpf_jit_comp64.c] Enter: %s\n", __func__)
 #define LOG_E
-//#define GBPF_DEBUG 1
+#define GBPF_DEBUG 1
 /* End of JARA */
 
 static const int regmap[] = {
@@ -1517,8 +1517,10 @@ out_be:
 		  //emit_addr(RV_REG_S11, addr, fixed_addr, ctx);
 		  emit_imm(RV_REG_S11, insn->imm, ctx);
 		  /* Added */
+		  /*
 		  emit_imm(RV_REG_T0, insn->off, ctx);
 		  emit_sd(RV_REG_S10, GBPF_STK_HELPER_ID, RV_REG_T0, ctx);
+		  */
 #ifdef GBPF_DEBUG 
 		  pr_info("helper_call_imm : 0x%llx\n", (u64)insn->imm);
 		  pr_info("helper_id(off)  : 0x%llx\n", (u64)insn->off);
@@ -1585,6 +1587,7 @@ out_be:
 		    }
 		    pr_info("imm64_org : %llx\n", imm64);
 #endif
+		    /*
 		    if (imm64 >= 0xff60000000000000) {
 		      u64 off = PAGE_ALIGN(imm64) - imm64;
 #ifdef GBPF_DEBUG
@@ -1596,6 +1599,26 @@ out_be:
 		      pr_info("imm64_map base : %llx\n", imm64);
 #endif
 		    }
+		    emit_imm(rd, imm64, ctx);
+		    */
+		    if (imm64 >= 0xff60000000000000ULL) {
+		      u64 gbpf_addr;
+		      u64 off = PAGE_ALIGN(imm64) - imm64;
+		      
+		      if (!gbpf_try_encode_kernel_map_ptr(PAGE_ALIGN(imm64), ctx->prog, &gbpf_addr)) {
+#ifdef GBPF_DEBUG
+			pr_info("gbpf jit: map kptr %llx -> gbpf %llx\n",
+				imm64, gbpf_addr);
+#endif
+			imm64 = gbpf_addr;
+			imm64 -= off;
+		      } else {
+#ifdef GBPF_DEBUG
+			pr_info("gbpf jit: failed to encode kptr %llx\n", imm64);
+#endif
+		      }
+		    }
+		    
 		    emit_imm(rd, imm64, ctx);
 		  }
 		  else {
@@ -1629,9 +1652,11 @@ out_be:
 	      /* JARA: check hlv.b */
 	      insns_start = ctx->ninsns;
 	      if (gbpf_ready) {
-		emit_addi(rs, rs, off, ctx);
+		if (off != 0) 
+		  emit_addi(rs, rs, off, ctx);
 		emit_hvmi(HLV_B, rd, rs, 0, ctx);
-		emit_addi(rs, rs, -off, ctx);
+		if (off != 0) 
+		  emit_addi(rs, rs, -off, ctx);
 	      }
 	      else {
 		emit(rv_lbu(rd, off, rs), ctx);
@@ -1661,9 +1686,11 @@ out_be:
 		      if (gbpf_ready) {
 			if (gbpf_ready && insn->src_reg == BPF_PSEUDO_MAP_VALUE) {
 			  // pr_info("HLV_H MAP value direct access\n");
-			  emit_addi(rs, rs, off, ctx);
+			  if (off != 0) 
+			    emit_addi(rs, rs, off, ctx);
 			  emit_hvmi(HLV_H, rd, rs, 0, ctx);
-			  emit_addi(rs, rs, -off, ctx);
+			  if (off != 0) 
+			    emit_addi(rs, rs, -off, ctx);
 			}
 			else {
 			  emit_addi(rs, rs, off, ctx);
@@ -1699,14 +1726,18 @@ out_be:
 				if (gbpf_ready) {
 				  if (gbpf_ready && insn->src_reg == BPF_PSEUDO_MAP_VALUE) {
 				    // pr_info("HLV_W MAP value direct access\n");
-				    emit_addi(rs, rs, off, ctx);
+				    if (off != 0) 
+				      emit_addi(rs, rs, off, ctx);
 				    emit_hvmi(HLV_W, rd, rs, 0, ctx);
-				    emit_addi(rs, rs, -off, ctx);
+				    if (off != 0) 
+				      emit_addi(rs, rs, -off, ctx);
 				  }
 				  else {
-				    emit_addi(rs, rs, off, ctx);
+				    if (off != 0) 
+				      emit_addi(rs, rs, off, ctx);
 				    emit_hvmi(HLV_W, rd, rs, 0, ctx);
-				    emit_addi(rs, rs, -off, ctx);
+				    if (off != 0) 
+				      emit_addi(rs, rs, -off, ctx);
 				  }
 				}
 				else {
@@ -1739,14 +1770,18 @@ out_be:
 			    if (gbpf_ready && insn->src_reg == BPF_PSEUDO_MAP_VALUE) {
 			      // pr_info("HLV_D MAP value direct access\n");
 
-			      emit_addi(rs, rs, off, ctx);
+			      if (off != 0) 
+				emit_addi(rs, rs, off, ctx);
 			      emit_hvmi(HLV_D, rd, rs, 0, ctx);
-			      emit_addi(rs, rs, -off, ctx);
+			      if (off != 0) 
+				emit_addi(rs, rs, -off, ctx);
 			    }
 			    else {
-			      emit_addi(rs, rs, off, ctx);
+			      if (off != 0) 
+				emit_addi(rs, rs, off, ctx);
 			      emit_hvmi(HLV_D, rd, rs, 0, ctx);
-			      emit_addi(rs, rs, -off, ctx);
+			      if (off != 0) 
+				emit_addi(rs, rs, -off, ctx);
 			    }
 			  }
 			  else {
@@ -1815,10 +1850,11 @@ out_be:
 		  //emit_sd(rd, off, RV_REG_T1, ctx);
 		  /* JARA: Non atomic sd */
 		  if(gbpf_ready) {
-		    emit(rv_nop(), ctx);
-		    emit_addi(rd, rd, off, ctx);
+		    if (off != 0) 
+		      emit_addi(rd, rd, off, ctx);
 		    emit_hvmi(HSV_D, 0, rd, rs, ctx);
-		    emit_addi(rd, rd, -off, ctx);
+		    if (off != 0) 
+		      emit_addi(rd, rd, -off, ctx);
 		    emit(rv_nop(), ctx);
 		  }
 		  else 
@@ -1840,9 +1876,11 @@ out_be:
 	    if (gbpf_ready) {
 	      emit(rv_nop(), ctx);
 	      
-	      emit_addi(rd, rd, off, ctx);
+	      if (off != 0) 
+		emit_addi(rd, rd, off, ctx);
 	      emit_hvmi(HSV_B, 0, rd, rs, ctx);
-	      emit_addi(rd, rd, -off, ctx);
+	      if (off != 0) 
+		emit_addi(rd, rd, -off, ctx);
 	      
 	      emit(rv_nop(), ctx);
 	    }
@@ -1862,13 +1900,11 @@ out_be:
 	    // emit(rv_sh(rd, off, rs), ctx);
 	    /* JARA: check hsv.h */
 	    if (gbpf_ready) {
-	      emit(rv_nop(), ctx);
-	      
-	      emit_addi(rd, rd, off, ctx);
+	      if (off != 0) 
+		emit_addi(rd, rd, off, ctx);
 	      emit_hvmi(HSV_H, 0, rd, rs, ctx);
-	      emit_addi(rd, rd, -off, ctx);
-	      
-	      emit(rv_nop(), ctx);
+	      if (off != 0) 
+		emit_addi(rd, rd, -off, ctx);
 	    }
 	    else 
 	      emit(rv_sh(rd, off, rs), ctx);
@@ -1886,13 +1922,11 @@ out_be:
 		  
 	    /* JARA: ckech hsv.w */
 	    if (gbpf_ready) {
-	      emit(rv_nop(), ctx);
-	      
-	      emit_addi(rd, rd, off, ctx);
+	      if (off != 0) 
+		emit_addi(rd, rd, off, ctx);
 	      emit_hvmi(HSV_W, 0, rd, rs, ctx);
-	      emit_addi(rd, rd, -off, ctx);
-	      
-	      emit(rv_nop(), ctx);
+	      if (off != 0) 
+		emit_addi(rd, rd, -off, ctx);
 	    }
 	    else 
 	      emit_sw(rd, off, rs, ctx);
@@ -1910,13 +1944,11 @@ out_be:
 		  // emit_sd(rd, off, rs, ctx);
 		  /* JARA: check hsv.d */
 		  if(gbpf_ready ) {
-		    emit(rv_nop(), ctx);
-		    
-		    emit_addi(rd, rd, off, ctx);
+		    if (off != 0) 
+		      emit_addi(rd, rd, off, ctx);
 		    emit_hvmi(HSV_D, 0, rd, rs, ctx);
-		    emit_addi(rd, rd, -off, ctx);
-		    
-		    emit(rv_nop(), ctx);
+		    if (off != 0) 
+		      emit_addi(rd, rd, -off, ctx);
 		  }
 		  else 
 		    emit_sd(rd, off, rs, ctx);
@@ -2134,7 +2166,11 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 	    emit_imm(RV_REG_T0, (u64)(ctx->prog->aux->used_maps[0]), ctx);
 	    emit_sd(RV_REG_S10, GBPF_STK_MAP_BASE, RV_REG_T0, ctx);
 	  }
-	  
+
+	  emit_imm(RV_REG_S11, ctx->prog->type, ctx);
+	  emit_sd(RV_REG_S10, GBPF_STK_PROG_TYPE, RV_REG_S11, ctx);
+
+
 	  //emit_imm(RV_REG_T0, (u64)ctx->prog->aux->orig_ctx, ctx);
 	  //emit_sd(RV_REG_S10, GBPF_ORG_CTX, RV_REG_T0, ctx);  
 

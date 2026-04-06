@@ -484,6 +484,10 @@ static void *percpu_array_map_lookup_elem(struct bpf_map *map, void *key)
 	/* JARA : per cpu array look up */
 	void *ret = *this_cpu_ptr(array->pptrs) + (index & array->index_mask) * array->elem_size;
 	pr_info("[MOAT] lookup percpu map @ %d is [%llx] %d\n", smp_processor_id(), (u64)ret, *(u32 *)ret);
+	if (gbpf_call_check_module()) {
+	  ret += smp_processor_id() << 32;
+	}
+	pr_info("[MOAT] lookup percpu map @ %d is [%llx] %d\n", smp_processor_id(), (u64)ret, *(u32 *)ret);
 	return ret;
 	/* End of JARA */
 	
