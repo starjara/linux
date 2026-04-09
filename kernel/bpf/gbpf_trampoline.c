@@ -17,47 +17,7 @@ typedef struct map_addr_meta {
 
 map_addr_meta gmap_addr_meta;
 
-
-/////////////////////////////// Internal helper fast path
-#include <linux/filter.h>
-#include <net/sock.h>
-#include <linux/skbuff.h>
-
-/* net/core/filter.c 쪽 internal helper들 */
-extern u64 bpf_skb_load_helper_8_no_cache(const struct sk_buff *skb, u64 off);
-extern u64 bpf_skb_load_helper_16_no_cache(const struct sk_buff *skb, u64 off);
-extern u64 bpf_skb_load_helper_32_no_cache(const struct sk_buff *skb, u64 off);
-
-extern u64 bpf_skb_load_helper_8(const struct sk_buff *skb, u64 off,
-                                 const void *data, u64 len);
-extern u64 bpf_skb_load_helper_16(const struct sk_buff *skb, u64 off,
-                                  const void *data, u64 len);
-extern u64 bpf_skb_load_helper_32(const struct sk_buff *skb, u64 off,
-                                  const void *data, u64 len);
-
-static __always_inline bool gbpf_is_internal_skb_load_helper(u64 target)
-{
-    return target == (u64)(unsigned long)&bpf_skb_load_helper_8_no_cache  ||
-           target == (u64)(unsigned long)&bpf_skb_load_helper_16_no_cache ||
-           target == (u64)(unsigned long)&bpf_skb_load_helper_32_no_cache ||
-           target == (u64)(unsigned long)&bpf_skb_load_helper_8           ||
-           target == (u64)(unsigned long)&bpf_skb_load_helper_16          ||
-           target == (u64)(unsigned long)&bpf_skb_load_helper_32;
-}
-
-/////////////////////////////// Internal helper fast path End
-
-static u64 gbpf_call_helper_generic(u64 call_target,
-			 u64 arg1, u64 arg2, u64 arg3,
-			 u64 arg4, u64 arg5)
-{
-	gbpf_helper_fn_t fn;
-
-	fn = (gbpf_helper_fn_t)(unsigned long)call_target;
-	return fn(arg1, arg2, arg3, arg4, arg5);
-}
-
-static u64 gbpf_from_gbpf_space_to_kernel(const struct gbpf_helper_meta *m, u64 arg)
+static inline u64 gbpf_from_gbpf_space_to_kernel(const struct gbpf_helper_meta *m, u64 arg)
 {
   u64 ret = arg;
 
@@ -111,11 +71,11 @@ static u64 gbpf_from_gbpf_space_to_kernel(const struct gbpf_helper_meta *m, u64 
   return ret;
 }
 
-static u64 gbpf_call_helper_desc(const struct gbpf_helper_meta *meta,
-				 u64 func_addr,
-				 u64 arg1, u64 arg2, u64 arg3,
-				 u64 arg4, u64 arg5)
+static u64 gbpf_call_helper_generic(struct gbpf_helper_meta *meta, u64 call_target,
+			 u64 arg1, u64 arg2, u64 arg3,
+			 u64 arg4, u64 arg5)
 {
+	gbpf_helper_fn_t fn;
 	u64 marshaled[5];
 	u64 ret;
 
@@ -130,26 +90,20 @@ static u64 gbpf_call_helper_desc(const struct gbpf_helper_meta *meta,
 	marshaled[2] = arg3;
 	marshaled[3] = arg4;
 	marshaled[4] = arg5;
-
+	
 	for (int i=0; i<5; i++) {
 	  marshaled[i] = gbpf_from_gbpf_space_to_kernel(meta, marshaled[i]);
-	}
-
-	if (gbpf_is_internal_skb_load_helper(func_addr)) {
-	  marshaled[0] = meta->orig_ctx;
 	}
 	
 #ifdef GBPF_DEBUG
 	pr_info("Arg marshaling done\n");
 #endif
-  
-	ret = gbpf_call_helper_generic(func_addr,
-				       marshaled[0], marshaled[1],
-				       marshaled[2], marshaled[3],
-				       marshaled[4]);
 
-	return ret;
+	fn = (gbpf_helper_fn_t)(unsigned long)call_target;
+	return fn(marshaled[0], marshaled[1], marshaled[2], marshaled[3], marshaled[4]);
 }
+
+
 
 static u64 gbpf_convert_helper_ret(u64 ret, struct gbpf_helper_meta *m)
 {
@@ -215,7 +169,7 @@ noinline u64 gbpf_helper_call_trampoline(u64 arg1, u64 arg2, u64 arg3, u64 arg4,
 
 
   // ToDo : Save map ptr metadata and use it for return addr convert
-  ret = gbpf_call_helper_desc(&meta, call_target,
+  ret = gbpf_call_helper_generic(&meta, call_target,
 			      arg1, arg2, arg3, arg4, arg5);
   
 #ifdef GBPF_DEBUG
