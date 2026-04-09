@@ -20,9 +20,9 @@
 /* End of JARA */
 
 /* JARA: Define macros */
-#define LOG_E pr_info("[arraymap.c] Enter: %s\n", __func__)
-//#define LOG_E ;
-#define GBPF_DEBUG 1
+//#define LOG_E pr_info("[arraymap.c] Enter: %s\n", __func__)
+#define LOG_E ;
+//#define GBPF_DEBUG 1
 /* End of JARA */
 
 #define ARRAY_CREATE_FLAG_MASK \
@@ -483,11 +483,9 @@ static void *percpu_array_map_lookup_elem(struct bpf_map *map, void *key)
 
 	/* JARA : per cpu array look up */
 	void *ret = *this_cpu_ptr(array->pptrs) + (index & array->index_mask) * array->elem_size;
+#ifdef GBPF_DEBUG
 	pr_info("[MOAT] lookup percpu map @ %d is [%llx] %d\n", smp_processor_id(), (u64)ret, *(u32 *)ret);
-	if (gbpf_call_check_module()) {
-	  ret += smp_processor_id() << 32;
-	}
-	pr_info("[MOAT] lookup percpu map @ %d is [%llx] %d\n", smp_processor_id(), (u64)ret, *(u32 *)ret);
+#endif
 	return ret;
 	/* End of JARA */
 	
@@ -605,9 +603,9 @@ static long array_map_update_elem(struct bpf_map *map, void *key, void *value,
 		return -EINVAL;
 
 	if (array->map.map_type == BPF_MAP_TYPE_PERCPU_ARRAY) {
-	  val = this_cpu_ptr(array->pptrs[index & array->index_mask]);
+	  // val = this_cpu_ptr(array->pptrs[index & array->index_mask]);
 	  /* JARA */
-	  //val = *this_cpu_ptr(array->pptrs) + (index & array->index_mask) * array->elem_size;
+	  val = *this_cpu_ptr(array->pptrs) + (index & array->index_mask) * array->elem_size;
 	  /* End of JARA */
 	  copy_map_value(map, val, value);
 	  bpf_obj_free_fields(array->map.record, val);
@@ -628,7 +626,8 @@ int bpf_percpu_array_update(struct bpf_map *map, void *key, void *value,
 {
 	struct bpf_array *array = container_of(map, struct bpf_array, map);
 	u32 index = *(u32 *)key;
-	void __percpu *pptr;
+	//void __percpu *pptr;
+	void __percpu **pptr;
 	int cpu, off = 0;
 	u32 size;
 
@@ -652,11 +651,17 @@ int bpf_percpu_array_update(struct bpf_map *map, void *key, void *value,
 	 */
 	size = array->elem_size;
 	rcu_read_lock();
-	pptr = array->pptrs[index & array->index_mask];
+	// pptr = array->pptrs[index & array->index_mask];
+	pptr = array->pptrs;
 	for_each_possible_cpu(cpu) {
+	  /*
 		copy_map_value_long(map, per_cpu_ptr(pptr, cpu), value + off);
 		bpf_obj_free_fields(array->map.record, per_cpu_ptr(pptr, cpu));
 		off += size;
+	  */
+	  copy_map_value_long(map, *per_cpu_ptr(pptr, cpu) + (index & array->index_mask) * array->elem_size, value + off);
+	  bpf_obj_free_fields(array->map.record, *per_cpu_ptr(pptr, cpu) + (index & array->index_mask) * array->elem_size);
+	  off += size;
 	}
 	rcu_read_unlock();
 	return 0;
@@ -695,16 +700,16 @@ static void array_map_free(struct bpf_map *map)
   if (!IS_ERR_OR_NULL(map->record)) {
     if (array->map.map_type == BPF_MAP_TYPE_PERCPU_ARRAY) {
       for (i = 0; i < array->map.max_entries; i++) {
-	void __percpu *pptr = array->pptrs[i & array->index_mask];
+	//void __percpu *pptr = array->pptrs[i & array->index_mask];
 	/* JARA */
-	//void __percpu **pptr = array->pptrs;
+	void __percpu **pptr = array->pptrs;
 	/* End of JARA */
 	int cpu;
 	
 	for_each_possible_cpu(cpu) {
-	  bpf_obj_free_fields(map->record, per_cpu_ptr(pptr, cpu));
+	  //bpf_obj_free_fields(map->record, per_cpu_ptr(pptr, cpu));
 	  /* JARA */
-	  //bpf_obj_free_fields(map->record, *per_cpu_ptr(pptr, cpu) + (i & array->index_mask) * array->elem_size);
+	  bpf_obj_free_fields(map->record, *per_cpu_ptr(pptr, cpu) + (i & array->index_mask) * array->elem_size);
 	  /* End of JARA */
 	  cond_resched();
 	}
@@ -756,17 +761,23 @@ static void percpu_array_map_seq_show_elem(struct bpf_map *map, void *key,
 {
 	struct bpf_array *array = container_of(map, struct bpf_array, map);
 	u32 index = *(u32 *)key;
-	void __percpu *pptr;
+	// void __percpu *pptr;
+	void __percpu **pptr;
 	int cpu;
 
 	rcu_read_lock();
 
 	seq_printf(m, "%u: {\n", *(u32 *)key);
-	pptr = array->pptrs[index & array->index_mask];
+	//pptr = array->pptrs[index & array->index_mask];
+	pptr = array->pptrs;
 	for_each_possible_cpu(cpu) {
 		seq_printf(m, "\tcpu%d: ", cpu);
+		/*
 		btf_type_seq_show(map->btf, map->btf_value_type_id,
 				  per_cpu_ptr(pptr, cpu), m);
+		*/
+		btf_type_seq_show(map->btf, map->btf_value_type_id,
+				  *per_cpu_ptr(pptr, cpu) + (index & array->index_mask) * array->elem_size, m);
 		seq_puts(m, "\n");
 	}
 	seq_puts(m, "}\n");

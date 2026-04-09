@@ -31,17 +31,13 @@ struct gbpf_helper_desc {
   u8 ret_kind;
 };
 
-
-
-extern struct bpf_func_proto *gbpf_proto_table[][256];
-
 /* gbpf_trampoline.h */
 
 struct gbpf_helper_meta {
   /* Kernel aliases for GBPF virtual regions. */
   u64 ctx_base;
   u64 pkt_base;
-  u64 map_base;
+  u64 map_desc_base;
   /* Original helper ID preserved by verifier in insn->off. */
   u64 prog_type;
   /* __bpf_call_base-relative call target offset. */
@@ -72,7 +68,7 @@ static __always_inline struct gbpf_helper_meta gbpf_read_helper_meta(void)
 
   m.ctx_base = *(u64 *)(fp + GBPF_STK_CTX_BASE);
   m.pkt_base = *(u64 *)(fp + GBPF_STK_PKT_BASE);
-  m.map_base = *(u64 *)(fp + GBPF_STK_MAP_BASE);
+  m.map_desc_base = *(u64 *)(fp + GBPF_STK_MAP_BASE);
   m.orig_ctx = *(u64 *)(fp + GBPF_ORG_CTX);
   m.prog_type = *(u64 *)(fp + GBPF_STK_PROG_TYPE);
   

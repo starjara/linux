@@ -85,13 +85,15 @@ static u64 gbpf_from_gbpf_space_to_kernel(const struct gbpf_helper_meta *m, u64 
 {
   u64 ret = arg;
 
+  struct gbpf_map_desc *map_desc;
+  
   LOG_E;
 #ifdef GBPF_DEBUG
   pr_info("\tBPF to kernel : %lx\n", arg);
 #endif
 
   if (arg == GBPF_CTX_BASE) {
-    ret = m->ctx_base;
+    ret = m->orig_ctx;
   }
   else if (GBPF_CTX_BASE <= arg && arg < GBPF_CTX_BASE + GBPF_PAGE_SIZE) {
 #ifdef GBPF_DEBUG
@@ -106,19 +108,23 @@ static u64 gbpf_from_gbpf_space_to_kernel(const struct gbpf_helper_meta *m, u64 
     ret -= GBPF_PKT_BASE;
     ret += m->pkt_base;
   } else if (GBPF_MAP_BASE - 0x1000 <= arg && arg < GBPF_MAP_BASE + GBPF_PAGE_SIZE) {
+    map_desc = (struct gbpf_map_desc *)m->map_desc_base;
 #ifdef GBPF_DEBUG
     pr_info("MAP PAGE\n");
 #endif
     gbpf_decode_map_addr(ret, &gmap_addr_meta.map_slot, &gmap_addr_meta.cpu_slot, &gmap_addr_meta.off);
+    struct gbpf_map_desc *d = &map_desc[gmap_addr_meta.map_slot];
 #ifdef GBPF_DEBUG
     pr_info("map addr meta - slot : %u, cpu : %u, off : %u\n", gmap_addr_meta.map_slot, gmap_addr_meta.cpu_slot, gmap_addr_meta.off);
+    pr_info("[GBPF] map[%u] base=%px\n",
+	    gmap_addr_meta.map_slot, (void *)d->base);
 #endif
     //ret -= GBPF_MAP_BASE;
     if (ret < GBPF_MAP_BASE)
-      ret = m->map_base;
+      ret = d->map;
     else {
       ret = ret > GBPF_MAP_BASE ? ret - GBPF_MAP_BASE : GBPF_MAP_BASE - ret;
-      ret += m->map_base;
+      ret += d->map;
     }
   }
   
@@ -172,6 +178,9 @@ static u64 gbpf_call_helper_desc(const struct gbpf_helper_desc *desc, const stru
 	  marshaled[0] = meta->orig_ctx;
 	}
 	
+#ifdef GBPF_DEBUG
+	pr_info("Arg marshaling done\n");
+#endif
   
 	ret = gbpf_call_helper_generic(func_addr,
 				       marshaled[0], marshaled[1],
@@ -188,8 +197,11 @@ static u64 gbpf_convert_helper_ret(const struct gbpf_helper_desc *desc, u64 ret,
   if (!ret)
     return ret;
 
-  if (ret >= 0xff60000000000000 && ret <= 0xff70000000000000 ) {
-    struct bpf_map *map = (struct bpf_map *)m->map_base;
+  if (ret >= 0xffffaf8000000000 && ret <= 0xffffaf9000000000) {
+    //struct bpf_map *map = (struct bpf_map *)m->map_base;
+    struct gbpf_map_desc *map_desc = (struct gbpf_map_desc *)m->map_desc_base;
+    struct gbpf_map_desc *d = &map_desc[gmap_addr_meta.map_slot];
+    struct bpf_map *map = (struct bpf_map *)d->map;
     u64 elem = (u64)map->gbpf_alloc_base;
     u64 off = ret - elem;
     
@@ -202,11 +214,14 @@ static u64 gbpf_convert_helper_ret(const struct gbpf_helper_desc *desc, u64 ret,
       u32 cpu = raw_smp_processor_id();
       struct bpf_array *array = (struct bpf_array *)map;
       off = off % PAGE_SIZE;
+#ifdef GBPF_DEBUG
       pr_info("[tramp] percpu_off : 0x%lx\n", off);
+#endif
       u64 off2 =  ret - (u64) *per_cpu_ptr(array->pptrs, cpu);
+#ifdef GBPF_DEBUG
       pr_info("[tramp] percpu_off2 : 0x%lx\n", off2);
-      //gbpf_call_map_ext(prog, map->gbpf_alloc_base, map->value_region.size, MAP);
-      ret = gbpf_encode_map_addr(gmap_addr_meta.cpu_slot, cpu, off);
+#endif
+      ret = gbpf_encode_map_addr(gmap_addr_meta.map_slot, gmap_addr_meta.cpu_slot, off);
     }
     else {
       ret = GBPF_MAP_BASE + off;

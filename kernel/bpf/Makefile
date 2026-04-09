@@ -7,6 +7,7 @@ endif
 CFLAGS_core.o += $(call cc-disable-warning, override-init) $(cflags-nogcse-yy)
 
 # JARA: add new file gbpf_ops.c
+obj-$(CONFIG_BPF_SYSCALL) += gbpf.o
 obj-$(CONFIG_BPF_SYSCALL) += gbpf_ops.o
 obj-$(CONFIG_BPF_SYSCALL) += gbpf_ctx_size.o
 obj-$(CONFIG_BPF_SYSCALL) += gbpf_trampoline.o

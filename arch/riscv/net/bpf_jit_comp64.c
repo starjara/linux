@@ -27,7 +27,7 @@ EXPORT_SYMBOL_GPL(gbpf_ready);
 /* JARA: Define macros */
 //#define LOG_E pr_info("[bpf_jit_comp64.c] Enter: %s\n", __func__)
 #define LOG_E
-#define GBPF_DEBUG 1
+//#define GBPF_DEBUG 1
 /* End of JARA */
 
 static const int regmap[] = {
@@ -253,7 +253,6 @@ static void __build_epilogue(bool is_tail_call, struct rv_jit_context *ctx)
 	
 	/* JARA: Restore HGATP and S11 */
 	if (gbpf_ready && ctx->prog->aux->gbpf_page) {
-	  emit(rv_nop(), ctx);
 	  
 	  /*
 	  // Restore HGATP from kernel SP
@@ -288,7 +287,6 @@ static void __build_epilogue(bool is_tail_call, struct rv_jit_context *ctx)
 	  emit_ld(RV_REG_S10, GBPF_STK_SAVE_S10, RV_REG_S10, ctx);
 
 	  
-	  emit(rv_nop(), ctx);
 	}
 	/* End of JARA */
 
@@ -1605,10 +1603,10 @@ out_be:
 		      u64 gbpf_addr;
 		      u64 off = PAGE_ALIGN(imm64) - imm64;
 		      
-		      if (!gbpf_try_encode_kernel_map_ptr(PAGE_ALIGN(imm64), ctx->prog, &gbpf_addr)) {
+		      if (!gbpf_try_encode_kernel_map_ptr(imm64, ctx->prog, &gbpf_addr)) {
 #ifdef GBPF_DEBUG
 			pr_info("gbpf jit: map kptr %llx -> gbpf %llx\n",
-				imm64, gbpf_addr);
+				imm64, gbpf_addr-off);
 #endif
 			imm64 = gbpf_addr;
 			imm64 -= off;
@@ -1652,9 +1650,12 @@ out_be:
 	      /* JARA: check hlv.b */
 	      insns_start = ctx->ninsns;
 	      if (gbpf_ready) {
+
 		if (off != 0) 
 		  emit_addi(rs, rs, off, ctx);
+		
 		emit_hvmi(HLV_B, rd, rs, 0, ctx);
+		
 		if (off != 0) 
 		  emit_addi(rs, rs, -off, ctx);
 	      }
@@ -1688,14 +1689,20 @@ out_be:
 			  // pr_info("HLV_H MAP value direct access\n");
 			  if (off != 0) 
 			    emit_addi(rs, rs, off, ctx);
+
 			  emit_hvmi(HLV_H, rd, rs, 0, ctx);
+			  
 			  if (off != 0) 
 			    emit_addi(rs, rs, -off, ctx);
 			}
 			else {
-			  emit_addi(rs, rs, off, ctx);
+			  if (off != 0) 
+			    emit_addi(rs, rs, off, ctx);
+
 			  emit_hvmi(HLV_H, rd, rs, 0, ctx);
-			  emit_addi(rs, rs, -off, ctx);
+			  
+			  if (off != 0) 
+			    emit_addi(rs, rs, -off, ctx);
 			}
 		      }
 		      else {
@@ -1772,14 +1779,18 @@ out_be:
 
 			      if (off != 0) 
 				emit_addi(rs, rs, off, ctx);
+
 			      emit_hvmi(HLV_D, rd, rs, 0, ctx);
+
 			      if (off != 0) 
 				emit_addi(rs, rs, -off, ctx);
 			    }
 			    else {
 			      if (off != 0) 
 				emit_addi(rs, rs, off, ctx);
+
 			      emit_hvmi(HLV_D, rd, rs, 0, ctx);
+			      
 			      if (off != 0) 
 				emit_addi(rs, rs, -off, ctx);
 			    }
@@ -1852,10 +1863,11 @@ out_be:
 		  if(gbpf_ready) {
 		    if (off != 0) 
 		      emit_addi(rd, rd, off, ctx);
+
 		    emit_hvmi(HSV_D, 0, rd, rs, ctx);
+
 		    if (off != 0) 
 		      emit_addi(rd, rd, -off, ctx);
-		    emit(rv_nop(), ctx);
 		  }
 		  else 
 		    emit_sd(rd, off, rs, ctx);
@@ -1874,15 +1886,13 @@ out_be:
 	    //emit(rv_sb(rd, off, rs), ctx);
 	    /* JARA: check hsv.b */
 	    if (gbpf_ready) {
-	      emit(rv_nop(), ctx);
-	      
 	      if (off != 0) 
 		emit_addi(rd, rd, off, ctx);
+
 	      emit_hvmi(HSV_B, 0, rd, rs, ctx);
+
 	      if (off != 0) 
 		emit_addi(rd, rd, -off, ctx);
-	      
-	      emit(rv_nop(), ctx);
 	    }
 	    else 
 	      emit(rv_sb(rd, off, rs), ctx);
@@ -1902,7 +1912,9 @@ out_be:
 	    if (gbpf_ready) {
 	      if (off != 0) 
 		emit_addi(rd, rd, off, ctx);
+
 	      emit_hvmi(HSV_H, 0, rd, rs, ctx);
+
 	      if (off != 0) 
 		emit_addi(rd, rd, -off, ctx);
 	    }
@@ -1924,7 +1936,9 @@ out_be:
 	    if (gbpf_ready) {
 	      if (off != 0) 
 		emit_addi(rd, rd, off, ctx);
+
 	      emit_hvmi(HSV_W, 0, rd, rs, ctx);
+
 	      if (off != 0) 
 		emit_addi(rd, rd, -off, ctx);
 	    }
@@ -1946,7 +1960,9 @@ out_be:
 		  if(gbpf_ready ) {
 		    if (off != 0) 
 		      emit_addi(rd, rd, off, ctx);
+
 		    emit_hvmi(HSV_D, 0, rd, rs, ctx);
+		    
 		    if (off != 0) 
 		      emit_addi(rd, rd, -off, ctx);
 		  }
@@ -2163,7 +2179,7 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 		    map, map->gbpf_alloc_base);
 #endif
 	    
-	    emit_imm(RV_REG_T0, (u64)(ctx->prog->aux->used_maps[0]), ctx);
+	    emit_imm(RV_REG_T0, (u64)(ctx->prog->aux->gbpf_maps), ctx);
 	    emit_sd(RV_REG_S10, GBPF_STK_MAP_BASE, RV_REG_T0, ctx);
 	  }
 

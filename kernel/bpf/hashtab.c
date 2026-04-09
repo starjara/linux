@@ -1701,7 +1701,9 @@ static void htab_map_free(struct bpf_map *map)
 	free_percpu(htab->extra_elems);
 	bpf_map_area_free(htab->buckets);
 	/* JARA Frist */
+#ifdef GBPF_DEBUG
 	pr_info("buckets free\n");
+#endif
 	/* End of JARA  */
 	bpf_mem_alloc_destroy(&htab->pcpu_ma);
 	bpf_mem_alloc_destroy(&htab->ma);
@@ -1710,9 +1712,14 @@ static void htab_map_free(struct bpf_map *map)
 	for (i = 0; i < HASHTAB_MAP_LOCK_COUNT; i++)
 		free_percpu(htab->map_locked[i]);
 	lockdep_unregister_key(&htab->lockdep_key);
-	bpf_map_area_free(htab);
+	//bpf_map_area_free(htab);
+
 	/* JARA Second */
+	htab_free_elem_region(htab);
+	free_page(htab);
+#ifdef GBPF_DEBUG
 	pr_info("htab free\n");
+#endif
 	/* End of JARA  */
 }
 

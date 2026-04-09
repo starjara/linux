@@ -2,9 +2,9 @@
 #include <linux/filter.h>
 #include <linux/gbpf.h>
 
-#define LOG_E pr_info("[gbpf_map_addr.c] Enter: %s\n", __func__)
-// #define LOG_E ;
-#define GBPF_DEBUG 1
+//#define LOG_E pr_info("[gbpf_map_addr.c] Enter: %s\n", __func__)
+#define LOG_E ;
+//#define GBPF_DEBUG 1
 
 int gbpf_init_prog_map_descs(struct bpf_prog *prog)
 {
@@ -89,13 +89,25 @@ int gbpf_try_encode_kernel_map_ptr(u64 kptr, struct bpf_prog *prog, u64 *out)
     pr_info("[GBPF]  check map[%u] percpu=%d\n",
 	    i, d->percpu);
 #endif
+
+    if (kptr == (u64)d->map) {
+#ifdef GBPF_DEBUG
+      pr_info("[GBPF]   MATCH map[%u] kptr : 0x%lx, map : %px\n",
+	      i, kptr, d->map);
+#endif
+      *out = gbpf_encode_map_addr(d->map_slot, 0, 0);
+
+      return 0;
+
+    }
     
     if (!d->percpu) {
 
 #ifdef GBPF_DEBUG
-      pr_info("[GBPF]   range: [%px - %px)\n",
+      pr_info("[GBPF]   range: [%px - %px), map : %px\n",
 	      (void *)d->base,
-	      (void *)(d->base + GBPF_MAP_WINDOW_SIZE));
+	      (void *)(d->base + GBPF_MAP_WINDOW_SIZE),
+	      d->map);
 #endif
       
       if (kptr >= d->base &&
@@ -109,6 +121,14 @@ int gbpf_try_encode_kernel_map_ptr(u64 kptr, struct bpf_prog *prog, u64 *out)
 	pr_info("[GBPF]   MATCH map[%u] off=0x%llx -> gbpf=0x%llx\n",
 		i, off, *out);
 #endif
+	
+	if (kptr == d->map) {
+#ifdef GBPF_DEBUG
+	pr_info("[GBPF]   MATCH map[%u] off=0x%llx -> gbpf=0x%llx\n",
+		i, off, *out);
+#endif
+	}
+	
 	return 0;
       }
     } else {
@@ -121,10 +141,11 @@ int gbpf_try_encode_kernel_map_ptr(u64 kptr, struct bpf_prog *prog, u64 *out)
 	  continue;
 
 #ifdef GBPF_DEBUG
-	pr_info("[GBPF]   cpu[%d] range: [%px - %px)\n",
+	pr_info("[GBPF]   cpu[%d] range: [%px - %px), map : %px\n",
 		cpu,
 		(void *)base,
-		(void *)(base + GBPF_CPU_WINDOW_SIZE));
+		(void *)(base + GBPF_CPU_WINDOW_SIZE), 
+		d->map);
 #endif
 	
 	if (kptr >= base &&
@@ -140,6 +161,10 @@ int gbpf_try_encode_kernel_map_ptr(u64 kptr, struct bpf_prog *prog, u64 *out)
 	  pr_info("[GBPF]   MATCH map[%u] cpu[%d] off=0x%llx -> gbpf=0x%llx\n",
 		  i, cpu, off, *out);
 #endif
+
+
+	  
+	  
 	  return 0;
 	}
       }
