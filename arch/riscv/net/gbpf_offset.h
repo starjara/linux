@@ -1,3 +1,0 @@
-#define GBPF_AUX_NEW_HGATP_OFF   0
-#define GBPF_AUX_OLD_HGATP_OFF   8
-#define GBPF_AUX_GUEST_CTX_OFF   16
