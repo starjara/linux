@@ -77,10 +77,6 @@ struct gbpf_page_region {
   bool allocated;
 };
 
-struct gbpf_region {
-	struct list_head entry;
-	struct gbpf_page_region region;
-};
 /* End of JARA */
 
 struct bpf_iter_seq_info {

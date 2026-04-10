@@ -603,9 +603,15 @@ static __always_inline u32 __bpf_prog_run(const struct bpf_prog *prog,
 		  void *sandboxed_ctx;
 		  sandboxed_ctx = gbpf_copy_ctx(ctx, prog);
 		  //ret = dfunc(sandboxed_ctx, prog->insnsi, prog->bpf_func);
+		  /* JARA : HGATP setup */
+		  
+		  /* End of JARA */
 		  ret = dfunc(ctx, prog->insnsi, prog->bpf_func);
 		  if (prog->aux->gbpf_shadow_pkt_page)
 		    __free_pages(prog->aux->gbpf_shadow_pkt_page, 0);
+		  /* JARA : HGATP restore */
+		  
+		  /* End of JARA */
 
 		}
 		else
@@ -624,9 +630,16 @@ static __always_inline u32 __bpf_prog_run(const struct bpf_prog *prog,
 		  void *sandboxed_ctx;
 		  sandboxed_ctx = gbpf_copy_ctx(ctx, prog);
 		  //ret = dfunc(sandboxed_ctx, prog->insnsi, prog->bpf_func);
+		  /* JARA : HGATP setup */
+		  
+		  /* End of JARA */
+
 		  ret = dfunc(ctx, prog->insnsi, prog->bpf_func);
 		  if (prog->aux->gbpf_shadow_pkt_page)
 		    __free_pages(prog->aux->gbpf_shadow_pkt_page, 0);
+		  /* JARA : HGATP restore */
+		  
+		  /* End of JARA */
 		}
 		else
 		  ret = dfunc(ctx, prog->insnsi, prog->bpf_func);

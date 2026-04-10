@@ -14,7 +14,8 @@
 #include "trace.h"
 
 /* JARA: Log print */
-#define LOG_E pr_info("[trace_syscalls.c] Enter: %s\n", __func__)
+// #define LOG_E pr_info("[trace_syscalls.c] Enter: %s\n", __func__)
+#define LOG_E ;
 /* End of JARA */
 
 static DEFINE_MUTEX(syscall_trace_lock);

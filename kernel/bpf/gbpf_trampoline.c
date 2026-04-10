@@ -5,9 +5,9 @@
 #include <linux/smp.h>
 #include "gbpf_trampoline.h"
 
-#define LOG_E pr_info("[gbpf_trampoline.c] Enter: %s\n", __func__)
-//#define LOG_E ;
-#define GBPF_DEBUG 1
+//#define LOG_E pr_info("[gbpf_trampoline.c] Enter: %s\n", __func__)
+#define LOG_E ;
+//#define GBPF_DEBUG 1
 
 typedef struct map_addr_meta {
   u32 map_slot;
@@ -55,7 +55,6 @@ static inline u64 gbpf_from_gbpf_space_to_kernel(const struct gbpf_helper_meta *
     pr_info("[GBPF] map[%u] base=%px\n",
 	    gmap_addr_meta.map_slot, (void *)d->base);
 #endif
-    //ret -= GBPF_MAP_BASE;
     if (ret < GBPF_MAP_BASE)
       ret = d->map;
     else {
@@ -112,8 +111,8 @@ static u64 gbpf_convert_helper_ret(u64 ret, struct gbpf_helper_meta *m)
   if (!ret)
     return ret;
 
-  if (ret >= 0xffffaf8000000000 && ret <= 0xffffaf9000000000) {
-    //struct bpf_map *map = (struct bpf_map *)m->map_base;
+  //  if (ret >= 0xffffaf8000000000 && ret <= 0xffffaf9000000000) {
+  if (virt_addr_valid(ret)) {
     struct gbpf_map_desc *map_desc = (struct gbpf_map_desc *)m->map_desc_base;
     struct gbpf_map_desc *d = &map_desc[gmap_addr_meta.map_slot];
     struct bpf_map *map = (struct bpf_map *)d->map;
@@ -121,22 +120,19 @@ static u64 gbpf_convert_helper_ret(u64 ret, struct gbpf_helper_meta *m)
     u64 off = ret - elem;
     
 #ifdef GBPF_DEBUG
-    //pr_info("[tramp] Tramptest ret_before = [0x%lx] %d\n", ret, *(u32 *)ret);
     pr_info("[tramp] gbpf_alloc_base : 0x%lx\n", elem);
     pr_info("[tramp] off : 0x%lx\n", off);
 #endif
     if (map->map_type == BPF_MAP_TYPE_PERCPU_ARRAY) {
       u32 cpu = raw_smp_processor_id();
       struct bpf_array *array = (struct bpf_array *)map;
-      off = off % PAGE_SIZE;
-#ifdef GBPF_DEBUG
-      pr_info("[tramp] percpu_off : 0x%lx\n", off);
-#endif
       u64 off2 =  ret - (u64) *per_cpu_ptr(array->pptrs, cpu);
+
 #ifdef GBPF_DEBUG
       pr_info("[tramp] percpu_off2 : 0x%lx\n", off2);
 #endif
-      ret = gbpf_encode_map_addr(gmap_addr_meta.map_slot, gmap_addr_meta.cpu_slot, off);
+      
+      ret = gbpf_encode_map_addr(gmap_addr_meta.map_slot, gmap_addr_meta.cpu_slot, off2);
     }
     else {
       ret = GBPF_MAP_BASE + off;

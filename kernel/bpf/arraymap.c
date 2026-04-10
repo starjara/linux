@@ -29,7 +29,7 @@
 	(BPF_F_NUMA_NODE | BPF_F_MMAPABLE | BPF_F_ACCESS_MASK | \
 	 BPF_F_PRESERVE_ELEMS | BPF_F_INNER_MAP)
 
-/* JARA : htab element alloc/free helpers */
+/* JARA : array element alloc/free helpers */
 static int array_alloc_elems(struct bpf_array **array, u64 array_size)
 {
   struct gbpf_page_region region;
@@ -55,12 +55,10 @@ static int array_alloc_elems(struct bpf_array **array, u64 array_size)
   region.vaddr = page_to_virt(region.page);
   if (!region.vaddr) {
     __free_pages(region.page, region.order);
-    //memset(region, 0, sizeof(*region));
     return -ENOMEM;
   }
   
   region.allocated = true;
-  //array->ptrs = region->vaddr
 
   *array = region.vaddr + PAGE_SIZE - offsetof(struct bpf_array, value);
   
@@ -77,9 +75,9 @@ static int array_alloc_elems(struct bpf_array **array, u64 array_size)
   return 0;
 }
 
-static void array_free_elem_region(struct bpf_array *htab)
+static void array_free_elem_region(struct bpf_array *array)
 {
-	struct gbpf_page_region *region = &htab->map.value_region;
+	struct gbpf_page_region *region = &array->map.value_region;
 
 	if (!region->allocated)
 		return;
@@ -88,7 +86,6 @@ static void array_free_elem_region(struct bpf_array *htab)
 		__free_pages(region->page, region->order);
 
 	memset(region, 0, sizeof(*region));
-	//htab->ptrs = NULL;
 }
 /* End of JARA */
 
@@ -251,60 +248,6 @@ static struct bpf_map *array_map_alloc(union bpf_attr *attr)
 	}
 
 	array_size = sizeof(*array);
-	/* JARA: Disjoint value and metadata */
-	// Check module 
-	/*
-	is_gbpf = gbpf_call_check_module();
-	if (is_gbpf) {
-	  total_elem_size = percpu ?
-	    __roundup_pow_of_two((u64)max_entries * sizeof(void *)) :
-	    __roundup_pow_of_two((u64)max_entries * elem_size);
-	
-	  // Meta data page + value page
-	  array_size = PAGE_ALIGN(sizeof(*array)) + PAGE_ALIGN(total_elem_size);
-#ifdef GBPF_DEBUG
-	  pr_info("array_size : 0x%llx\n", array_size);
-#endif
-	  
-	  // Alloc data memory 
-	  data = attr->map_flags & BPF_F_MMAPABLE ?
-	    bpf_map_area_mmapable_alloc(array_size, numa_node) :
-	    bpf_map_area_alloc(array_size, numa_node);
-	  
-	  if (!data)
-	    return ERR_PTR(-ENOMEM);
-	  
-	  // Change value base addr 
-	  array = data + PAGE_ALIGN(sizeof(struct bpf_array))
-	    - offsetof(struct bpf_array, value);
-
-	  // Set base addr
-	  array->map.gbpf_alloc_base = data;
-#ifdef GBPF_DEBUG
-	  pr_info("array : %px, map : %px, data : %px, elem_ptr_base : %px\n", array, &array->map, data, &array->value);
-#endif
-	  
-	  if (!array)
-	    return ERR_PTR(-ENOMEM);
-	  array->index_mask = index_mask;
-	  array->map.bypass_spec_v1 = bypass_spec_v1;
-	  
-	  // copy mandatory map attributes 
-	  bpf_map_init_from_attr(&array->map, attr);
-	  array->elem_size = elem_size;
-	  
-	  if (percpu && bpf_array_alloc_percpu(array)) {
-	    bpf_map_area_free(array);
-	    return ERR_PTR(-ENOMEM);
-	  }
-	  
-	  return &array->map;
-	}
-	else {
-	  array_size = sizeof(*array);
-	}
-	*/
-	/* End of JARA */
 
 	if (percpu) {
 	  //array_size += (u64) max_entries * sizeof(void *);
@@ -400,10 +343,6 @@ static int array_map_direct_value_addr(const struct bpf_map *map, u64 *imm,
 				       u32 off)
 {
 	struct bpf_array *array = container_of(map, struct bpf_array, map);
-
-	/* JARA: Check gbpf module */
-	//bool is_gbpf = gbpf_call_check_module();
-	/* End of JARA */
 
 	if (map->max_entries != 1)
 		return -ENOTSUPP;

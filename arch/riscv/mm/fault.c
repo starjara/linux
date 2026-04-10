@@ -23,7 +23,8 @@
 #include "../kernel/head.h"
 
 /* JARA: trap trace */
-#define LOG_E	pr_info("[mm/fault.c] %s", __func__);
+// #define LOG_E	pr_info("[mm/fault.c] %s", __func__);
+#define LOG_E ;
 /* End of JARA */
 	
 

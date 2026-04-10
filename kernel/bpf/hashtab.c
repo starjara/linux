@@ -429,10 +429,6 @@ static int prealloc_init(struct bpf_htab *htab)
 	if (err)
 	  return err;
 	
-	if (htab_is_percpu(htab))
-	  pr_info("PreCPU\n");
-	else
-	  pr_info("not per CPU\n");
 	/* End of JARA */
 	
 
