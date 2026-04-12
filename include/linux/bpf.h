@@ -1466,7 +1466,6 @@ struct bpf_prog_aux {
   /* JARA: bpf space pages */
   struct page *gpgd; // gbpf space pgd
   struct page *gbpf_page; // gbpf space leaf page
-  struct page *gbpf_map_page;
   struct page *gbpf_shadow_pkt_page;
   const void *orig_ctx;
   u32 vmid;

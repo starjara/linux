@@ -7,7 +7,7 @@
 
 //#define LOG_E pr_info("[gbpf_trampoline.c] Enter: %s\n", __func__)
 #define LOG_E ;
-#define GBPF_DEBUG 1
+//#define GBPF_DEBUG 1
 
 typedef struct map_addr_meta {
   u32 map_slot;

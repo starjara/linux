@@ -5,14 +5,6 @@
 #include <net/xdp.h>
 #include <linux/bpf.h>
 
-/* 네 현재 어셈블리 기준. 커널 버전에 따라 반드시 확인 필요 */
-#define GBPF_NETDEV_IFINDEX_OFF 224
-
-struct gbpf_fake_netdev {
-	u8 pad[GBPF_NETDEV_IFINDEX_OFF];
-	int ifindex;
-};
-
 static void *gbpf_copy_ctx_xdp(const struct xdp_buff *xdp,
 			       const struct bpf_prog *prog)
 {
@@ -27,11 +19,13 @@ static void *gbpf_copy_ctx_xdp(const struct xdp_buff *xdp,
 	if (!xdp || !prog || !prog->aux)
 		return NULL;
 
-	base = xdp->data_hard_start;
+	//base = xdp->data_hard_start;
+	base = xdp->data;
 	end = xdp->data_end;
 
 	if (!base || !end)
 		return NULL;
+
 
 	/* 1-page packet buffer만 지원 */
 	if ((unsigned long)end < (unsigned long)base)
@@ -43,12 +37,14 @@ static void *gbpf_copy_ctx_xdp(const struct xdp_buff *xdp,
 	if (base_off + copy_len > PAGE_SIZE)
 		return NULL;
 
-	shadow_pkt = page_address(prog->aux->gbpf_shadow_pkt_page);
+	shadow_pkt = page_to_virt(prog->aux->gbpf_shadow_pkt_page);
 	memcpy((char *)shadow_pkt + base_off, base, copy_len);
+
+	// Bug??
+	//pr_info("len : %lu\n", copy_len);
 
 	/* CTX Copy */
 	shadow_ctx = page_to_virt(prog->aux->gbpf_page);
-	memcpy(shadow_ctx, xdp, sizeof(*xdp));
 	shadow = shadow_ctx;
 
 	data_off = (unsigned long)xdp->data - (unsigned long)base;
@@ -72,8 +68,10 @@ static void *gbpf_copy_ctx_xdp(const struct xdp_buff *xdp,
 		shadow->data_meta = NULL;
 	}
 
+	/*
 	shadow->data_hard_start =
 		(void *)(uintptr_t)(GBPF_PKT_BASE + base_off);
+	*/
 
 	/*
 	 * xdp->rxq는 helper가 ifindex 등을 보게 될 수 있으므로
@@ -81,7 +79,7 @@ static void *gbpf_copy_ctx_xdp(const struct xdp_buff *xdp,
 	 */
 	if (xdp->rxq) {
 		struct xdp_rxq_info *shadow_rxq_host;
-		struct gbpf_fake_netdev *shadow_dev_host;
+		struct net_device *shadow_dev_host;
 		unsigned long rxq_guest, dev_guest;
 
 		rxq_guest = GBPF_CTX_BASE + sizeof(struct xdp_buff);
@@ -91,7 +89,7 @@ static void *gbpf_copy_ctx_xdp(const struct xdp_buff *xdp,
 			(struct xdp_rxq_info *)((char *)shadow_ctx +
 						sizeof(struct xdp_buff));
 		shadow_dev_host =
-			(struct gbpf_fake_netdev *)((char *)shadow_ctx +
+			(struct net_device *)((char *)shadow_ctx +
 						    sizeof(struct xdp_buff) +
 						    sizeof(struct xdp_rxq_info));
 

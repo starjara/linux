@@ -607,8 +607,6 @@ static __always_inline u32 __bpf_prog_run(const struct bpf_prog *prog,
 		  
 		  /* End of JARA */
 		  ret = dfunc(ctx, prog->insnsi, prog->bpf_func);
-		  if (prog->aux->gbpf_shadow_pkt_page)
-		    __free_pages(prog->aux->gbpf_shadow_pkt_page, 0);
 		  /* JARA : HGATP restore */
 		  
 		  /* End of JARA */
@@ -635,8 +633,6 @@ static __always_inline u32 __bpf_prog_run(const struct bpf_prog *prog,
 		  /* End of JARA */
 
 		  ret = dfunc(ctx, prog->insnsi, prog->bpf_func);
-		  if (prog->aux->gbpf_shadow_pkt_page)
-		    __free_pages(prog->aux->gbpf_shadow_pkt_page, 0);
 		  /* JARA : HGATP restore */
 		  
 		  /* End of JARA */
