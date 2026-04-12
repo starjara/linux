@@ -252,7 +252,7 @@ static void __build_epilogue(bool is_tail_call, struct rv_jit_context *ctx)
 	
 	
 	/* JARA: Restore HGATP and S11 */
-	if (gbpf_ready && ctx->prog->aux->gbpf_page) {
+	if (gbpf_ready && ctx->prog->aux && ctx->prog->aux->gbpf_page) {
 	  
 	  /*
 	   * S10 is still the fixed trampoline/frame base here.
@@ -1497,6 +1497,8 @@ out_be:
 		 * S10: Kernel based frame pointer 
 		 */
 		if (gbpf_ready && insn->src_reg == 0) {
+		  if (!ctx->prog->aux->gbpf_page)
+		    return ret;
 
 		  // S11 has call taget offset
 		  emit_imm(RV_REG_S11, insn->imm, ctx);
@@ -1561,7 +1563,7 @@ out_be:
 		  //emit_imm(rd, imm64, ctx);
 
 		  /* JARA: Maybe map base addr */
-		  if (gbpf_ready)  {
+		  if (gbpf_ready && ctx->prog->aux && ctx->prog->aux->gbpf_page) {
 		    //if (imm64 >= 0xff60000000000000ULL) {
 		    if (virt_addr_valid(imm64)) {
 		      u64 gbpf_addr;
@@ -1613,7 +1615,7 @@ out_be:
 	      */
 	      /* JARA: check hlv.b */
 	      insns_start = ctx->ninsns;
-	      if (gbpf_ready) {
+	      if (gbpf_ready && ctx->prog->aux && ctx->prog->aux->gbpf_page) {
 		if (off != 0) 
 		  emit_addi(rs, rs, off, ctx);
 		
@@ -1647,7 +1649,7 @@ out_be:
 		      */
 		      /* JARA: check hlv.h */
 		      insns_start = ctx->ninsns;
-		      if (gbpf_ready) {
+		      if (gbpf_ready && ctx->prog->aux && ctx->prog->aux->gbpf_page) {
 			if (off != 0) 
 			  emit_addi(rs, rs, off, ctx);
 			
@@ -1681,7 +1683,7 @@ out_be:
 			  */
 				/* JARA: check hlv.w */
 				insns_start = ctx->ninsns;
-				if (gbpf_ready) {
+				if (gbpf_ready && ctx->prog->aux && ctx->prog->aux->gbpf_page) {
 				  if (off != 0) 
 				    emit_addi(rs, rs, off, ctx);
 
@@ -1716,7 +1718,7 @@ out_be:
 			  */	
 			  /* JARA: check hlv.d */
 			  insns_start = ctx->ninsns;
-			  if (gbpf_ready) {
+			  if (gbpf_ready && ctx->prog->aux && ctx->prog->aux->gbpf_page) {
 			    if (off != 0) 
 			      emit_addi(rs, rs, off, ctx);
 			    
@@ -1815,7 +1817,7 @@ out_be:
 	  if (is_12b_int(off)) {
 	    //emit(rv_sb(rd, off, rs), ctx);
 	    /* JARA: check hsv.b */
-	    if (gbpf_ready) {
+	    if (gbpf_ready && ctx->prog->aux && ctx->prog->aux->gbpf_page) {
 	      if (off != 0) 
 		emit_addi(rd, rd, off, ctx);
 
@@ -1839,7 +1841,7 @@ out_be:
 	  if (is_12b_int(off)) {
 	    // emit(rv_sh(rd, off, rs), ctx);
 	    /* JARA: check hsv.h */
-	    if (gbpf_ready) {
+	    if (gbpf_ready && ctx->prog->aux && ctx->prog->aux->gbpf_page) {
 	      if (off != 0) 
 		emit_addi(rd, rd, off, ctx);
 
@@ -1863,7 +1865,7 @@ out_be:
 	    //emit_sw(rd, off, rs, ctx);
 		  
 	    /* JARA: ckech hsv.w */
-	    if (gbpf_ready) {
+	    if (gbpf_ready && ctx->prog->aux && ctx->prog->aux->gbpf_page) {
 	      if (off != 0) 
 		emit_addi(rd, rd, off, ctx);
 
@@ -1914,7 +1916,7 @@ out_be:
 			    BPF_SIZE(code) == BPF_DW, ctx);
 	  */
 	  /* JARA : Atomic */
-	  if (gbpf_ready) {
+	  if (gbpf_ready && ctx->prog->aux && ctx->prog->aux->gbpf_page) {
 	    u8 tmp = RV_REG_T0;
 	    
 	    // Need interrupt disable and enable?
@@ -1978,7 +1980,7 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 		mark_fp(ctx);
 
 	/* JARA: Add stack adjust for kernel stack pointer value */
-	if (gbpf_ready)
+	if (gbpf_ready && ctx->prog->aux && ctx->prog->aux->gbpf_page) 
 	  //stack_adjust += 16;
 	  stack_adjust += GBPF_TR_FRAME_SIZE;
 	/* End of JARA */
@@ -2075,8 +2077,8 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 	  emit_imm(RV_REG_T0, (u64)page_to_virt(ctx->prog->aux->gbpf_page), ctx);
 	  emit_sd(RV_REG_S10, GBPF_STK_CTX_BASE, RV_REG_T0, ctx);
 	  
-	  if (ctx->prog->aux->gbpf_pkt_page) {
-	    emit_imm(RV_REG_T0, (u64)page_to_virt(ctx->prog->aux->gbpf_pkt_page), ctx);
+	  if (ctx->prog->aux->gbpf_shadow_pkt_page) {
+	    emit_imm(RV_REG_T0, (u64)page_to_virt(ctx->prog->aux->gbpf_shadow_pkt_page), ctx);
 	    emit_sd(RV_REG_S10, GBPF_STK_PKT_BASE, RV_REG_T0, ctx);
 	  }
 	  

@@ -2682,7 +2682,16 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr, u32 uattr_size)
 	  gbpf_call_map(prog);
 	  prog->aux->vmid = gbpf_call_get_vmid();
 	  
-	  gbpf_init_prog_map_descs(prog);
+	  if (prog->type == BPF_PROG_TYPE_XDP || prog->type == BPF_PROG_TYPE_SOCKET_FILTER) {
+	    prog->aux->gbpf_shadow_pkt_page = alloc_pages(GFP_KERNEL | __GFP_ZERO, 0);
+	    gbpf_call_map_ext(prog,
+			      page_to_virt(prog->aux->gbpf_shadow_pkt_page),
+			      PAGE_SIZE,
+			      PKT, 0, 0);
+	  }
+	  
+	  if (prog->aux->used_map_cnt) 
+	    gbpf_init_prog_map_descs(prog);
 	}
 	/* End of JARA */
 

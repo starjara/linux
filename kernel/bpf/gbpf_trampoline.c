@@ -7,7 +7,7 @@
 
 //#define LOG_E pr_info("[gbpf_trampoline.c] Enter: %s\n", __func__)
 #define LOG_E ;
-//#define GBPF_DEBUG 1
+#define GBPF_DEBUG 1
 
 typedef struct map_addr_meta {
   u32 map_slot;
@@ -25,7 +25,7 @@ static inline u64 gbpf_from_gbpf_space_to_kernel(const struct gbpf_helper_meta *
   
   LOG_E;
 #ifdef GBPF_DEBUG
-  pr_info("\tBPF to kernel : %lx\n", arg);
+  pr_info("\tBefore BPF to kernel : %lx\n", arg);
 #endif
 
   if (arg == GBPF_CTX_BASE) {
@@ -64,7 +64,7 @@ static inline u64 gbpf_from_gbpf_space_to_kernel(const struct gbpf_helper_meta *
   }
   
 #ifdef GBPF_DEBUG 
-  pr_info("\tBPF to kernel : %lx\n", ret);
+  pr_info("\tAfter BPF to kernel : %lx\n", ret);
 #endif
   
   return ret;

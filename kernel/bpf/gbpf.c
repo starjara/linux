@@ -17,7 +17,6 @@ static void *gbpf_copy_ctx_xdp(const struct xdp_buff *xdp,
 			       const struct bpf_prog *prog)
 {
 	struct xdp_buff *shadow;
-	struct page *shadow_page;
 	void *shadow_pkt;
 	void *shadow_ctx;
 	void *base, *end;
@@ -44,22 +43,10 @@ static void *gbpf_copy_ctx_xdp(const struct xdp_buff *xdp,
 	if (base_off + copy_len > PAGE_SIZE)
 		return NULL;
 
-	shadow_page = alloc_pages(GFP_KERNEL | __GFP_ZERO, 0);
-	if (!shadow_page)
-		return NULL;
-
-	shadow_pkt = page_address(shadow_page);
+	shadow_pkt = page_address(prog->aux->gbpf_shadow_pkt_page);
 	memcpy((char *)shadow_pkt + base_off, base, copy_len);
 
-	err = gbpf_call_map_ext(prog,
-				(void *)((unsigned long)shadow_pkt & PAGE_MASK),
-				PAGE_SIZE,
-				PKT, 0, 0);
-	if (err) {
-		__free_pages(shadow_page, 0);
-		return NULL;
-	}
-
+	/* CTX Copy */
 	shadow_ctx = page_to_virt(prog->aux->gbpf_page);
 	memcpy(shadow_ctx, xdp, sizeof(*xdp));
 	shadow = shadow_ctx;
@@ -75,7 +62,6 @@ static void *gbpf_copy_ctx_xdp(const struct xdp_buff *xdp,
 		if ((unsigned long)xdp->data_meta < (unsigned long)base ||
 		    (unsigned long)xdp->data_meta >
 			    (unsigned long)xdp->data_end) {
-			__free_pages(shadow_page, 0);
 			return NULL;
 		}
 
@@ -126,7 +112,6 @@ static void *gbpf_copy_ctx_xdp(const struct xdp_buff *xdp,
 	 */
 	shadow->txq = NULL;
 
-	prog->aux->gbpf_shadow_pkt_page = shadow_page;
 	return (void *)(uintptr_t)GBPF_CTX_BASE;
 }
 
@@ -134,7 +119,6 @@ static void *gbpf_copy_ctx_skb(const struct sk_buff *skb,
 			       const struct bpf_prog *prog)
 {
 	struct sk_buff *shadow;
-	struct page *shadow_page;
 	void *shadow_pkt;
 	void *shadow_ctx;
 	u32 head_off, data_off, tail_off, end_off;
@@ -149,11 +133,7 @@ static void *gbpf_copy_ctx_skb(const struct sk_buff *skb,
 	if (skb_is_nonlinear(skb))
 		return NULL;
 
-	shadow_page = alloc_pages(GFP_KERNEL | __GFP_ZERO, 0);
-	if (!shadow_page)
-		return NULL;
-
-	shadow_pkt = page_address(shadow_page);
+	shadow_pkt = page_address(prog->aux->gbpf_shadow_pkt_page);
 
 	head_off = offset_in_page(skb->head);
 	data_off = skb->data - skb->head;
@@ -161,21 +141,12 @@ static void *gbpf_copy_ctx_skb(const struct sk_buff *skb,
 	end_off = skb_end_offset(skb);
 
 	if (head_off + end_off > PAGE_SIZE) {
-		__free_pages(shadow_page, 0);
 		return NULL;
 	}
 
 	memcpy((char *)shadow_pkt + head_off, skb->head, end_off);
 
-	err = gbpf_call_map_ext(prog,
-				(void *)((unsigned long)shadow_pkt & PAGE_MASK),
-				PAGE_SIZE,
-				PKT, 0, 0);
-	if (err) {
-		__free_pages(shadow_page, 0);
-		return NULL;
-	}
-
+	/* CTX Copy */
 	shadow_ctx = page_to_virt(prog->aux->gbpf_page);
 	memcpy(shadow_ctx, skb, sizeof(*skb));
 	shadow = shadow_ctx;
@@ -185,7 +156,6 @@ static void *gbpf_copy_ctx_skb(const struct sk_buff *skb,
 	shadow->tail = tail_off;
 	shadow->end = end_off;
 
-	prog->aux->gbpf_shadow_pkt_page = shadow_page;
 	return (void *)(uintptr_t)GBPF_CTX_BASE;
 }
 
