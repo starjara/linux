@@ -7,6 +7,28 @@
 
 // #define GBPF_DEBUG 1;
 
+static void *gbpf_pkt_page_base(const void *ptr)
+{
+	return (void *)((unsigned long)ptr & PAGE_MASK);
+}
+
+static int gbpf_map_pkt_page(const struct bpf_prog *prog, const void *pkt_ptr)
+{
+	void *pkt_page;
+	int err;
+
+	pkt_page = gbpf_pkt_page_base(pkt_ptr);
+	if (prog->aux->gaux->pkt_page == pkt_page)
+		return 0;
+
+	err = gbpf_call_map_ext(prog, pkt_page, PAGE_SIZE, PKT, 0, 0);
+	if (err)
+		return err;
+
+	prog->aux->gaux->pkt_page = pkt_page;
+	return 0;
+}
+
 static void *gbpf_copy_ctx_xdp(const struct xdp_buff *xdp,
 			       const struct bpf_prog *prog)
 {
