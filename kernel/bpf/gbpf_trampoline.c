@@ -36,13 +36,13 @@ static inline u64 gbpf_from_gbpf_space_to_kernel(const struct gbpf_aux *gaux, u6
     pr_info("CTX PAGE\n");
 #endif
     ret -= GBPF_CTX_BASE;
-    ret += page_to_virt(gaux->gbpf_page);
+    ret += (u64)page_to_virt(gaux->gbpf_page);
   } else if (GBPF_PKT_BASE <= arg && arg < GBPF_PKT_BASE + GBPF_PAGE_SIZE) {
 #ifdef GBPF_DEBUG
     pr_info("PKT PAGE\n");
 #endif
     ret -= GBPF_PKT_BASE;
-    ret += page_to_virt(gaux->pkt_page);
+    ret += (u64)gaux->pkt_page;
   } else if (GBPF_MAP_BASE - 0x1000 <= arg && arg < GBPF_MAP_BASE + GBPF_PAGE_SIZE) {
     map_desc = (struct gbpf_map_desc *)gaux->gbpf_maps;
 #ifdef GBPF_DEBUG
@@ -159,6 +159,7 @@ noinline u64 gbpf_helper_call_trampoline(u64 arg1, u64 arg2, u64 arg3, u64 arg4,
   pr_info("\tBPF_call_base : %px\n", (u8 *)__bpf_call_base);
   pr_info("\tTarget Call: %px\n", (void *)call_target);
   pr_info("\ttarget_imm : %d\n", (s32)imm);
+  pr_info("gaux : %px\n", gaux);
   pr_info("\tArgs : [%llx, %llx, %llx, %llx, %llx]\n",
 	  arg1, arg2, arg3, arg4, arg5);
 #endif

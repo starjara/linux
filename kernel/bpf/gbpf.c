@@ -5,6 +5,8 @@
 #include <net/xdp.h>
 #include <linux/bpf.h>
 
+#define GBPF_DEBUG 1;
+
 static void *gbpf_copy_ctx_xdp(const struct xdp_buff *xdp,
 			       const struct bpf_prog *prog)
 {
@@ -184,6 +186,10 @@ void *gbpf_copy_ctx(const void *ctx, const struct bpf_prog *prog)
 		return NULL;
 
 	prog->aux->gaux->orig_ctx = ctx;
+
+#ifdef GBPF_DEBUG
+	pr_info("prog->aux->gaux: %px\n", prog->aux->gaux);
+#endif
 
 	ctx_size = gbpf_ctx_size_map[prog->type];
 	if (ctx_size == 8)

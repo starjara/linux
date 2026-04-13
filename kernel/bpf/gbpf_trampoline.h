@@ -38,13 +38,13 @@ static __always_inline u64 *gbpf_read_gaux(struct gbpf_aux **gaux)
   u64 imm;
 
   asm volatile (
-		"mv %0, s9\n\t"
+		"mv %0, s10\n\t"
 		"mv %1, s11\n\t"
 		: "=r"(fp), "=r"(imm)
 		:
 		:);
 
-  *gaux = fp;
+  *gaux = *(u64 *)(fp + GBPF_STK_SAVE_S9);
 
   return imm;
 }

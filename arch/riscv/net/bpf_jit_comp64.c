@@ -260,13 +260,12 @@ static void __build_epilogue(bool is_tail_call, struct rv_jit_context *ctx)
 	   */
 	  emit_ld(RV_REG_S11, GBPF_STK_OLD_HGATP, RV_REG_S10, ctx);
 	  emit_csrw(0, RV_REG_S11, RV_CSR_HGATP, ctx);
-	  emit_hfence_gvma(RV_REG_ZERO, RV_REG_ZERO, ctx);
 	  
 	  /*
 	   * Restore saved S11 from frame slot.
 	   */
 	  emit_ld(RV_REG_S11, GBPF_STK_SAVE_S11, RV_REG_S10, ctx);
-	  emit_ld(RV_REG_S9, GBPF_STK_SAVE_S9, RV_REG_S10, ctx);
+	  // emit_ld(RV_REG_S9, GBPF_STK_SAVE_S9, RV_REG_S10, ctx);
 	  
 	  /*
 	   * Restore saved S10 last.
@@ -2058,7 +2057,7 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 	  // Backup S11 and S10 reg
 	  emit_sd(RV_REG_SP, GBPF_STK_SAVE_S11, RV_REG_S11, ctx);
 	  emit_sd(RV_REG_SP, GBPF_STK_SAVE_S10, RV_REG_S10, ctx);
-	  emit_sd(RV_REG_SP, GBPF_STK_SAVE_S9, RV_REG_S9, ctx);
+	  emit_sd(RV_REG_SP, GBPF_STK_SAVE_S9, RV_REG_A0, ctx);
 
 	  emit_addi(RV_REG_S10, RV_REG_SP, 0, ctx);   /* mv s10, sp */
 	  
@@ -2067,32 +2066,7 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 	  emit_sd(RV_REG_S10, GBPF_STK_OLD_HGATP, RV_REG_S11, ctx);
 
 	  /* Metadata Setup */
-	  /*
-	  emit_sd(RV_REG_S10, GBPF_ORG_CTX, RV_REG_A0, ctx);  
-
-	  emit_imm(RV_REG_T0, (u64)page_to_virt(ctx->prog->aux->gaux->gbpf_page), ctx);
-	  emit_sd(RV_REG_S10, GBPF_STK_CTX_BASE, RV_REG_T0, ctx);
-	  
-	  if (ctx->prog->aux->gbpf_shadow_pkt_page) {
-	    emit_imm(RV_REG_T0, (u64)page_to_virt(ctx->prog->aux->gbpf_shadow_pkt_page), ctx);
-	    emit_sd(RV_REG_S10, GBPF_STK_PKT_BASE, RV_REG_T0, ctx);
-	  }
-	  
-	    
-	  if (ctx->prog->aux->used_map_cnt) {
-
-#ifdef GBPF_DEBUG
-	    struct bpf_map *map = (struct bpf_map *)ctx->prog->aux->used_maps[0];
-	    pr_info("prog->aux->used_maps : %px, %px\n", 
-		    map, map->gbpf_alloc_base);
-#endif
-	    
-	    emit_imm(RV_REG_T0, (u64)(ctx->prog->aux->gaux->gbpf_maps), ctx);
-	    emit_sd(RV_REG_S10, GBPF_STK_MAP_BASE, RV_REG_T0, ctx);
-	  }
-	  */ 
-
-	  emit_mv(RV_REG_S9, RV_REG_A0, ctx);
+	  //emit_addi(RV_REG_S9, RV_REG_A0, 0, ctx);
 	  
 	  emit_imm(RV_REG_A0, GBPF_CTX_BASE, ctx);
 
@@ -2111,15 +2085,6 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 	  if (bpf_stack_adjust) {
 	    ctx->prog->aux->bpf_stack_adjust = bpf_stack_adjust;
 	  }
-
-	  // Test code
-	  /*
-	  emit_addi(RV_REG_S5, RV_REG_S5, -8, ctx);
-	  emit_hvmi(HSV_D, 0, RV_REG_S5, RV_REG_S5, ctx);
-	  emit_hvmi(HLV_D, RV_REG_S5, RV_REG_S5, 0, ctx);
-	  emit_addi(RV_REG_S5, RV_REG_S5, 8, ctx);
-	  */
-	  
 	}
 	/* End of JARA */
 
