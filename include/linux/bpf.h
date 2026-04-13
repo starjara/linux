@@ -83,6 +83,10 @@ struct gbpf_aux {
   void *pkt_page;
   const void *orig_ctx;
   struct gbpf_map_desc *gbpf_maps;
+  
+  const struct xdp_rxq_info *cached_xdp_rxq;
+  int cached_xdp_ifindex;
+
 };
 /* End of JARA */
 
