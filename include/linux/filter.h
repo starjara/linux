@@ -599,18 +599,10 @@ static __always_inline u32 __bpf_prog_run(const struct bpf_prog *prog,
 		//ret = dfunc(ctx, prog->insnsi, prog->bpf_func);
 		
 		/* JARA: copy ctx, call dfunc, delete ctx  */
-		if (prog->aux->gpgd != NULL) {
+		if (prog->aux->gaux->gpgd != NULL) {
 		  void *sandboxed_ctx;
 		  sandboxed_ctx = gbpf_copy_ctx(ctx, prog);
-		  //ret = dfunc(sandboxed_ctx, prog->insnsi, prog->bpf_func);
-		  /* JARA : HGATP setup */
-		  
-		  /* End of JARA */
-		  ret = dfunc(ctx, prog->insnsi, prog->bpf_func);
-		  /* JARA : HGATP restore */
-		  
-		  /* End of JARA */
-
+		  ret = dfunc(sandboxed_ctx, prog->insnsi, prog->bpf_func);
 		}
 		else
 		  ret = dfunc(ctx, prog->insnsi, prog->bpf_func);
@@ -624,18 +616,10 @@ static __always_inline u32 __bpf_prog_run(const struct bpf_prog *prog,
 	} else {
 	  // ret = dfunc(ctx, prog->insnsi, prog->bpf_func);
 		/* JARA: copy ctx, call dfunc, delete ctx  */
-		if (prog->aux->gpgd != NULL) {
+		if (prog->aux->gaux->gpgd != NULL) {
 		  void *sandboxed_ctx;
 		  sandboxed_ctx = gbpf_copy_ctx(ctx, prog);
-		  //ret = dfunc(sandboxed_ctx, prog->insnsi, prog->bpf_func);
-		  /* JARA : HGATP setup */
-		  
-		  /* End of JARA */
-
-		  ret = dfunc(ctx, prog->insnsi, prog->bpf_func);
-		  /* JARA : HGATP restore */
-		  
-		  /* End of JARA */
+		  ret = dfunc(sandboxed_ctx, prog->insnsi, prog->bpf_func);
 		}
 		else
 		  ret = dfunc(ctx, prog->insnsi, prog->bpf_func);

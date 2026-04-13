@@ -5,9 +5,9 @@
 #include <linux/smp.h>
 #include "gbpf_trampoline.h"
 
-//#define LOG_E pr_info("[gbpf_trampoline.c] Enter: %s\n", __func__)
-#define LOG_E ;
-//#define GBPF_DEBUG 1
+#define LOG_E pr_info("[gbpf_trampoline.c] Enter: %s\n", __func__)
+//#define LOG_E ;
+#define GBPF_DEBUG 1
 
 typedef struct map_addr_meta {
   u32 map_slot;
@@ -17,7 +17,7 @@ typedef struct map_addr_meta {
 
 map_addr_meta gmap_addr_meta;
 
-static inline u64 gbpf_from_gbpf_space_to_kernel(const struct gbpf_helper_meta *m, u64 arg)
+static inline u64 gbpf_from_gbpf_space_to_kernel(const struct gbpf_aux *gaux, u64 arg)
 {
   u64 ret = arg;
 
@@ -29,22 +29,22 @@ static inline u64 gbpf_from_gbpf_space_to_kernel(const struct gbpf_helper_meta *
 #endif
 
   if (arg == GBPF_CTX_BASE) {
-    ret = m->orig_ctx;
+    ret = gaux->orig_ctx;
   }
   else if (GBPF_CTX_BASE <= arg && arg < GBPF_CTX_BASE + GBPF_PAGE_SIZE) {
 #ifdef GBPF_DEBUG
     pr_info("CTX PAGE\n");
 #endif
     ret -= GBPF_CTX_BASE;
-    ret += m->ctx_base;
+    ret += page_to_virt(gaux->gbpf_page);
   } else if (GBPF_PKT_BASE <= arg && arg < GBPF_PKT_BASE + GBPF_PAGE_SIZE) {
 #ifdef GBPF_DEBUG
     pr_info("PKT PAGE\n");
 #endif
     ret -= GBPF_PKT_BASE;
-    ret += m->pkt_base;
+    ret += page_to_virt(gaux->pkt_page);
   } else if (GBPF_MAP_BASE - 0x1000 <= arg && arg < GBPF_MAP_BASE + GBPF_PAGE_SIZE) {
-    map_desc = (struct gbpf_map_desc *)m->map_desc_base;
+    map_desc = (struct gbpf_map_desc *)gaux->gbpf_maps;
 #ifdef GBPF_DEBUG
     pr_info("MAP PAGE\n");
 #endif
@@ -70,7 +70,7 @@ static inline u64 gbpf_from_gbpf_space_to_kernel(const struct gbpf_helper_meta *
   return ret;
 }
 
-static u64 gbpf_call_helper_generic(struct gbpf_helper_meta *meta, u64 call_target,
+static u64 gbpf_call_helper_generic(struct gbpf_aux *gaux, u64 call_target,
 			 u64 arg1, u64 arg2, u64 arg3,
 			 u64 arg4, u64 arg5)
 {
@@ -81,7 +81,7 @@ static u64 gbpf_call_helper_generic(struct gbpf_helper_meta *meta, u64 call_targ
 	LOG_E;
 	
 #ifdef GBPF_DEBUG
-	pr_info("Orig_ctx : 0x%lx", meta->orig_ctx); 
+	pr_info("Orig_ctx : 0x%lx", gaux->orig_ctx); 
 #endif
 	
 	marshaled[0] = arg1;
@@ -91,7 +91,7 @@ static u64 gbpf_call_helper_generic(struct gbpf_helper_meta *meta, u64 call_targ
 	marshaled[4] = arg5;
 	
 	for (int i=0; i<5; i++) {
-	  marshaled[i] = gbpf_from_gbpf_space_to_kernel(meta, marshaled[i]);
+	  marshaled[i] = gbpf_from_gbpf_space_to_kernel(gaux, marshaled[i]);
 	}
 	
 #ifdef GBPF_DEBUG
@@ -104,7 +104,7 @@ static u64 gbpf_call_helper_generic(struct gbpf_helper_meta *meta, u64 call_targ
 
 
 
-static u64 gbpf_convert_helper_ret(u64 ret, struct gbpf_helper_meta *m)
+static u64 gbpf_convert_helper_ret(u64 ret, struct gbpf_aux *gaux)
 {
   LOG_E;
   
@@ -113,7 +113,7 @@ static u64 gbpf_convert_helper_ret(u64 ret, struct gbpf_helper_meta *m)
 
   //  if (ret >= 0xffffaf8000000000 && ret <= 0xffffaf9000000000) {
   if (virt_addr_valid(ret)) {
-    struct gbpf_map_desc *map_desc = (struct gbpf_map_desc *)m->map_desc_base;
+    struct gbpf_map_desc *map_desc = (struct gbpf_map_desc *)gaux->gbpf_maps;
     struct gbpf_map_desc *d = &map_desc[gmap_addr_meta.map_slot];
     struct bpf_map *map = (struct bpf_map *)d->map;
     u64 elem = (u64)map->gbpf_alloc_base;
@@ -145,34 +145,34 @@ static u64 gbpf_convert_helper_ret(u64 ret, struct gbpf_helper_meta *m)
 
 noinline u64 gbpf_helper_call_trampoline(u64 arg1, u64 arg2, u64 arg3, u64 arg4, u64 arg5)
 {
-  struct gbpf_helper_meta meta;
+  struct gbpf_aux *gaux;
   u64 call_target;
+  u64 imm;
   u64 ret;
 
-  meta = gbpf_read_helper_meta();
-  call_target = (u64)((u8 *)__bpf_call_base + (s32)meta.call_imm);
+  imm = gbpf_read_gaux(&gaux);
+  call_target = (u64)((u8 *)__bpf_call_base + (s32)imm);
 
   LOG_E;
   
 #ifdef GBPF_DEBUG
   pr_info("\tBPF_call_base : %px\n", (u8 *)__bpf_call_base);
   pr_info("\tTarget Call: %px\n", (void *)call_target);
-  pr_info("\ttarget_imm : %d\n", (s32)meta.call_imm);
-  pr_info("\tprog_type  : %llu\n", meta.prog_type);
+  pr_info("\ttarget_imm : %d\n", (s32)imm);
   pr_info("\tArgs : [%llx, %llx, %llx, %llx, %llx]\n",
 	  arg1, arg2, arg3, arg4, arg5);
 #endif
 
 
   // ToDo : Save map ptr metadata and use it for return addr convert
-  ret = gbpf_call_helper_generic(&meta, call_target,
+  ret = gbpf_call_helper_generic(gaux, call_target,
 			      arg1, arg2, arg3, arg4, arg5);
   
 #ifdef GBPF_DEBUG
   pr_info("[GBPF] Tramptest ret_before = 0x%lx\n", ret);
 #endif
 
-  ret = gbpf_convert_helper_ret(ret, &meta);
+  ret = gbpf_convert_helper_ret(ret, gaux);
 
 #ifdef GBPF_DEBUG
   pr_info("[GBPF] Tramptest ret_after = 0x%lx\n", ret);

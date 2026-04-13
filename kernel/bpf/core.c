@@ -162,6 +162,10 @@ struct bpf_prog *bpf_prog_alloc(unsigned int size, gfp_t gfp_extra_flags)
 		pstats = per_cpu_ptr(prog->stats, cpu);
 		u64_stats_init(&pstats->syncp);
 	}
+	
+	/* JARA : Alloc gbpf aux */
+	prog->aux->gaux = kzalloc(sizeof(struct gbpf_aux), bpf_memcg_flags(GFP_KERNEL | gfp_extra_flags));
+	/* End of JARA */
 	return prog;
 }
 EXPORT_SYMBOL_GPL(bpf_prog_alloc);
@@ -2577,15 +2581,16 @@ static void bpf_prog_free_deferred(struct work_struct *work)
 	aux = container_of(work, struct bpf_prog_aux, work);
 
         /* JARA: Insert destroy pgtable */
-	if (aux->gpgd) {
+	if (aux->gaux->gpgd) {
 	  gbpf_call_destroy_pgtable(aux->prog);
 	  
 	  if (aux->prog->type == BPF_PROG_TYPE_XDP || aux->prog->type == BPF_PROG_TYPE_SOCKET_FILTER)
 	    __free_pages(aux->gbpf_shadow_pkt_page, 0);
 
 	  if (aux->used_map_cnt)
-	    kfree(aux->gbpf_maps);
+	    kfree(aux->gaux->gbpf_maps);
 	}
+	kfree(aux->gaux);
 	/* End of JARA */
 	
 #ifdef CONFIG_BPF_SYSCALL

@@ -15,10 +15,10 @@ int gbpf_init_prog_map_descs(struct bpf_prog *prog)
   if (!prog || !prog->aux || !prog->aux->used_map_cnt)
     return 0;
   
-  prog->aux->gbpf_maps = kcalloc(prog->aux->used_map_cnt,
-				 sizeof(*prog->aux->gbpf_maps),
+  prog->aux->gaux->gbpf_maps = kcalloc(prog->aux->used_map_cnt,
+				 sizeof(*prog->aux->gaux->gbpf_maps),
 				 GFP_KERNEL);
-  if (!prog->aux->gbpf_maps)
+  if (!prog->aux->gaux->gbpf_maps)
     return -ENOMEM;
 
 #ifdef GBPF_DEBUG
@@ -28,7 +28,7 @@ int gbpf_init_prog_map_descs(struct bpf_prog *prog)
   
   for (i = 0; i < prog->aux->used_map_cnt; i++) {
     struct bpf_map *map = prog->aux->used_maps[i];
-    struct gbpf_map_desc *d = &prog->aux->gbpf_maps[i];
+    struct gbpf_map_desc *d = &prog->aux->gaux->gbpf_maps[i];
     int cpu;
     
     d->map = map;
@@ -75,7 +75,7 @@ int gbpf_try_encode_kernel_map_ptr(u64 kptr, struct bpf_prog *prog, u64 *out)
 
   LOG_E;
 
-  if (!prog || !prog->aux || !prog->aux->gbpf_maps || !out)
+  if (!prog || !prog->aux || !prog->aux->gaux->gbpf_maps || !out)
     return -EINVAL;
   
 #ifdef GBPF_DEBUG
@@ -83,7 +83,7 @@ int gbpf_try_encode_kernel_map_ptr(u64 kptr, struct bpf_prog *prog, u64 *out)
 #endif
   
   for (i = 0; i < prog->aux->used_map_cnt; i++) {
-    struct gbpf_map_desc *d = &prog->aux->gbpf_maps[i];
+    struct gbpf_map_desc *d = &prog->aux->gaux->gbpf_maps[i];
 
 #ifdef GBPF_DEBUG
     pr_info("[GBPF]  check map[%u] percpu=%d\n",
