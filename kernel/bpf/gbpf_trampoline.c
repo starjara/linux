@@ -16,8 +16,6 @@ typedef struct map_addr_meta {
   bool valid;
 } map_addr_meta;
 
-map_addr_meta gmap_addr_meta;
-
 static inline u64 gbpf_from_gbpf_space_to_kernel(const struct gbpf_aux *gaux, u64 arg, map_addr_meta *meta)
 {
   u64 ret = arg;
@@ -80,7 +78,6 @@ static u64 gbpf_call_helper_generic(struct gbpf_aux *gaux, u64 call_target,
 				    map_addr_meta *meta)
 {
   gbpf_helper_fn_t	fn;
-  u64			marshaled[5];
   u64			ret;
   
   LOG_E;
@@ -89,23 +86,18 @@ static u64 gbpf_call_helper_generic(struct gbpf_aux *gaux, u64 call_target,
   pr_info("Orig_ctx : 0x%lx", gaux->orig_ctx); 
 #endif
 	
-  marshaled[0] = arg1;
-  marshaled[1] = arg2;
-  marshaled[2] = arg3;
-  marshaled[3] = arg4;
-  marshaled[4] = arg5;
-	
-  for (int i=0; i<5; i++) {
-    if (marshaled[i])
-      marshaled[i] = gbpf_from_gbpf_space_to_kernel(gaux, marshaled[i], meta);
-  }
+  arg1 = gbpf_from_gbpf_space_to_kernel(gaux, arg1, meta);
+  arg2 = gbpf_from_gbpf_space_to_kernel(gaux, arg2, meta);
+  arg3 = gbpf_from_gbpf_space_to_kernel(gaux, arg3, meta);
+  arg4 = gbpf_from_gbpf_space_to_kernel(gaux, arg4, meta);
+  arg5 = gbpf_from_gbpf_space_to_kernel(gaux, arg5, meta);
 	
 #ifdef GBPF_DEBUG
   pr_info("Arg marshaling done\n");
 #endif
 
   fn = (gbpf_helper_fn_t)(unsigned long)call_target;
-  return fn(marshaled[0], marshaled[1], marshaled[2], marshaled[3], marshaled[4]);
+  return fn(arg1, arg2, arg3, arg4, arg5);
 }
 
 
@@ -122,24 +114,34 @@ static u64 gbpf_convert_helper_ret(u64 ret, struct gbpf_aux *gaux, const map_add
     struct gbpf_map_desc *d = &map_desc[meta->map_slot];
     struct bpf_map *map = (struct bpf_map *)d->map;
     u64 elem = (u64)map->gbpf_alloc_base;
-    u64 off = ret - elem;
+    u64 off;
     
 #ifdef GBPF_DEBUG
     pr_info("[tramp] gbpf_alloc_base : 0x%lx\n", elem);
-    pr_info("[tramp] off : 0x%lx\n", off);
 #endif
     if (map->map_type == BPF_MAP_TYPE_PERCPU_ARRAY) {
-      u32 cpu = raw_smp_processor_id();
       struct bpf_array *array = (struct bpf_array *)map;
-      u64 off2 =  ret - (u64) *per_cpu_ptr(array->pptrs, cpu);
+      u64 cpu_base = (u64)*per_cpu_ptr(array->pptrs, meta->cpu_slot);
+
+      if (ret < cpu_base)
+	return ret;
+
+      off = ret - cpu_base;
+      
+      if (off >= GBPF_CPU_WINDOW_SIZE)
+	return ret;
 
 #ifdef GBPF_DEBUG
-      pr_info("[tramp] percpu_off2 : 0x%lx\n", off2);
+      pr_info("[tramp] percpu_off : 0x%lx\n", off);
 #endif
       
-      ret = gbpf_encode_map_addr(meta->map_slot, meta->cpu_slot, off2);
+      ret = gbpf_encode_map_addr(meta->map_slot, meta->cpu_slot, off);
     }
     else {
+      off = ret - elem;
+#ifdef GBPF_DEBUG
+      pr_info("[tramp] off : 0x%lx\n", off);
+#endif
       ret = GBPF_MAP_BASE + off;
     }
   }
