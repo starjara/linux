@@ -33,21 +33,19 @@ static void *gbpf_copy_ctx_xdp(const struct xdp_buff *xdp,
 			       const struct bpf_prog *prog)
 {
   struct xdp_buff *shadow;
-  void *shadow_ctx;
   void *pkt_page, *end;
   u32 data_off, end_off, meta_off;
   int err;
   
-#ifdef GBPF_DEBUG
-  pr_info("XDP Packet addr : %px\n", xdp->data);
-  pr_info("XDP Packet_hard addr : %px\n", xdp->data_hard_start);
-#endif
-
-  pkt_page = gbpf_pkt_page_base(xdp->data);
+  pkt_page = xdp->data_hard_start;
   end = xdp->data_end;
   
-  if (!pkt_page || !end)
-    return NULL;
+#ifdef GBPF_DEBUG
+  pr_info("XDP Packet_hard addr : %px\n", xdp->data_hard_start);
+  pr_info("XDP Packet addr : %px\n", xdp->data);
+  pr_info("XDP Packet end  : %px\n", xdp->data_end);
+  pr_info("XDP Packet len  : %px\n", end - xdp->data);
+#endif
 
   /* 1-page packet buffer */
   if ((unsigned long)end < (unsigned long)xdp->data) {
@@ -59,23 +57,26 @@ static void *gbpf_copy_ctx_xdp(const struct xdp_buff *xdp,
     pr_warn("[GBPF] Packet over the page boundary\n");
     return NULL;
   }	
-  
+
+  data_off = (unsigned long)xdp->data - (unsigned long)pkt_page;
+  end_off = (unsigned long)xdp->data_end - (unsigned long)pkt_page;
+ 
   err = gbpf_map_pkt_page(prog, xdp->data);
+  
   if (err) {
     pr_warn("[GBPF] Mapping failed\n");
     return NULL;
   }
 
   /* CTX Copy */
-  shadow_ctx = page_to_virt(prog->aux->gaux->gbpf_page);
-  shadow = shadow_ctx;
+  shadow = page_to_virt(prog->aux->gaux->gbpf_page);
   
-  data_off = (unsigned long)xdp->data - (unsigned long)pkt_page;
-  end_off = (unsigned long)xdp->data_end - (unsigned long)pkt_page;
-
   shadow->data = (void *)(uintptr_t)(GBPF_PKT_BASE + data_off);
   shadow->data_end = (void *)(uintptr_t)(GBPF_PKT_BASE + end_off);
-  
+
+  shadow->data_hard_start = (void *)(uintptr_t)GBPF_PKT_BASE;
+  shadow->frame_sz = xdp->frame_sz;
+ 
   if (xdp->data_meta) {
     if ((unsigned long)xdp->data_meta < (unsigned long)pkt_page ||
 	(unsigned long)xdp->data_meta >
@@ -87,6 +88,12 @@ static void *gbpf_copy_ctx_xdp(const struct xdp_buff *xdp,
   } else {
     shadow->data_meta = NULL;
   }
+
+#ifdef GBPF_DEBUG
+  pr_info("CTX Packet addr : %px\n", shadow->data);
+  pr_info("CTX Packet end  : %px\n", shadow->data_end);
+  pr_info("CTX Packet len  : %px\n", shadow->data_end - shadow->data);
+#endif
   
   /*
    * xdp->rxq는 helper가 ifindex 등을 보게 될 수 있으므로
@@ -94,27 +101,32 @@ static void *gbpf_copy_ctx_xdp(const struct xdp_buff *xdp,
    */
   if (xdp->rxq) {
     struct xdp_rxq_info *shadow_rxq_host;
-    struct net_device *shadow_dev_host;
+    //struct net_device *shadow_dev_host;
+    char *shadow_dev_host;
     unsigned long rxq_guest, dev_guest;
+    size_t dev_size = offsetof(struct net_device, ifindex) + sizeof(int);
     int ifindex = xdp->rxq->dev ? xdp->rxq->dev->ifindex : 0;
     
     rxq_guest = GBPF_CTX_BASE + sizeof(struct xdp_buff);
     dev_guest = rxq_guest + sizeof(struct xdp_rxq_info);
     
     shadow_rxq_host =
-      (struct xdp_rxq_info *)((char *)shadow_ctx +
+      (struct xdp_rxq_info *)((char *)shadow +
 			      sizeof(struct xdp_buff));
     shadow_dev_host =
-      (struct net_device *)((char *)shadow_ctx +
-			    sizeof(struct xdp_buff) +
-			    sizeof(struct xdp_rxq_info));
-    
+      (char *)shadow +
+      sizeof(struct xdp_buff) +
+      sizeof(struct xdp_rxq_info);
+  
     if (prog->aux->gaux->cached_xdp_rxq != xdp->rxq ||
 	prog->aux->gaux->cached_xdp_ifindex != ifindex) {
       *shadow_rxq_host = *xdp->rxq;
       shadow_rxq_host->dev = (struct net_device *)dev_guest;
       
-      shadow_dev_host->ifindex = ifindex;
+      memset(shadow_dev_host, 0, dev_size);
+      
+      *(int *)(shadow_dev_host + offsetof(struct net_device, ifindex)) =
+	ifindex;
       
       prog->aux->gaux->cached_xdp_rxq = xdp->rxq;
       prog->aux->gaux->cached_xdp_ifindex = ifindex;

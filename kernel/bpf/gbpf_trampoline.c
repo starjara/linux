@@ -9,6 +9,30 @@
 #define LOG_E ;
 //#define GBPF_DEBUG 1
 
+/* net/core/filter.c 쪽 internal helper들 */
+extern u64 bpf_skb_load_helper_8_no_cache(const struct sk_buff *skb, u64 off);
+extern u64 bpf_skb_load_helper_16_no_cache(const struct sk_buff *skb, u64 off);
+extern u64 bpf_skb_load_helper_32_no_cache(const struct sk_buff *skb, u64 off);
+
+extern u64 bpf_skb_load_helper_8(const struct sk_buff *skb, u64 off,
+                                 const void *data, u64 len);
+extern u64 bpf_skb_load_helper_16(const struct sk_buff *skb, u64 off,
+                                  const void *data, u64 len);
+extern u64 bpf_skb_load_helper_32(const struct sk_buff *skb, u64 off,
+                                  const void *data, u64 len);
+
+static __always_inline bool gbpf_is_internal_skb_load_helper(u64 target)
+{
+    return target == (u64)(unsigned long)&bpf_skb_load_helper_8_no_cache  ||
+           target == (u64)(unsigned long)&bpf_skb_load_helper_16_no_cache ||
+           target == (u64)(unsigned long)&bpf_skb_load_helper_32_no_cache ||
+           target == (u64)(unsigned long)&bpf_skb_load_helper_8           ||
+           target == (u64)(unsigned long)&bpf_skb_load_helper_16          ||
+           target == (u64)(unsigned long)&bpf_skb_load_helper_32;
+}
+
+/////////////////////////////// Internal helper fast path End
+
 typedef struct map_addr_meta {
   u32 map_slot;
   u32 cpu_slot;
@@ -28,7 +52,8 @@ static inline u64 gbpf_from_gbpf_space_to_kernel(const struct gbpf_aux *gaux, u6
 #endif
 
   if (arg == GBPF_CTX_BASE) {
-    ret = gaux->orig_ctx;
+    //ret = gaux->orig_ctx;
+    ret = page_to_virt(gaux->gbpf_page);
   }
   else if (GBPF_CTX_BASE <= arg && arg < GBPF_CTX_BASE + GBPF_PAGE_SIZE) {
 #ifdef GBPF_DEBUG
@@ -95,6 +120,9 @@ static u64 gbpf_call_helper_generic(struct gbpf_aux *gaux, u64 call_target,
 #ifdef GBPF_DEBUG
   pr_info("Arg marshaling done\n");
 #endif
+
+  if(gbpf_is_internal_skb_load_helper(call_target))
+    arg1 = gaux->orig_ctx;
 
   fn = (gbpf_helper_fn_t)(unsigned long)call_target;
   return fn(arg1, arg2, arg3, arg4, arg5);
