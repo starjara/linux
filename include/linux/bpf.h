@@ -86,7 +86,6 @@ struct gbpf_aux {
   
   const struct xdp_rxq_info *cached_xdp_rxq;
   int cached_xdp_ifindex;
-
 };
 /* End of JARA */
 

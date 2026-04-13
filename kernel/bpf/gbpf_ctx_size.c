@@ -1,13 +1,18 @@
 // kernel/bpf/gbpf_ctx_size.c
-#include <linux/cpu.h>
 #include <linux/bpf.h>
+#include <linux/filter.h>
+#include <linux/skbuff.h>
+#include <net/xdp.h>
+
+#include <linux/cpu.h>
+//#include <linux/bpf.h>
 #include <linux/bpf_verifier.h>
 #include <linux/skmsg.h>
 #include <linux/perf_event.h>
 
 #include <net/netfilter/nf_bpf_link.h>
 
-#include "disasm.h"
+
 
 size_t gbpf_ctx_size_map[] = {
 #define BPF_PROG_TYPE(_id, _name, prog_ctx_type, kern_ctx_type) \
