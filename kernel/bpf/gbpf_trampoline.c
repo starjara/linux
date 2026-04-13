@@ -13,11 +13,12 @@ typedef struct map_addr_meta {
   u32 map_slot;
   u32 cpu_slot;
   u32 off;
+  bool valid;
 } map_addr_meta;
 
 map_addr_meta gmap_addr_meta;
 
-static inline u64 gbpf_from_gbpf_space_to_kernel(const struct gbpf_aux *gaux, u64 arg)
+static inline u64 gbpf_from_gbpf_space_to_kernel(const struct gbpf_aux *gaux, u64 arg, map_addr_meta *meta)
 {
   u64 ret = arg;
 
@@ -48,12 +49,15 @@ static inline u64 gbpf_from_gbpf_space_to_kernel(const struct gbpf_aux *gaux, u6
 #ifdef GBPF_DEBUG
     pr_info("MAP PAGE\n");
 #endif
-    gbpf_decode_map_addr(ret, &gmap_addr_meta.map_slot, &gmap_addr_meta.cpu_slot, &gmap_addr_meta.off);
-    struct gbpf_map_desc *d = &map_desc[gmap_addr_meta.map_slot];
+    if (!meta->valid) {
+      gbpf_decode_map_addr(ret, &meta->map_slot, &meta->cpu_slot, &meta->off);
+      meta->valid = true;
+    }
+    struct gbpf_map_desc *d = &map_desc[meta->map_slot];
 #ifdef GBPF_DEBUG
-    pr_info("map addr meta - slot : %u, cpu : %u, off : %u\n", gmap_addr_meta.map_slot, gmap_addr_meta.cpu_slot, gmap_addr_meta.off);
-    pr_info("[GBPF] map[%u] base=%px\n",
-	    gmap_addr_meta.map_slot, (void *)d->base);
+    pr_info("map addr meta - slot : %u, cpu : %u, off : %u\n",
+	    meta->map_slot, meta->cpu_slot, meta->off);
+    pr_info("[GBPF] map[%u] base=%px\n", meta->map_slot, (void *)d->base);
 #endif
     if (ret < GBPF_MAP_BASE)
       ret = d->map;
@@ -72,7 +76,8 @@ static inline u64 gbpf_from_gbpf_space_to_kernel(const struct gbpf_aux *gaux, u6
 
 static u64 gbpf_call_helper_generic(struct gbpf_aux *gaux, u64 call_target,
 			 u64 arg1, u64 arg2, u64 arg3,
-			 u64 arg4, u64 arg5)
+				    u64 arg4, u64 arg5,
+				    map_addr_meta *meta)
 {
   gbpf_helper_fn_t	fn;
   u64			marshaled[5];
@@ -91,7 +96,8 @@ static u64 gbpf_call_helper_generic(struct gbpf_aux *gaux, u64 call_target,
   marshaled[4] = arg5;
 	
   for (int i=0; i<5; i++) {
-    marshaled[i] = gbpf_from_gbpf_space_to_kernel(gaux, marshaled[i]);
+    if (marshaled[i])
+      marshaled[i] = gbpf_from_gbpf_space_to_kernel(gaux, marshaled[i], meta);
   }
 	
 #ifdef GBPF_DEBUG
@@ -104,7 +110,7 @@ static u64 gbpf_call_helper_generic(struct gbpf_aux *gaux, u64 call_target,
 
 
 
-static u64 gbpf_convert_helper_ret(u64 ret, struct gbpf_aux *gaux)
+static u64 gbpf_convert_helper_ret(u64 ret, struct gbpf_aux *gaux, const map_addr_meta *meta)
 {
   LOG_E;
   
@@ -113,7 +119,7 @@ static u64 gbpf_convert_helper_ret(u64 ret, struct gbpf_aux *gaux)
 
   if (virt_addr_valid(ret)) {
     struct gbpf_map_desc *map_desc = (struct gbpf_map_desc *)gaux->gbpf_maps;
-    struct gbpf_map_desc *d = &map_desc[gmap_addr_meta.map_slot];
+    struct gbpf_map_desc *d = &map_desc[meta->map_slot];
     struct bpf_map *map = (struct bpf_map *)d->map;
     u64 elem = (u64)map->gbpf_alloc_base;
     u64 off = ret - elem;
@@ -131,7 +137,7 @@ static u64 gbpf_convert_helper_ret(u64 ret, struct gbpf_aux *gaux)
       pr_info("[tramp] percpu_off2 : 0x%lx\n", off2);
 #endif
       
-      ret = gbpf_encode_map_addr(gmap_addr_meta.map_slot, gmap_addr_meta.cpu_slot, off2);
+      ret = gbpf_encode_map_addr(meta->map_slot, meta->cpu_slot, off2);
     }
     else {
       ret = GBPF_MAP_BASE + off;
@@ -145,6 +151,7 @@ static u64 gbpf_convert_helper_ret(u64 ret, struct gbpf_aux *gaux)
 noinline u64 gbpf_helper_call_trampoline(u64 arg1, u64 arg2, u64 arg3, u64 arg4, u64 arg5)
 {
   struct gbpf_aux *gaux;
+  map_addr_meta meta = {};
   u64 call_target;
   u64 imm;
   u64 ret;
@@ -164,13 +171,13 @@ noinline u64 gbpf_helper_call_trampoline(u64 arg1, u64 arg2, u64 arg3, u64 arg4,
 #endif
 
   ret = gbpf_call_helper_generic(gaux, call_target,
-			      arg1, arg2, arg3, arg4, arg5);
+				 arg1, arg2, arg3, arg4, arg5, &meta);
   
 #ifdef GBPF_DEBUG
   pr_info("[GBPF] Tramptest ret_before = 0x%lx\n", ret);
 #endif
 
-  ret = gbpf_convert_helper_ret(ret, gaux);
+  ret = gbpf_convert_helper_ret(ret, gaux, &meta);
 
 #ifdef GBPF_DEBUG
   pr_info("[GBPF] Tramptest ret_after = 0x%lx\n", ret);
