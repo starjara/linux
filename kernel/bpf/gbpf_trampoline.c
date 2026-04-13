@@ -5,9 +5,9 @@
 #include <linux/smp.h>
 #include "gbpf_trampoline.h"
 
-#define LOG_E pr_info("[gbpf_trampoline.c] Enter: %s\n", __func__)
-//#define LOG_E ;
-#define GBPF_DEBUG 1
+//#define LOG_E pr_info("[gbpf_trampoline.c] Enter: %s\n", __func__)
+#define LOG_E ;
+//#define GBPF_DEBUG 1
 
 typedef struct map_addr_meta {
   u32 map_slot;
@@ -74,32 +74,32 @@ static u64 gbpf_call_helper_generic(struct gbpf_aux *gaux, u64 call_target,
 			 u64 arg1, u64 arg2, u64 arg3,
 			 u64 arg4, u64 arg5)
 {
-	gbpf_helper_fn_t fn;
-	u64 marshaled[5];
-	u64 ret;
-
-	LOG_E;
+  gbpf_helper_fn_t	fn;
+  u64			marshaled[5];
+  u64			ret;
+  
+  LOG_E;
 	
 #ifdef GBPF_DEBUG
-	pr_info("Orig_ctx : 0x%lx", gaux->orig_ctx); 
+  pr_info("Orig_ctx : 0x%lx", gaux->orig_ctx); 
 #endif
 	
-	marshaled[0] = arg1;
-	marshaled[1] = arg2;
-	marshaled[2] = arg3;
-	marshaled[3] = arg4;
-	marshaled[4] = arg5;
+  marshaled[0] = arg1;
+  marshaled[1] = arg2;
+  marshaled[2] = arg3;
+  marshaled[3] = arg4;
+  marshaled[4] = arg5;
 	
-	for (int i=0; i<5; i++) {
-	  marshaled[i] = gbpf_from_gbpf_space_to_kernel(gaux, marshaled[i]);
-	}
+  for (int i=0; i<5; i++) {
+    marshaled[i] = gbpf_from_gbpf_space_to_kernel(gaux, marshaled[i]);
+  }
 	
 #ifdef GBPF_DEBUG
-	pr_info("Arg marshaling done\n");
+  pr_info("Arg marshaling done\n");
 #endif
 
-	fn = (gbpf_helper_fn_t)(unsigned long)call_target;
-	return fn(marshaled[0], marshaled[1], marshaled[2], marshaled[3], marshaled[4]);
+  fn = (gbpf_helper_fn_t)(unsigned long)call_target;
+  return fn(marshaled[0], marshaled[1], marshaled[2], marshaled[3], marshaled[4]);
 }
 
 
@@ -111,7 +111,6 @@ static u64 gbpf_convert_helper_ret(u64 ret, struct gbpf_aux *gaux)
   if (!ret)
     return ret;
 
-  //  if (ret >= 0xffffaf8000000000 && ret <= 0xffffaf9000000000) {
   if (virt_addr_valid(ret)) {
     struct gbpf_map_desc *map_desc = (struct gbpf_map_desc *)gaux->gbpf_maps;
     struct gbpf_map_desc *d = &map_desc[gmap_addr_meta.map_slot];
@@ -164,8 +163,6 @@ noinline u64 gbpf_helper_call_trampoline(u64 arg1, u64 arg2, u64 arg3, u64 arg4,
 	  arg1, arg2, arg3, arg4, arg5);
 #endif
 
-
-  // ToDo : Save map ptr metadata and use it for return addr convert
   ret = gbpf_call_helper_generic(gaux, call_target,
 			      arg1, arg2, arg3, arg4, arg5);
   

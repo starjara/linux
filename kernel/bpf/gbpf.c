@@ -5,7 +5,7 @@
 #include <net/xdp.h>
 #include <linux/bpf.h>
 
-#define GBPF_DEBUG 1;
+// #define GBPF_DEBUG 1;
 
 static void *gbpf_copy_ctx_xdp(const struct xdp_buff *xdp,
 			       const struct bpf_prog *prog)
@@ -39,11 +39,16 @@ static void *gbpf_copy_ctx_xdp(const struct xdp_buff *xdp,
 	if (base_off + copy_len > PAGE_SIZE)
 		return NULL;
 
+	/*
 	shadow_pkt = page_to_virt(prog->aux->gbpf_shadow_pkt_page);
 	memcpy((char *)shadow_pkt + base_off, base, copy_len);
+	*/
 
-	// Bug??
-	//pr_info("len : %lu\n", copy_len);
+	shadow_pkt = prog->aux->gaux->pkt_page = xdp->data;
+	gbpf_call_map_ext(prog,
+			  PAGE_ALIGN((u64)(shadow_pkt) - PAGE_SIZE),
+			  PAGE_SIZE,
+			  PKT, 0, 0);
 
 	/* CTX Copy */
 	shadow_ctx = page_to_virt(prog->aux->gaux->gbpf_page);
@@ -146,7 +151,13 @@ static void *gbpf_copy_ctx_skb(const struct sk_buff *skb,
 	}
 	
 
-	memcpy((char *)shadow_pkt + head_off, skb->head, end_off);
+	// memcpy((char *)shadow_pkt + head_off, skb->head, end_off);
+	shadow_pkt = prog->aux->gaux->pkt_page = skb->data;
+	gbpf_call_map_ext(prog,
+			  PAGE_ALIGN((u64)(shadow_pkt) - PAGE_SIZE),
+			  PAGE_SIZE,
+			  PKT, 0, 0);
+
 
 	/* CTX Copy */
 	shadow_ctx = page_to_virt(prog->aux->gaux->gbpf_page);

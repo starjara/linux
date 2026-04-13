@@ -265,7 +265,6 @@ static void __build_epilogue(bool is_tail_call, struct rv_jit_context *ctx)
 	   * Restore saved S11 from frame slot.
 	   */
 	  emit_ld(RV_REG_S11, GBPF_STK_SAVE_S11, RV_REG_S10, ctx);
-	  // emit_ld(RV_REG_S9, GBPF_STK_SAVE_S9, RV_REG_S10, ctx);
 	  
 	  /*
 	   * Restore saved S10 last.
