@@ -82,10 +82,7 @@ struct gbpf_aux {
   struct page *gbpf_page;
   void *pkt_page;
   const void *orig_ctx;
-  u32 vmid;
-  u32 bpf_stack_adjust;
   struct gbpf_map_desc *gbpf_maps;
-
 };
 /* End of JARA */
 
@@ -1474,7 +1471,6 @@ struct bpf_prog_aux {
 	};
   
   /* JARA: bpf space pages */
-  struct page *gbpf_shadow_pkt_page;
   u32 vmid;
   u32 bpf_stack_adjust;
 

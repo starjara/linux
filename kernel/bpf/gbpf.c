@@ -33,74 +33,55 @@ static void *gbpf_copy_ctx_xdp(const struct xdp_buff *xdp,
 			       const struct bpf_prog *prog)
 {
 	struct xdp_buff *shadow;
-	void *shadow_pkt;
 	void *shadow_ctx;
-	void *base, *end;
-	u32 base_off, data_off, end_off, meta_off;
-	u32 copy_len;
+	void *pkt_page, *end;
+	u32 data_off, end_off, meta_off;
 	int err;
 
-	if (!xdp || !prog || !prog->aux)
-		return NULL;
-
-	//base = xdp->data_hard_start;
-	base = xdp->data;
+	pkt_page = gbpf_pkt_page_base(xdp->data);
 	end = xdp->data_end;
 
-	if (!base || !end)
+	if (!pkt_page || !end)
 		return NULL;
 
+	/* 1-page packet buffer */
+	if ((unsigned long)end < (unsigned long)xdp->data) {
+	  pr_warn("[GBPF] Packet over the page boundary\n");
+	  return NULL;
+	}
 
-	/* 1-page packet buffer만 지원 */
-	if ((unsigned long)end < (unsigned long)base)
-		return NULL;
+	if ((unsigned long)end > (unsigned long)pkt_page + PAGE_SIZE) {
+	  pr_warn("[GBPF] Packet over the page boundary\n");
+	  return NULL;
+	}	
 
-	base_off = offset_in_page(base);
-	copy_len = (unsigned long)end - (unsigned long)base;
-
-	if (base_off + copy_len > PAGE_SIZE)
-		return NULL;
-
-	/*
-	shadow_pkt = page_to_virt(prog->aux->gbpf_shadow_pkt_page);
-	memcpy((char *)shadow_pkt + base_off, base, copy_len);
-	*/
-
-	shadow_pkt = prog->aux->gaux->pkt_page = xdp->data;
-	gbpf_call_map_ext(prog,
-			  PAGE_ALIGN((u64)(shadow_pkt) - PAGE_SIZE),
-			  PAGE_SIZE,
-			  PKT, 0, 0);
+	err = gbpf_map_pkt_page(prog, xdp->data);
+	if (err) {
+	  pr_warn("[GBPF] Mapping failed\n");
+	  return NULL;
+	}
 
 	/* CTX Copy */
 	shadow_ctx = page_to_virt(prog->aux->gaux->gbpf_page);
 	shadow = shadow_ctx;
 
-	data_off = (unsigned long)xdp->data - (unsigned long)base;
-	end_off = (unsigned long)xdp->data_end - (unsigned long)base;
+	data_off = (unsigned long)xdp->data - (unsigned long)pkt_page;
+	end_off = (unsigned long)xdp->data_end - (unsigned long)pkt_page;
 
-	shadow->data = (void *)(uintptr_t)(GBPF_PKT_BASE + base_off + data_off);
-	shadow->data_end =
-		(void *)(uintptr_t)(GBPF_PKT_BASE + base_off + end_off);
+	shadow->data = (void *)(uintptr_t)(GBPF_PKT_BASE + data_off);
+	shadow->data_end = (void *)(uintptr_t)(GBPF_PKT_BASE + end_off);
 
 	if (xdp->data_meta) {
-		if ((unsigned long)xdp->data_meta < (unsigned long)base ||
+		if ((unsigned long)xdp->data_meta < (unsigned long)pkt_page ||
 		    (unsigned long)xdp->data_meta >
 			    (unsigned long)xdp->data_end) {
 			return NULL;
 		}
-
-		meta_off = (unsigned long)xdp->data_meta - (unsigned long)base;
-		shadow->data_meta =
-			(void *)(uintptr_t)(GBPF_PKT_BASE + base_off + meta_off);
+		meta_off = (unsigned long)xdp->data_meta - (unsigned long)pkt_page;
+		shadow->data_meta = (void *)(uintptr_t)(GBPF_PKT_BASE + meta_off);
 	} else {
 		shadow->data_meta = NULL;
 	}
-
-	/*
-	shadow->data_hard_start =
-		(void *)(uintptr_t)(GBPF_PKT_BASE + base_off);
-	*/
 
 	/*
 	 * xdp->rxq는 helper가 ifindex 등을 보게 될 수 있으므로
@@ -139,7 +120,6 @@ static void *gbpf_copy_ctx_xdp(const struct xdp_buff *xdp,
 	 */
 	shadow->txq = NULL;
 
-	//return (void *)(uintptr_t)GBPF_CTX_BASE;
 	return (void *)prog->aux->gaux;
 }
 
@@ -147,7 +127,6 @@ static void *gbpf_copy_ctx_skb(const struct sk_buff *skb,
 			       const struct bpf_prog *prog)
 {
 	struct sk_buff *shadow;
-	void *shadow_pkt;
 	void *shadow_ctx;
 	u32 head_off, data_off, tail_off, end_off;
 	int err;
@@ -161,8 +140,6 @@ static void *gbpf_copy_ctx_skb(const struct sk_buff *skb,
 	if (skb_is_nonlinear(skb))
 		return NULL;
 
-	shadow_pkt = page_address(prog->aux->gbpf_shadow_pkt_page);
-
 	head_off = offset_in_page(skb->head);
 	data_off = skb->data - skb->head;
 	tail_off = skb_tail_pointer(skb) - skb->head;
@@ -172,14 +149,11 @@ static void *gbpf_copy_ctx_skb(const struct sk_buff *skb,
 		return NULL;
 	}
 	
-
-	// memcpy((char *)shadow_pkt + head_off, skb->head, end_off);
-	shadow_pkt = prog->aux->gaux->pkt_page = skb->data;
-	gbpf_call_map_ext(prog,
-			  PAGE_ALIGN((u64)(shadow_pkt) - PAGE_SIZE),
-			  PAGE_SIZE,
-			  PKT, 0, 0);
-
+	err = gbpf_map_pkt_page(prog, skb->head);
+	if (err) {
+	  pr_warn("[GBPF] Mapping failed\n");
+	  return NULL;
+	}
 
 	/* CTX Copy */
 	shadow_ctx = page_to_virt(prog->aux->gaux->gbpf_page);
@@ -191,7 +165,6 @@ static void *gbpf_copy_ctx_skb(const struct sk_buff *skb,
 	shadow->tail = tail_off;
 	shadow->end = end_off;
 
-	//return (void *)(uintptr_t)GBPF_CTX_BASE;
 	return (void *)prog->aux->gaux;
 }
 
@@ -207,7 +180,6 @@ static void *gbpf_copy_ctx_generic(const void *ctx,
 	addr = page_to_virt(prog->aux->gaux->gbpf_page);
 	memcpy(addr, ctx, ctx_size);
 
-	//return (void *)(uintptr_t)GBPF_CTX_BASE;
 	return (void *)prog->aux->gaux;
 }
 

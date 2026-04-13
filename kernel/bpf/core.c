@@ -2584,9 +2584,6 @@ static void bpf_prog_free_deferred(struct work_struct *work)
 	if (aux->gaux->gpgd) {
 	  gbpf_call_destroy_pgtable(aux->prog);
 	  
-	  if (aux->prog->type == BPF_PROG_TYPE_XDP || aux->prog->type == BPF_PROG_TYPE_SOCKET_FILTER)
-	    __free_pages(aux->gbpf_shadow_pkt_page, 0);
-
 	  if (aux->used_map_cnt)
 	    kfree(aux->gaux->gbpf_maps);
 	}
