@@ -2054,10 +2054,10 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 	  hgatp |= HGATP_MODE_SV39X4 << HGATP_MODE_SHIFT;
 	  hgatp |= ((page_to_phys(ctx->prog->aux->gaux->gpgd) >> PAGE_SHIFT) & HGATP_PPN);
 	  
-	  // Backup S11 and S10 reg
+	  // Backup S11 and S10 save GAXU reg
 	  emit_sd(RV_REG_SP, GBPF_STK_SAVE_S11, RV_REG_S11, ctx);
 	  emit_sd(RV_REG_SP, GBPF_STK_SAVE_S10, RV_REG_S10, ctx);
-	  emit_sd(RV_REG_SP, GBPF_STK_SAVE_S9, RV_REG_A0, ctx);
+	  emit_sd(RV_REG_SP, GBPF_STK_SAVE_GAUX, RV_REG_A0, ctx);
 
 	  emit_addi(RV_REG_S10, RV_REG_SP, 0, ctx);   /* mv s10, sp */
 	  
@@ -2065,9 +2065,6 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 	  emit_csrw(RV_REG_S11, 0, RV_CSR_HGATP, ctx);
 	  emit_sd(RV_REG_S10, GBPF_STK_OLD_HGATP, RV_REG_S11, ctx);
 
-	  /* Metadata Setup */
-	  //emit_addi(RV_REG_S9, RV_REG_A0, 0, ctx);
-	  
 	  emit_imm(RV_REG_A0, GBPF_CTX_BASE, ctx);
 
 	  

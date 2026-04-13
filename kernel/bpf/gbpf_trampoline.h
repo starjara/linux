@@ -9,29 +9,6 @@
 
 typedef u64 (*gbpf_helper_fn_t)(u64, u64, u64, u64, u64);
 
-/*
-static __always_inline struct gbpf_helper_meta gbpf_read_helper_meta(void)
-{
-  struct gbpf_helper_meta m;
-  u64 fp;
-
-  asm volatile (
-		"mv %0, s10\n\t"
-		"mv %1, s11\n\t"
-		: "=r"(fp), "=r"(m.call_imm)
-		:
-		:);
-
-  m.ctx_base = *(u64 *)(fp + GBPF_STK_CTX_BASE);
-  m.pkt_base = *(u64 *)(fp + GBPF_STK_PKT_BASE);
-  m.map_desc_base = *(u64 *)(fp + GBPF_STK_MAP_BASE);
-  m.orig_ctx = *(u64 *)(fp + GBPF_ORG_CTX);
-  m.prog_type = *(u64 *)(fp + GBPF_STK_PROG_TYPE);
-  
-  return m;
-}
-*/
-
 static __always_inline u64 *gbpf_read_gaux(struct gbpf_aux **gaux)
 {
   u64 fp;
@@ -44,7 +21,7 @@ static __always_inline u64 *gbpf_read_gaux(struct gbpf_aux **gaux)
 		:
 		:);
 
-  *gaux = *(u64 *)(fp + GBPF_STK_SAVE_S9);
+  *gaux = *(u64 *)(fp + GBPF_STK_SAVE_GAUX);
 
   return imm;
 }
