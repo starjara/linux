@@ -9,7 +9,7 @@
 
 typedef u64 (*gbpf_helper_fn_t)(u64, u64, u64, u64, u64);
 
-static __always_inline u64 *gbpf_read_gaux(struct gbpf_aux **gaux)
+static __always_inline u64 gbpf_read_gaux(struct gbpf_aux **gaux)
 {
   u64 fp;
   u64 imm;
@@ -21,7 +21,8 @@ static __always_inline u64 *gbpf_read_gaux(struct gbpf_aux **gaux)
 		:
 		:);
 
-  *gaux = *(u64 *)(fp + GBPF_STK_SAVE_GAUX);
+  //*gaux = *(u64 *)(fp + GBPF_STK_SAVE_GAUX);
+  *gaux = READ_ONCE(*(struct gbpf_aux **)(fp + GBPF_STK_SAVE_GAUX));
 
   return imm;
 }

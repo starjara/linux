@@ -5,7 +5,21 @@
 #include <net/xdp.h>
 #include <linux/bpf.h>
 
-// #define GBPF_DEBUG 1;
+#define GBPF_DEBUG 1;
+
+void gbpf_aux_free(struct bpf_prog_aux *aux)
+{
+	if (!aux || !aux->gaux)
+		return;
+
+	if (aux->gaux->gpgd)
+		gbpf_call_destroy_pgtable(aux->prog);
+
+	kfree(aux->gaux->gbpf_maps);
+
+	kfree(aux->gaux);
+	aux->gaux = NULL;
+}
 
 static void *gbpf_pkt_page_base(const void *ptr)
 {
@@ -41,13 +55,14 @@ static void *gbpf_copy_ctx_xdp(const struct xdp_buff *xdp,
   end = xdp->data_end;
   
 #ifdef GBPF_DEBUG
+  pr_info("XDP addr : %px\n", xdp);
   pr_info("XDP Packet_hard addr : %px\n", xdp->data_hard_start);
   pr_info("XDP Packet addr : %px\n", xdp->data);
   pr_info("XDP Packet end  : %px\n", xdp->data_end);
   pr_info("XDP Packet len  : %px\n", end - xdp->data);
 #endif
 
-  /* 1-page packet buffer */
+  // Single page packet
   if ((unsigned long)end < (unsigned long)xdp->data) {
     pr_warn("[GBPF] Packet over the page boundary\n");
     return NULL;
@@ -68,7 +83,7 @@ static void *gbpf_copy_ctx_xdp(const struct xdp_buff *xdp,
     return NULL;
   }
 
-  /* CTX Copy */
+  // CTX copy
   shadow = page_to_virt(prog->aux->gaux->gbpf_page);
   
   shadow->data = (void *)(uintptr_t)(GBPF_PKT_BASE + data_off);
@@ -94,14 +109,10 @@ static void *gbpf_copy_ctx_xdp(const struct xdp_buff *xdp,
   pr_info("CTX Packet end  : %px\n", shadow->data_end);
   pr_info("CTX Packet len  : %px\n", shadow->data_end - shadow->data);
 #endif
-  
-  /*
-   * xdp->rxq는 helper가 ifindex 등을 보게 될 수 있으므로
-   * guest ctx page 안에 shadow를 구성한다.
-   */
+
+  // Deep copy rxq
   if (xdp->rxq) {
     struct xdp_rxq_info *shadow_rxq_host;
-    //struct net_device *shadow_dev_host;
     char *shadow_dev_host;
     unsigned long rxq_guest, dev_guest;
     size_t dev_size = offsetof(struct net_device, ifindex) + sizeof(int);
@@ -138,12 +149,12 @@ static void *gbpf_copy_ctx_xdp(const struct xdp_buff *xdp,
     shadow->rxq = NULL;
   }
 
-  /*
-   * 현재 구현에서는 txq shadow는 사용하지 않는다.
-   */
+
+  // deepcopy txq 
   shadow->txq = NULL;
   
   return (void *)prog->aux->gaux;
+
 }
 
 /*
@@ -235,13 +246,15 @@ static void *gbpf_copy_ctx_skb(const struct sk_buff *skb,
 	int err;
 
 #ifdef GBPF_DEBUG
+	pr_info("SKB addr : %px\n", skb);
+	pr_info("SKB Head addr : %px\n", skb->head);
 	pr_info("SKB Packet addr : %px\n", skb->data);
 #endif
 	
 	if (!skb || !prog || !prog->aux)
 		return NULL;
 
-	/* 1-page linear skb만 지원 */
+	// Single page packet
 	if (skb_headlen(skb) > PAGE_SIZE)
 		return NULL;
 	if (skb_is_nonlinear(skb))
@@ -263,9 +276,7 @@ static void *gbpf_copy_ctx_skb(const struct sk_buff *skb,
 	  return NULL;
 	}
 
-	/* CTX Copy */
 	shadow_ctx = page_to_virt(prog->aux->gaux->gbpf_page);
-	//memcpy(shadow_ctx, skb, sizeof(*skb));
 	gbpf_copy_skb_hard(shadow_ctx, skb);
 
 	shadow = shadow_ctx;
@@ -303,7 +314,7 @@ void *gbpf_copy_ctx(const void *ctx, const struct bpf_prog *prog)
 	prog->aux->gaux->orig_ctx = ctx;
 
 #ifdef GBPF_DEBUG
-	pr_info("prog->aux->gaux: %px\n", prog->aux->gaux);
+	pr_info("\nprog->aux->gaux: %px\n", prog->aux->gaux);
 #endif
 
 	ctx_size = gbpf_ctx_size_map[prog->type];
