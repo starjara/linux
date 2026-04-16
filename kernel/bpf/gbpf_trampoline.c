@@ -7,32 +7,11 @@
 
 //#define LOG_E pr_info("[gbpf_trampoline.c] Enter: %s\n", __func__)
 #define LOG_E ;
-#define GBPF_DEBUG 1
+//#define GBPF_DEBUG 1
 
-/* net/core/filter.c 쪽 internal helper들 */
-extern u64 bpf_skb_load_helper_8_no_cache(const struct sk_buff *skb, u64 off);
-extern u64 bpf_skb_load_helper_16_no_cache(const struct sk_buff *skb, u64 off);
-extern u64 bpf_skb_load_helper_32_no_cache(const struct sk_buff *skb, u64 off);
+//u64 h_before, h_after;
 
-extern u64 bpf_skb_load_helper_8(const struct sk_buff *skb, u64 off,
-                                 const void *data, u64 len);
-extern u64 bpf_skb_load_helper_16(const struct sk_buff *skb, u64 off,
-                                  const void *data, u64 len);
-extern u64 bpf_skb_load_helper_32(const struct sk_buff *skb, u64 off,
-                                  const void *data, u64 len);
 extern u64 bpf_xdp_adjust_tail(struct xdp_buff *xdp, int offset);
-
-static __always_inline bool gbpf_is_internal_skb_load_helper(u64 target)
-{
-    return target == (u64)(unsigned long)&bpf_skb_load_helper_8_no_cache  ||
-           target == (u64)(unsigned long)&bpf_skb_load_helper_16_no_cache ||
-           target == (u64)(unsigned long)&bpf_skb_load_helper_32_no_cache ||
-           target == (u64)(unsigned long)&bpf_skb_load_helper_8           ||
-           target == (u64)(unsigned long)&bpf_skb_load_helper_16          ||
-           target == (u64)(unsigned long)&bpf_skb_load_helper_32;
-}
-
-/////////////////////////////// Internal helper fast path End
 
 typedef struct map_addr_meta {
   u32 map_slot;
@@ -44,8 +23,8 @@ typedef struct map_addr_meta {
 static inline u64 gbpf_from_gbpf_space_to_kernel(const struct gbpf_aux *gaux, u64 arg, map_addr_meta *meta, u64 target)
 {
   u64 ret = arg;
-
   struct gbpf_map_desc *map_desc;
+  u64 ctx_page = (u64)page_to_virt(gaux->gbpf_page);
   
   LOG_E;
 #ifdef GBPF_DEBUG
@@ -56,9 +35,6 @@ static inline u64 gbpf_from_gbpf_space_to_kernel(const struct gbpf_aux *gaux, u6
     return arg;
 
   if (arg == GBPF_CTX_BASE) {
-    if(target == (u64)bpf_xdp_adjust_tail)
-      ret = page_to_virt(gaux->gbpf_page);
-    else 
       ret = gaux->orig_ctx;
   }
   else if (GBPF_CTX_BASE <= arg && arg < GBPF_CTX_BASE + GBPF_PAGE_SIZE) {
@@ -66,7 +42,7 @@ static inline u64 gbpf_from_gbpf_space_to_kernel(const struct gbpf_aux *gaux, u6
     pr_info("CTX PAGE\n");
 #endif
     ret -= GBPF_CTX_BASE;
-    ret += (u64)page_to_virt(gaux->gbpf_page);
+    ret += ctx_page;
   } else if (GBPF_PKT_BASE <= arg && arg < GBPF_PKT_BASE + GBPF_PAGE_SIZE) {
 #ifdef GBPF_DEBUG
     pr_info("PKT PAGE\n");
@@ -117,7 +93,12 @@ static u64 gbpf_call_helper_generic(struct gbpf_aux *gaux, u64 call_target,
   pr_info("Orig_ctx : 0x%lx", gaux->orig_ctx); 
 #endif
 	
-  arg1 = gbpf_from_gbpf_space_to_kernel(gaux, arg1, meta, call_target);
+  if(call_target == (u64)(unsigned long)&bpf_xdp_adjust_tail)  {
+    arg1 = (u64)page_to_virt(gaux->gbpf_page);
+  }
+  else
+    arg1 = gbpf_from_gbpf_space_to_kernel(gaux, arg1, meta, call_target);
+  
   arg2 = gbpf_from_gbpf_space_to_kernel(gaux, arg2, meta, call_target);
   arg3 = gbpf_from_gbpf_space_to_kernel(gaux, arg3, meta, call_target);
   arg4 = gbpf_from_gbpf_space_to_kernel(gaux, arg4, meta, call_target);
@@ -127,7 +108,11 @@ static u64 gbpf_call_helper_generic(struct gbpf_aux *gaux, u64 call_target,
   pr_info("Arg marshaling done\n");
 #endif
 
+
+  //h_before = ktime_get();
   fn = (gbpf_helper_fn_t)(unsigned long)call_target;
+  //h_after = ktime_get();
+
   return fn(arg1, arg2, arg3, arg4, arg5);
 }
 
@@ -189,6 +174,8 @@ noinline u64 gbpf_helper_call_trampoline(u64 arg1, u64 arg2, u64 arg3, u64 arg4,
   u64 imm;
   u64 ret;
 
+  //u64 before = ktime_get();
+  
   imm = gbpf_read_gaux(&gaux);
   call_target = (u64)((u8 *)__bpf_call_base + (s32)imm);
 
@@ -217,6 +204,13 @@ noinline u64 gbpf_helper_call_trampoline(u64 arg1, u64 arg2, u64 arg3, u64 arg4,
 #endif
 
   
+  /*
+  u64 after = ktime_get();
+
+  pr_info("helper : %llu ns", h_after - h_before);
+  pr_info("Trampoline : %llu ns", after - before);
+  */
+
   return ret;
 }
 EXPORT_SYMBOL_GPL(gbpf_helper_call_trampoline);

@@ -5,7 +5,7 @@
 #include <net/xdp.h>
 #include <linux/bpf.h>
 
-#define GBPF_DEBUG 1;
+//#define GBPF_DEBUG 1;
 
 void gbpf_aux_free(struct bpf_prog_aux *aux)
 {
@@ -46,6 +46,7 @@ static int gbpf_map_pkt_page(const struct bpf_prog *prog, const void *pkt_ptr)
 static void *gbpf_copy_ctx_xdp(const struct xdp_buff *xdp,
 			       const struct bpf_prog *prog)
 {
+  struct gbpf_aux *gaux = prog->aux->gaux;
   struct xdp_buff *shadow;
   void *pkt_page, *end;
   u32 data_off, end_off, meta_off;
@@ -76,15 +77,16 @@ static void *gbpf_copy_ctx_xdp(const struct xdp_buff *xdp,
   data_off = (unsigned long)xdp->data - (unsigned long)pkt_page;
   end_off = (unsigned long)xdp->data_end - (unsigned long)pkt_page;
  
-  err = gbpf_map_pkt_page(prog, xdp->data);
+  //err = gbpf_map_pkt_page(prog, xdp->data);
+  err = gbpf_map_pkt_page(prog, pkt_page);
   
-  if (err) {
+  if (unlikely(err))  {
     pr_warn("[GBPF] Mapping failed\n");
     return NULL;
   }
 
   // CTX copy
-  shadow = page_to_virt(prog->aux->gaux->gbpf_page);
+  shadow = page_to_virt(gaux->gbpf_page);
   
   shadow->data = (void *)(uintptr_t)(GBPF_PKT_BASE + data_off);
   shadow->data_end = (void *)(uintptr_t)(GBPF_PKT_BASE + end_off);
@@ -129,23 +131,23 @@ static void *gbpf_copy_ctx_xdp(const struct xdp_buff *xdp,
       sizeof(struct xdp_buff) +
       sizeof(struct xdp_rxq_info);
   
-    if (prog->aux->gaux->cached_xdp_rxq != xdp->rxq ||
-	prog->aux->gaux->cached_xdp_ifindex != ifindex) {
+    if (gaux->cached_xdp_rxq != xdp->rxq ||
+	gaux->cached_xdp_ifindex != ifindex) {
       *shadow_rxq_host = *xdp->rxq;
       shadow_rxq_host->dev = (struct net_device *)dev_guest;
       
-      memset(shadow_dev_host, 0, dev_size);
+      //memset(shadow_dev_host, 0, dev_size);
       
       *(int *)(shadow_dev_host + offsetof(struct net_device, ifindex)) =
 	ifindex;
       
-      prog->aux->gaux->cached_xdp_rxq = xdp->rxq;
-      prog->aux->gaux->cached_xdp_ifindex = ifindex;
+      gaux->cached_xdp_rxq = xdp->rxq;
+      gaux->cached_xdp_ifindex = ifindex;
     }
     shadow->rxq = (struct xdp_rxq_info *)rxq_guest;
   } else {
-    prog->aux->gaux->cached_xdp_rxq = NULL;
-    prog->aux->gaux->cached_xdp_ifindex = 0;
+    gaux->cached_xdp_rxq = NULL;
+    gaux->cached_xdp_ifindex = 0;
     shadow->rxq = NULL;
   }
 
@@ -153,7 +155,7 @@ static void *gbpf_copy_ctx_xdp(const struct xdp_buff *xdp,
   // deepcopy txq 
   shadow->txq = NULL;
   
-  return (void *)prog->aux->gaux;
+  return (void *)gaux;
 
 }
 
@@ -240,6 +242,7 @@ static void gbpf_copy_skb_hard(struct sk_buff *dst, const struct sk_buff *src)
 static void *gbpf_copy_ctx_skb(const struct sk_buff *skb,
 			       const struct bpf_prog *prog)
 {
+  struct gbpf_aux *gaux = prog->aux->gaux;
 	struct sk_buff *shadow;
 	void *shadow_ctx;
 	u32 head_off, data_off, tail_off, end_off;
@@ -276,7 +279,7 @@ static void *gbpf_copy_ctx_skb(const struct sk_buff *skb,
 	  return NULL;
 	}
 
-	shadow_ctx = page_to_virt(prog->aux->gaux->gbpf_page);
+	shadow_ctx = page_to_virt(gaux->gbpf_page);
 	gbpf_copy_skb_hard(shadow_ctx, skb);
 
 	shadow = shadow_ctx;
@@ -286,7 +289,7 @@ static void *gbpf_copy_ctx_skb(const struct sk_buff *skb,
 	shadow->tail = tail_off;
 	shadow->end = end_off;
 
-	return (void *)prog->aux->gaux;
+	return (void *)gaux;
 }
 
 static void *gbpf_copy_ctx_generic(const void *ctx,
@@ -307,6 +310,9 @@ static void *gbpf_copy_ctx_generic(const void *ctx,
 void *gbpf_copy_ctx(const void *ctx, const struct bpf_prog *prog)
 {
 	size_t ctx_size;
+	void *ret;
+
+	//u64 before = ktime_get();
 
 	if (!ctx)
 		return NULL;
@@ -318,16 +324,32 @@ void *gbpf_copy_ctx(const void *ctx, const struct bpf_prog *prog)
 #endif
 
 	ctx_size = gbpf_ctx_size_map[prog->type];
-	if (ctx_size == 8)
+	if (ctx_size == 0) {
+	  pr_info("Ctx is zero\n");
+	  return (void *)prog->aux->gaux;
+	}
+	else if (ctx_size == 8) {
 		ctx_size = 64;
+	}
 
 	switch (prog->type) {
 	case BPF_PROG_TYPE_XDP:
-		return gbpf_copy_ctx_xdp(ctx, prog);
+		ret = gbpf_copy_ctx_xdp(ctx, prog);
+		break;
 	case BPF_PROG_TYPE_SOCKET_FILTER:
-		return gbpf_copy_ctx_skb(ctx, prog);
+		ret = gbpf_copy_ctx_skb(ctx, prog);
+		break;
 	default:
-		return gbpf_copy_ctx_generic(ctx, prog, ctx_size);
+		ret = gbpf_copy_ctx_generic(ctx, prog, ctx_size);
+		break;
 	}
+
+	/*
+  u64 after = ktime_get();
+
+  pr_info("ctx copy: %llu ns", after - before);
+	*/
+
+	return ret; 
 }
 EXPORT_SYMBOL_GPL(gbpf_copy_ctx);
