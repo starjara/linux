@@ -12,6 +12,11 @@
 #include <linux/perf_event.h>
 #include "disasm.h"
 
+
+extern u64 bpf_skb_load_helper_8_no_cache(const struct sk_buff *skb, int offset);
+extern u64 bpf_skb_load_helper_16_no_cache(const struct sk_buff *skb, int offset);
+extern u64 bpf_skb_load_helper_32_no_cache(const struct sk_buff *skb, int offset);
+
 /**
  * struct bpf_sandbox_env - sandbox environment for bpf program types
  *
@@ -221,22 +226,23 @@ void sandbox_tramp(volatile u64 r1, volatile u64 r2, volatile u64 r3, volatile u
 	volatile u64 call_target = bpf_sandbox_get_trampoline_target(&prog_id);
 
 #ifdef CONFIG_BPF_SANDBOX_CTX
-	pr_info("check helper and convert ctx\n");
 	if (unlikely(is_skb_helper(prog_id, call_target)) ||
 		unlikely(is_xdp_helper(prog_id, call_target)))
 		convert_bpf_ctx_to_kernel_ctx(&r1);
+	
+	if (call_target == (u64)bpf_skb_load_helper_8_no_cache) {
+		convert_bpf_ctx_to_kernel_ctx(&r1);
+		pr_info("ctx converted\n");
+	}
 #endif /* CONFIG_BPF_SANDBOX_CTX */
 
 #ifdef CONFIG_BPF_SFI_TRAMPOLINE
 	// Don't proceed if it's not a valid helper function
-	pr_info("helper valid?\n");
 	if (unlikely(!is_allowed_helper(prog_id, call_target)))
 		return;
-	pr_info("yes it is\n");
 #endif /* CONFIG_BPF_SFI_TRAMPOLINE */
 
 	// Call the valid helper function
-	pr_info("call helper\n");
 	bpf_sandbox_call_trampoline_target(call_target, r1, r2, r3, r4, r5);
 }
 EXPORT_SYMBOL(sandbox_tramp);
@@ -482,3 +488,15 @@ static int __init init_bpf_sandbox(void)
 }
 
 core_initcall(init_bpf_sandbox);
+
+void record_jit_helper_target(u64 prog_id, u64 fn)
+{
+    if (!fn)
+        return;
+
+    if (is_allowed_helper(prog_id, fn))
+        return;
+
+    func_ht_add(prog_id, fn);
+}
+EXPORT_SYMBOL(record_jit_helper_target);

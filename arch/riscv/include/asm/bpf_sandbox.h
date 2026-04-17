@@ -14,9 +14,10 @@ static __always_inline void convert_bpf_ctx_to_kernel_ctx(volatile u64 *ctx_ptr)
 
 	asm volatile (
 		"addi %[c], %[c], -32\n"
-		"ld %[c], [%[c]]\n"
+		"ld %[c], 0(%[c])\n"
 		: [c] "+r" (ctx)
 		:
+		: "memory"
 		);
 
 	*ctx_ptr = ctx;

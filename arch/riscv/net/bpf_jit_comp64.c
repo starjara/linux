@@ -1588,6 +1588,8 @@ out_be:
 			 */
 			emit_imm(RV_REG_S11, addr, ctx);
 			
+			record_jit_helper_target(ctx->prog->type, addr);
+			
 			addr = (u64)&sandbox_tramp;
 		}
 #endif /* CONFIG_BPF_SANDBOX_CTX || CONFIG_BPF_SFI_TRAMPOLINE */
@@ -1930,9 +1932,30 @@ out_be:
 		}
 	case BPF_STX | BPF_ATOMIC | BPF_W:
 	case BPF_STX | BPF_ATOMIC | BPF_DW:
-		emit_atomic(rd, rs, off, imm,
-			    BPF_SIZE(code) == BPF_DW, ctx);
+#ifdef CONFIG_BPF_SFI_MASK_WRITE
+		if (is_sandboxed) {
+			u8 masked_addr_reg;
+
+			// pr_info("WRITE: src = %d to dst = %d", src, dst);
+
+#ifdef CONFIG_BPF_SFI_MAP_MASKING
+			if (is_map_reg(ctx->prog, rd)
+				&& ctx->prog->map_info->current_active_map) {
+				masked_addr_reg = emit_sfi(rd, off, ctx, true);
+			} else 
+#endif /* CONFIG_BPF_SFI_MAP_MASKING */
+#endif /* CONFIG_BPF_SFI_MASK_WRITE */
+			masked_addr_reg = emit_sfi(rd, off, ctx, false);
+			
+			emit_atomic(masked_addr_reg, rs, 0, imm,
+				    BPF_SIZE(code) == BPF_DW, ctx);
+			break;
+		}
+		else {
+		  emit_atomic(rd, rs, off, imm,
+			      BPF_SIZE(code) == BPF_DW, ctx);
 		break;
+		}
 	default:
 		pr_err("bpf-jit: unknown opcode %02x\n", code);
 		return -EINVAL;

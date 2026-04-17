@@ -144,6 +144,7 @@ void sandbox_tramp(volatile u64 r1, volatile u64 r2, volatile u64 r3, volatile u
  * record_map_ops() - Keeps track of valid map operations (for CFI)
  */
 void record_map_ops(u64 prog_id, const struct bpf_map_ops *ops);
+void record_jit_helper_target(u64 prog_id, u64 fn);
 
 /**
  * msb() - gets the position of the most significant set bit
