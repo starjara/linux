@@ -82,6 +82,9 @@
 #include <net/mptcp.h>
 #include <net/netfilter/nf_conntrack_bpf.h>
 
+#include <linux/bpf_mte.h>
+#include <linux/bpf_sandbox.h>
+
 static const struct bpf_func_proto *
 bpf_sk_base_func_proto(enum bpf_func_id func_id);
 
@@ -1735,7 +1738,8 @@ BPF_CALL_4(bpf_skb_load_bytes, const struct sk_buff *, skb, u32, offset,
 	if (unlikely(offset > INT_MAX))
 		goto err_clear;
 
-	ptr = skb_header_pointer(skb, offset, len, to);
+	ptr = skb_header_pointer(bpf_mte_set_tag(skb, BPF_MTE_TAG_KERNEL),
+				 offset, len, to);
 	if (unlikely(!ptr))
 		goto err_clear;
 	if (ptr != to)
@@ -8770,7 +8774,7 @@ static bool __is_valid_xdp_access(int off, int size)
 		return false;
 	if (off % size != 0)
 		return false;
-	if (size != sizeof(__u32))
+	if (size != sizeof(__u32) && size != sizeof(__u64))
 		return false;
 
 	return true;

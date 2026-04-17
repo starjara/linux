@@ -7,6 +7,7 @@
 
 #include <linux/atomic.h>
 #include <linux/bpf.h>
+#include <linux/bpf_sandbox.h>
 #include <linux/refcount.h>
 #include <linux/compat.h>
 #include <linux/skbuff.h>
@@ -82,9 +83,6 @@ struct ctl_table_header;
  * addresses.
  */
 #define BPF_SYM_ELF_TYPE	't'
-
-/* BPF program can access up to 512 bytes of stack space. */
-#define MAX_BPF_STACK	512
 
 /* Helper macros for filter block array initializers. */
 
@@ -578,11 +576,73 @@ typedef unsigned int (*bpf_dispatcher_fn)(const void *ctx,
 					  unsigned int (*bpf_func)(const void *,
 								   const struct bpf_insn *));
 
+#ifdef CONFIG_BPF_SANDBOX
+static __always_inline u32 __bpf_prog_run_sandboxed(const struct bpf_prog *prog,
+					  const void *ctx,
+					  bpf_dispatcher_fn dfunc)
+{
+	u32 ret;
+	unsigned long flags;
+	#ifdef CONFIG_BPF_SANDBOX_MEMORY_MANAGEMENT
+	void *sandbox_mem;
+	#endif /* CONFIG_BPF_SANDBOX_MEMORY_MANAGEMENT */
+	#ifdef CONFIG_BPF_SANDBOX_STACK_MANAGEMENT
+	void *tagged_ctx;
+	#endif /* CONFIG_BPF_SANDBOX_STACK_MANAGEMENT */
+
+	local_irq_save(flags);
+	preempt_disable();
+	cant_migrate();
+	if (static_branch_unlikely(&bpf_stats_enabled_key)) {
+		struct bpf_prog_stats *stats;
+		u64 start = sched_clock();
+		unsigned long flags2;
+		#ifdef CONFIG_BPF_SANDBOX_MEMORY_MANAGEMENT
+			sandbox_mem = sandbox_alloc(prog, ctx);
+			ret = dfunc(sandbox_mem, prog->insnsi, prog->bpf_func);
+			sandbox_free(prog);
+		#elif defined(CONFIG_BPF_SANDBOX_STACK_MANAGEMENT)
+			tagged_ctx = min_sandbox_alloc(prog, ctx);
+			ret = dfunc(tagged_ctx, prog->insnsi, prog->bpf_func);
+			min_sandbox_free(prog, ctx);
+		#else
+			ret = dfunc(ctx, prog->insnsi, prog->bpf_func);
+		#endif
+		stats = this_cpu_ptr(prog->stats);
+		flags2 = u64_stats_update_begin_irqsave(&stats->syncp);
+		u64_stats_inc(&stats->cnt);
+		u64_stats_add(&stats->nsecs, sched_clock() - start);
+		u64_stats_update_end_irqrestore(&stats->syncp, flags2);
+	} else {
+		#ifdef CONFIG_BPF_SANDBOX_MEMORY_MANAGEMENT
+			sandbox_mem = sandbox_alloc(prog, ctx);
+			ret = dfunc(sandbox_mem, prog->insnsi, prog->bpf_func);
+			sandbox_free(prog);
+		#elif defined(CONFIG_BPF_SANDBOX_STACK_MANAGEMENT)
+			tagged_ctx = min_sandbox_alloc(prog, ctx);
+			ret = dfunc(tagged_ctx, prog->insnsi, prog->bpf_func);
+			min_sandbox_free(prog, ctx);
+		#else
+			ret = dfunc(ctx, prog->insnsi, prog->bpf_func);
+		#endif
+	}
+	local_irq_restore(flags);
+	preempt_enable();
+	return ret;
+}
+#endif /* CONFIG_BPF_SANDBOX */
+
+
 static __always_inline u32 __bpf_prog_run(const struct bpf_prog *prog,
 					  const void *ctx,
 					  bpf_dispatcher_fn dfunc)
 {
 	u32 ret;
+
+	#ifdef CONFIG_BPF_SANDBOX
+		if (IS_SANDBOX_ENABLED(prog->type))
+			return __bpf_prog_run_sandboxed(prog, ctx, dfunc);
+	#endif
 
 	cant_migrate();
 	if (static_branch_unlikely(&bpf_stats_enabled_key)) {

@@ -102,6 +102,7 @@ long get_mte_ctrl(struct task_struct *task);
 int mte_ptrace_copy_tags(struct task_struct *child, long request,
 			 unsigned long addr, unsigned long data);
 size_t mte_probe_user_range(const char __user *uaddr, size_t size);
+void mte_assign_mem_tag_range(void *addr, size_t size);
 
 #else /* CONFIG_ARM64_MTE */
 
@@ -153,6 +154,9 @@ static inline int mte_ptrace_copy_tags(struct task_struct *child,
 				       unsigned long data)
 {
 	return -EIO;
+}
+static inline void mte_assign_mem_tag_range(void *addr, size_t size)
+{
 }
 
 #endif /* CONFIG_ARM64_MTE */

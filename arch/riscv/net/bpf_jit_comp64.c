@@ -13,6 +13,10 @@
 #include <asm/patch.h>
 #include "bpf_jit.h"
 
+
+#include <linux/bpf_map.h>
+#include <linux/bpf_sandbox.h> 
+
 #define RV_REG_TCC RV_REG_A6
 #define RV_REG_TCC_SAVED RV_REG_S6 /* Store A6 in S6 if program do calls */
 
@@ -177,6 +181,16 @@ static void emit_imm(u8 rd, s64 val, struct rv_jit_context *ctx)
 	s64 lower = ((val & 0xfff) << 52) >> 52;
 	int shift;
 
+#ifdef CONFIG_BPF_SFI_MAP_MASKING
+	struct bpf_map *map;
+
+	if (virt_addr_valid(val) && is_active_map(val)) {
+		map = (struct bpf_map *)val;
+		ctx->prog->map_info->current_active_map = map;
+	}
+#endif /* CONFIG_BPF_SFI_MAP_MASKING */
+
+
 	if (is_32b_int(val)) {
 		if (upper)
 			emit_lui(rd, upper, ctx);
@@ -201,7 +215,84 @@ static void emit_imm(u8 rd, s64 val, struct rv_jit_context *ctx)
 		emit_addi(rd, rd, lower, ctx);
 }
 
-static void __build_epilogue(bool is_tail_call, struct rv_jit_context *ctx)
+
+#if defined(CONFIG_BPF_SFI_MASK_READ) || defined(CONFIG_BPF_SFI_MASK_WRITE)
+static inline u8 emit_sfi(u8 addr_reg, s16 off, struct rv_jit_context *ctx, bool is_map)
+{
+  u64 mask;
+  u8 fp = bpf_to_rv_reg(BPF_REG_FP, ctx);
+  u8 tmp = RV_REG_T0;
+  u8 tmp2 = RV_REG_T1;
+
+    if (is_map) {
+      // pr_info("EMIT MAP MASKING");
+      /* mov tmp, off */
+      emit_imm(tmp, off, ctx);
+      /* add tmp, addr_reg, off // load effective address */
+      emit_add(tmp, addr_reg, tmp, ctx);
+
+#ifdef CONFIG_BPF_SFI_MASK_MAP_READ_WRITE
+      // If masking not supported for a mask, skip emitting masking checks
+      if (!IS_MASKING_ENABLED_FOR_MAP(ctx->prog->map_info->current_active_map->map_type))
+	return tmp;
+
+      if (ctx->prog->map_info->current_active_map->sandbox_and_mask &&
+	  ctx->prog->map_info->current_active_map->sandbox_or_mask) {
+	// pr_info("EMIT SFI: array");
+	/* mov tmp2, and_mask */
+	mask = (u64)ctx->prog->map_info->current_active_map->sandbox_and_mask;
+	emit_imm(tmp2, mask, ctx);
+	/* and tmp, tmp, tmp2 // apply the AND mask */
+	emit_and(tmp, tmp, tmp2, ctx);
+	/* mov tmp2, or_mask */
+	mask = (u64)ctx->prog->map_info->current_active_map->sandbox_or_mask;
+	emit_imm(tmp2, mask, ctx);
+	/* or tmp, tmp, tmp2 // apply the OR mask */
+	emit_or(tmp, tmp, tmp2, ctx);
+      } else {
+	// pr_info("EMIT SFI: hashmap");
+	/* mov tmp, off */
+	emit_imm(tmp, off, ctx);
+	/* add tmp, addr_reg, off // load effective address */
+	emit_add(tmp, addr_reg, tmp, ctx);
+	/* sub tmp2, fp, (0x7f0 + 0x30) // location of the map's AND mask */
+	emit_addi(tmp2, fp, (0x7f0 + 0x30) * -1, ctx);
+	/* ldr tmp2, [tmp2] // load the AND mask */
+	emit_ld(tmp2, 0, tmp2, ctx);
+	/* and tmp, tmp, tmp2 // apply the AND mask */
+	emit_and(tmp, tmp, tmp2, ctx);
+	/* sub tmp2, fp, (0x7f0 + 0x28) // location of the map's OR mask */
+	emit_addi(tmp2, fp, (0x7f0 + 0x28) * -1, ctx);
+	/* ldr tmp2, [tmp2] // load the OR mask */
+	emit_ld(tmp2, 0, tmp2, ctx);
+	/* or tmp, tmp, tmp2 // apply the OR mask */
+	emit_or(tmp, tmp, tmp2, ctx);
+      }
+#endif /* CONFIG_BPF_SFI_MASK_MAP_READ_WRITE */
+    } else {
+      /* mov tmp, off */
+      emit_imm(tmp, off, ctx);
+      /* add tmp, addr_reg, off // load effective address */
+      emit_add(tmp, addr_reg, tmp, ctx);
+      /* sub tmp2, fp, (0x7f0 + 0x10) // location of the AND mask */
+      emit_addi(tmp2, fp, (0x7f0 + 0x10) * -1, ctx);
+      /* ldr tmp2, [tmp2] // load the AND mask */
+      emit_ld(tmp2, 0, tmp2, ctx);
+      /* and tmp, tmp, tmp2 // apply the AND mask */
+      emit_and(tmp, tmp, tmp2, ctx);
+      /* sub tmp2, fp, (0x7f0 + 0x8) // location of the OR mask */
+      emit_addi(tmp2, fp, (0x7f0 + 0x8) * -1, ctx);
+      /* ldr tmp2, [tmp2] // load the OR mask */
+      emit_ld(tmp2, 0, tmp2, ctx);
+      /* or tmp, tmp, tmp2 // apply the OR mask */
+      emit_or(tmp, tmp, tmp2, ctx);
+    }
+
+  return tmp;
+}
+#endif /* CONFIG_BPF_SFI_MASK_READ || CONFIG_BPF_SFI_MASK_WRITE */
+
+static void __build_epilogue(bool is_tail_call, struct rv_jit_context *ctx, bool is_sandboxed)
 {
 	int stack_adjust = ctx->stack_size, store_offset = stack_adjust - 8;
 
@@ -237,6 +328,25 @@ static void __build_epilogue(bool is_tail_call, struct rv_jit_context *ctx)
 	}
 
 	emit_addi(RV_REG_SP, RV_REG_SP, stack_adjust, ctx);
+
+#ifdef CONFIG_BPF_SANDBOX_MEMORY_MANAGEMENT
+	if (is_sandboxed) {
+	  /* sub x11, sp, #(0x7f0 + 0x18) //load the location of original sp */
+	  emit_addi(RV_REG_T1, RV_REG_SP, 0x7f0 + 0x18, ctx);
+	  /* ldr x10, [x11] // load original stack pointer into x10 */
+	  emit_ld(RV_REG_T0, 0, RV_REG_T1, ctx);
+	  /* mov sp, x10 // restore the original stack pointer */
+	  emit_mv(RV_REG_SP, RV_REG_T0, ctx);
+	}
+#endif /* CONFIG_BPF_SANDBOX_MEMORY_MANAGEMENT */
+
+#ifdef CONFIG_BPF_SANDBOX_STACK_MANAGEMENT
+	if (is_sandboxed) {
+		/* mov sp, x10 // restore the original stack pointer */
+	  emit_mv(RV_REG_SP, RV_REG_S2, ctx);
+	}
+#endif /* CONFIG_BPF_SANDBOX_STACK_MANAGEMENT */
+	
 	/* Set return value. */
 	if (!is_tail_call)
 		emit_mv(RV_REG_A0, RV_REG_A5, ctx);
@@ -331,6 +441,7 @@ static int emit_bpf_tail_call(int insn, struct rv_jit_context *ctx)
 	int tc_ninsn, off, start_insn = ctx->ninsns;
 	u8 tcc = rv_tail_call_reg(ctx);
 
+	bool is_sandboxed = IS_SANDBOX_ENABLED(ctx->prog->type);
 	/* a0: &ctx
 	 * a1: &array
 	 * a2: index
@@ -374,7 +485,7 @@ static int emit_bpf_tail_call(int insn, struct rv_jit_context *ctx)
 	if (is_12b_check(off, insn))
 		return -1;
 	emit_ld(RV_REG_T3, off, RV_REG_T2, ctx);
-	__build_epilogue(true, ctx);
+	__build_epilogue(true, ctx, is_sandboxed);
 	return 0;
 }
 
@@ -1014,7 +1125,7 @@ int arch_prepare_bpf_trampoline(struct bpf_tramp_image *im, void *image,
 }
 
 int bpf_jit_emit_insn(const struct bpf_insn *insn, struct rv_jit_context *ctx,
-		      bool extra_pass)
+		      bool extra_pass, bool is_sandboxed)
 {
 	bool is64 = BPF_CLASS(insn->code) == BPF_ALU64 ||
 		    BPF_CLASS(insn->code) == BPF_JMP;
@@ -1423,6 +1534,7 @@ out_be:
 	/* function call */
 	case BPF_JMP | BPF_CALL:
 	{
+	  const u8 r0 = bpf_to_rv_reg(BPF_REG_0, ctx);
 		bool fixed_addr;
 		u64 addr;
 
@@ -1432,7 +1544,42 @@ out_be:
 		if (ret < 0)
 			return ret;
 
+#ifdef CONFIG_BPF_SFI_MAP_MASKING
+		if (is_sandboxed) {
+			if (is_map_lookup((u64)addr)) {
+				ctx->prog->map_info->is_map_lookup_invoked = true;
+				bitmap_set(ctx->prog->map_info->map_reg_bitmap, r0, 1);
+				// pr_info("after lookup call, map in reg %d", r0);
+			} else {
+				ctx->prog->map_info->is_map_lookup_invoked = false;
+				bitmap_clear(ctx->prog->map_info->map_reg_bitmap, r0, 1);
+			}
+		}
+#endif /* CONFIG_BPF_SFI_MAP_MASKING */
+
+#if defined(CONFIG_BPF_SANDBOX_MEMORY_MANAGEMENT) || defined(CONFIG_BPF_SFI_TRAMPOLINE)
+		if (is_sandboxed)
+			/* x12 can be safely used for passing the prog id
+			 * because emit_call only uses x10 (TMP_REG_1) and
+			 * emit_a64_mov_i64 uses no temp regs.
+			 */
+			emit_imm(RV_REG_T0, ctx->prog->type, ctx);
+#endif /* CONFIG_BPF_SANDBOX_MEMORY_MANAGEMENT || CONFIG_BPF_SFI_TRAMPOLINE */
+
+#if defined(CONFIG_BPF_SANDBOX_CTX) || defined(CONFIG_BPF_SFI_TRAMPOLINE)
+		if (is_sandboxed) {
+			/* x11 can be safely used for passing the call target
+			 * because emit_call only uses x10 (TMP_REG_1) and
+			 * emit_a64_mov_i64 uses no temp regs.
+			 */
+			emit_imm(RV_REG_T1, addr, ctx);
+			
+			addr = (u64)&sandbox_tramp;
+		}
+#endif /* CONFIG_BPF_SANDBOX_CTX || CONFIG_BPF_SFI_TRAMPOLINE */
+
 		ret = emit_call(addr, fixed_addr, ctx);
+		
 		if (ret)
 			return ret;
 
@@ -1486,6 +1633,41 @@ out_be:
 	case BPF_LDX | BPF_PROBE_MEM | BPF_DW:
 	{
 		int insn_len, insns_start;
+#ifdef CONFIG_BPF_SFI_MASK_READ
+		if (is_sandboxed) {
+			u8 masked_addr_reg;
+
+			// pr_info("READ: src = %d to dst = %d", src, dst);
+
+#ifdef CONFIG_BPF_SFI_MAP_MASKING
+			if (is_map_reg(ctx->prog, rs)
+				&& ctx->prog->map_info->current_active_map) {
+				bitmap_set(ctx->prog->map_info->map_reg_bitmap, rd, 1);
+				masked_addr_reg = emit_sfi(rs, off, ctx, true);
+			} else if (is_map_reg(ctx->prog, rd)
+					   && ctx->prog->map_info->current_active_map) {
+				bitmap_clear(ctx->prog->map_info->map_reg_bitmap, rd, 1);
+				masked_addr_reg = emit_sfi(rd, off, ctx, false);
+			} else
+#endif /* CONFIG_BPF_SFI_MAP_MASKING */
+			masked_addr_reg = emit_sfi(rs, off, ctx, false);
+
+			switch (BPF_SIZE(code)) {
+			case BPF_W:
+				emit(rv_lwu(rd, 0, masked_addr_reg), ctx);
+				break;
+			case BPF_H:
+				emit(rv_lhu(rd, 0, masked_addr_reg), ctx);
+				break;
+			case BPF_B:
+				emit(rv_lbu(rd, 0, masked_addr_reg), ctx);
+				break;
+			case BPF_DW:
+				emit(rv_ld(rd, 0, masked_addr_reg), ctx);
+				break;
+			}
+		} else {
+#endif /* CONFIG_BPF_SFI_MASK_READ */
 
 		switch (BPF_SIZE(code)) {
 		case BPF_B:
@@ -1551,6 +1733,9 @@ out_be:
 			insn_len = ctx->ninsns - insns_start;
 			break;
 		}
+#ifdef CONFIG_BPF_SFI_MASK_READ
+		}
+#endif /* CONFIG_BPF_SFI_MASK_READ */
 
 		ret = add_exception_handler(insn, ctx, rd, insn_len);
 		if (ret)
@@ -1610,16 +1795,53 @@ out_be:
 
 	/* STX: *(size *)(dst + off) = src */
 	case BPF_STX | BPF_MEM | BPF_B:
-		if (is_12b_int(off)) {
-			emit(rv_sb(rd, off, rs), ctx);
-			break;
-		}
+#ifdef CONFIG_BPF_SFI_MASK_WRITE
+		if (is_sandboxed) {
+			u8 masked_addr_reg;
 
-		emit_imm(RV_REG_T1, off, ctx);
-		emit_add(RV_REG_T1, RV_REG_T1, rd, ctx);
-		emit(rv_sb(RV_REG_T1, 0, rs), ctx);
-		break;
+			// pr_info("WRITE: src = %d to dst = %d", src, dst);
+
+#ifdef CONFIG_BPF_SFI_MAP_MASKING
+			if (is_map_reg(ctx->prog, rd)
+				&& ctx->prog->map_info->current_active_map) {
+				masked_addr_reg = emit_sfi(rd, off, ctx, true);
+			} else 
+#endif /* CONFIG_BPF_SFI_MAP_MASKING */
+#endif /* CONFIG_BPF_SFI_MASK_WRITE */
+			masked_addr_reg = emit_sfi(rd, off, ctx, false);
+			
+			emit(rv_sb(masked_addr_reg, 0, rs), ctx);
+		} else {
+
+		  if (is_12b_int(off)) {
+		    emit(rv_sb(rd, off, rs), ctx);
+		    break;
+		  }
+		  
+		  emit_imm(RV_REG_T1, off, ctx);
+		  emit_add(RV_REG_T1, RV_REG_T1, rd, ctx);
+		  emit(rv_sb(RV_REG_T1, 0, rs), ctx);
+		  break;
+		}
 	case BPF_STX | BPF_MEM | BPF_H:
+#ifdef CONFIG_BPF_SFI_MASK_WRITE
+		if (is_sandboxed) {
+			u8 masked_addr_reg;
+
+			// pr_info("WRITE: src = %d to dst = %d", src, dst);
+
+#ifdef CONFIG_BPF_SFI_MAP_MASKING
+			if (is_map_reg(ctx->prog, rd)
+				&& ctx->prog->map_info->current_active_map) {
+				masked_addr_reg = emit_sfi(rd, off, ctx, true);
+			} else 
+#endif /* CONFIG_BPF_SFI_MAP_MASKING */
+#endif /* CONFIG_BPF_SFI_MASK_WRITE */
+			masked_addr_reg = emit_sfi(rd, off, ctx, false);
+			
+			emit(rv_sh(masked_addr_reg, 0, rs), ctx);
+		} else {
+
 		if (is_12b_int(off)) {
 			emit(rv_sh(rd, off, rs), ctx);
 			break;
@@ -1629,17 +1851,54 @@ out_be:
 		emit_add(RV_REG_T1, RV_REG_T1, rd, ctx);
 		emit(rv_sh(RV_REG_T1, 0, rs), ctx);
 		break;
-	case BPF_STX | BPF_MEM | BPF_W:
-		if (is_12b_int(off)) {
-			emit_sw(rd, off, rs, ctx);
-			break;
 		}
+	case BPF_STX | BPF_MEM | BPF_W:
+#ifdef CONFIG_BPF_SFI_MASK_WRITE
+		if (is_sandboxed) {
+			u8 masked_addr_reg;
 
-		emit_imm(RV_REG_T1, off, ctx);
-		emit_add(RV_REG_T1, RV_REG_T1, rd, ctx);
-		emit_sw(RV_REG_T1, 0, rs, ctx);
-		break;
+			// pr_info("WRITE: src = %d to dst = %d", src, dst);
+
+#ifdef CONFIG_BPF_SFI_MAP_MASKING
+			if (is_map_reg(ctx->prog, rd)
+				&& ctx->prog->map_info->current_active_map) {
+				masked_addr_reg = emit_sfi(rd, off, ctx, true);
+			} else 
+#endif /* CONFIG_BPF_SFI_MAP_MASKING */
+#endif /* CONFIG_BPF_SFI_MASK_WRITE */
+			masked_addr_reg = emit_sfi(rd, off, ctx, false);
+			
+			emit(rv_sw(masked_addr_reg, 0, rs), ctx);
+		} else {
+
+		  if (is_12b_int(off)) {
+		    emit(rv_sw(rd, off, rs), ctx);
+		    break;
+		  }
+		  
+		  emit_imm(RV_REG_T1, off, ctx);
+		  emit_add(RV_REG_T1, RV_REG_T1, rd, ctx);
+		  emit(rv_sb(RV_REG_T1, 0, rs), ctx);
+		  break;
+		}
 	case BPF_STX | BPF_MEM | BPF_DW:
+#ifdef CONFIG_BPF_SFI_MASK_WRITE
+		if (is_sandboxed) {
+			u8 masked_addr_reg;
+
+			// pr_info("WRITE: src = %d to dst = %d", src, dst);
+
+#ifdef CONFIG_BPF_SFI_MAP_MASKING
+			if (is_map_reg(ctx->prog, rd)
+				&& ctx->prog->map_info->current_active_map) {
+				masked_addr_reg = emit_sfi(rd, off, ctx, true);
+			} else 
+#endif /* CONFIG_BPF_SFI_MAP_MASKING */
+#endif /* CONFIG_BPF_SFI_MASK_WRITE */
+			masked_addr_reg = emit_sfi(rd, off, ctx, false);
+			
+			emit_sd(masked_addr_reg, 0, rs, ctx);
+		} else {
 		if (is_12b_int(off)) {
 			emit_sd(rd, off, rs, ctx);
 			break;
@@ -1649,6 +1908,8 @@ out_be:
 		emit_add(RV_REG_T1, RV_REG_T1, rd, ctx);
 		emit_sd(RV_REG_T1, 0, rs, ctx);
 		break;
+
+		}
 	case BPF_STX | BPF_ATOMIC | BPF_W:
 	case BPF_STX | BPF_ATOMIC | BPF_DW:
 		emit_atomic(rd, rs, off, imm,
@@ -1662,9 +1923,20 @@ out_be:
 	return 0;
 }
 
-void bpf_jit_build_prologue(struct rv_jit_context *ctx)
+#define SANDBOX_MEMORY_MANAGEMENT_INSNS (IS_ENABLED(CONFIG_BPF_SANDBOX_SFI) ? 4 : 9)
+#define SANDBOX_STACK_MANAGEMENT_INSNS 2
+#define SANDBOX_MTE_INSNS (IS_ENABLED(CONFIG_BPF_SANDBOX_MTE) ? 7 : 0)
+
+/* Offset of nop instruction in bpf prog entry to be poked */
+#define POKE_OFFSET 1
+
+#define PROLOGUE_OFFSET 10
+
+//void bpf_jit_build_prologue(struct rv_jit_context *ctx)
+void bpf_jit_build_prologue(struct rv_jit_context *ctx, bool is_sandboxed)
 {
 	int i, stack_adjust = 0, store_offset, bpf_stack_adjust;
+	int eff_prologue_offset, sandbox_insns = 0;
 
 	bpf_stack_adjust = round_up(ctx->prog->aux->stack_depth, 16);
 	if (bpf_stack_adjust)
@@ -1734,6 +2006,38 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 		store_offset -= 8;
 	}
 
+#ifdef CONFIG_BPF_SANDBOX_MEMORY_MANAGEMENT
+	if (is_sandboxed) {
+		/* x0 points to the top of the private memory.
+		 * ctx (if present) is copied to the top of the private memory.
+		 * So, effectively x0 points both to the top of the private memory and
+		 * ctx (if present). x12 the same as x0, except it's untagged.
+		 */
+
+		#ifdef CONFIG_BPF_SANDBOX_SFI
+		/* sub x11, x0, #0x18 // location in metadata to save pointer to original stack */
+		emit_addi(RV_REG_T1, RV_REG_A0, 0x18, ctx);
+		#endif /* CONFIG_BPF_SANDBOX_SFI */
+		/* mov x10, sp // move sp to x10 to subsequently store it in memory */
+		emit_mv(RV_REG_T0, RV_REG_SP, ctx);
+		/* str x10, [x11] // save the original stack pointer in sandbox metadata */
+		emit_sd(RV_REG_T0, 0, RV_REG_T1, ctx);
+		/* add sp, x0, 0x7f0 // switch the stack pointer to private stack */
+		emit_addi(RV_REG_SP, RV_REG_A0, 0x7f0, ctx);
+		sandbox_insns += SANDBOX_MEMORY_MANAGEMENT_INSNS;
+	}
+#endif /* CONFIG_BPF_SANDBOX_MEMORY_MANAGEMENT */
+
+#ifdef CONFIG_BPF_SANDBOX_STACK_MANAGEMENT
+	if (is_sandboxed) {
+	  /* mov x28, sp // move sp to x28, a callee-saved reg */
+	  emit_mv(RV_REG_S2, RV_REG_SP, ctx);
+	  /* mov sp, x3 // switch the stack pointer to the private stack */
+	  emit_mv(RV_REG_SP, RV_REG_A3, ctx);
+	  sandbox_insns += SANDBOX_STACK_MANAGEMENT_INSNS;
+	}
+#endif /* CONFIG_BPF_SANDBOX_STACK_MANAGEMENT */
+
 	emit_addi(RV_REG_FP, RV_REG_SP, stack_adjust, ctx);
 
 	if (bpf_stack_adjust)
@@ -1748,9 +2052,10 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 	ctx->stack_size = stack_adjust;
 }
 
-void bpf_jit_build_epilogue(struct rv_jit_context *ctx)
+void bpf_jit_build_epilogue(struct rv_jit_context *ctx, bool is_sandboxed)
 {
-	__build_epilogue(false, ctx);
+  //bool is_sandboxed = IS_SANDBOX_ENABLED(ctx->prog->type);
+  __build_epilogue(false, ctx, is_sandboxed);
 }
 
 bool bpf_jit_supports_kfunc_call(void)

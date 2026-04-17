@@ -12,6 +12,9 @@
 #include <uapi/linux/btf.h>
 #include <linux/rcupdate_trace.h>
 #include <linux/btf_ids.h>
+#include <linux/bpf_sandbox.h>
+#include <linux/bpf_map.h>
+#include <linux/bpf_mte.h>
 
 #include "map_in_map.h"
 
@@ -85,6 +88,14 @@ static struct bpf_map *array_map_alloc(union bpf_attr *attr)
 	bool bypass_spec_v1 = bpf_bypass_spec_v1();
 	u64 array_size, mask64;
 	struct bpf_array *array;
+	void *data;
+
+	/*** SANDBOX BPF START ***/
+	#if defined(CONFIG_BPF_SFI_MAP_MASKING) || defined(CONFIG_BPF_SANDBOX_MTE)
+	u64 total_elem_size;
+	#endif /* CONFIG_BPF_SFI_MAP_MASKING */
+	/*** SANDBOX BPF END ***/
+
 
 	elem_size = round_up(attr->value_size, 8);
 
@@ -109,9 +120,36 @@ static struct bpf_map *array_map_alloc(union bpf_attr *attr)
 			return ERR_PTR(-E2BIG);
 	}
 
+	/*** SANDBOX BPF START ***/
+	#ifdef CONFIG_BPF_SFI_MAP_MASKING
+	// TODO: current implementation does not support total_elem_size > 1 page
+	// addr 0x9000, or_mask 0x8000, and_mask 0x1fff
+	total_elem_size = percpu ?
+					__roundup_pow_of_two((u64) max_entries * sizeof(void *)) :
+					__roundup_pow_of_two((u64) max_entries * elem_size);
+
+	array_size = PAGE_ALIGN(sizeof(*array)) + PAGE_ALIGN(total_elem_size);
+	data = attr->map_flags & BPF_F_MMAPABLE ?
+			bpf_map_area_mmapable_alloc(array_size, numa_node) :
+			bpf_map_area_alloc(array_size, numa_node);
+
+	if (!data)
+		return ERR_PTR(-ENOMEM);
+
+	array = data + PAGE_ALIGN(sizeof(struct bpf_array))
+		- offsetof(struct bpf_array, value);
+
+	#else /* CONFIG_BPF_SFI_MAP_MASKING */
 	array_size = sizeof(*array);
+
 	if (percpu) {
+		#ifdef CONFIG_BPF_SANDBOX_MTE
+		total_elem_size = round_up((u64) max_entries * sizeof(void *),
+									MTE_GRANULE_SIZE);
+		array_size += total_elem_size;
+		#else
 		array_size += (u64) max_entries * sizeof(void *);
+		#endif /* CONFIG_BPF_SANDBOX_MTE */
 	} else {
 		/* rely on vmalloc() to return page-aligned memory and
 		 * ensure array->value is exactly page-aligned
@@ -119,15 +157,22 @@ static struct bpf_map *array_map_alloc(union bpf_attr *attr)
 		if (attr->map_flags & BPF_F_MMAPABLE) {
 			array_size = PAGE_ALIGN(array_size);
 			array_size += PAGE_ALIGN((u64) max_entries * elem_size);
+			#ifdef CONFIG_BPF_SANDBOX_MTE
+			total_elem_size = PAGE_ALIGN((u64) max_entries * elem_size);
+			#endif /* CONFIG_BPF_SANDBOX_MTE */
 		} else {
+			#ifdef CONFIG_BPF_SANDBOX_MTE
+			total_elem_size = round_up((u64) max_entries * elem_size,
+									BPF_MTE_GRANULE_MASK);
+			array_size += total_elem_size;
+			#else
 			array_size += (u64) max_entries * elem_size;
+			#endif /* CONFIG_BPF_SANDBOX_MTE */
 		}
 	}
 
 	/* allocate all map elements and zero-initialize them */
 	if (attr->map_flags & BPF_F_MMAPABLE) {
-		void *data;
-
 		/* kmalloc'ed memory can't be mmap'ed, use explicit vmalloc */
 		data = bpf_map_area_mmapable_alloc(array_size, numa_node);
 		if (!data)
@@ -137,6 +182,9 @@ static struct bpf_map *array_map_alloc(union bpf_attr *attr)
 	} else {
 		array = bpf_map_area_alloc(array_size, numa_node);
 	}
+	#endif /* CONFIG_BPF_SFI_MAP_MASKING */
+	/*** SANDBOX BPF END ***/
+
 	if (!array)
 		return ERR_PTR(-ENOMEM);
 	array->index_mask = index_mask;
@@ -150,6 +198,22 @@ static struct bpf_map *array_map_alloc(union bpf_attr *attr)
 		bpf_map_area_free(array);
 		return ERR_PTR(-ENOMEM);
 	}
+
+	/*** SANDBOX BPF START ***/
+	#ifdef CONFIG_BPF_SFI_MAP_MASKING
+	bpf_sandbox_add_map(&array->map);
+	array->map.sandbox_or_mask = gen_or_mask(array->value, total_elem_size);
+	array->map.sandbox_and_mask = gen_and_mask(total_elem_size);
+	// pr_info("BPF: value at %llx, total_elem_size = %lld or %llx",
+	//		(u64)array->value, total_elem_size, total_elem_size);
+	// pr_info("BPF: or_mask = %llx, and_mask = %llx",
+	//		array->map.sandbox_or_mask, array->map.sandbox_and_mask);
+	#endif /* CONFIG_BPF_SFI_MAP_MASKING */
+	#ifdef CONFIG_BPF_SANDBOX_MTE
+	bpf_mte_tag_mem(bpf_mte_set_tag((void *)array->value, BPF_MTE_TAG_SANDBOX),
+					total_elem_size, true);
+	#endif /* CONFIG_BPF_SANDBOX_MTE */
+	/*** SANDBOX BPF END ***/
 
 	return &array->map;
 }
@@ -168,7 +232,8 @@ static void *array_map_lookup_elem(struct bpf_map *map, void *key)
 	if (unlikely(index >= array->map.max_entries))
 		return NULL;
 
-	return array->value + (u64)array->elem_size * (index & array->index_mask);
+	return bpf_mte_set_tag((void *)(array->value + (u64)array->elem_size *
+					(index & array->index_mask)), BPF_MTE_TAG_SANDBOX);
 }
 
 static int array_map_direct_value_addr(const struct bpf_map *map, u64 *imm,
@@ -435,10 +500,18 @@ static void array_map_free(struct bpf_map *map)
 	if (array->map.map_type == BPF_MAP_TYPE_PERCPU_ARRAY)
 		bpf_array_free_percpu(array);
 
+	/*** SANDBOX BPF START ***/
+	#ifdef CONFIG_BPF_SFI_MAP_MASKING
+	bpf_sandbox_delete_map(map);
+	// Round down to free the extra space we over-allocated
+	bpf_map_area_free(array_map_vmalloc_addr(array));
+	#else
 	if (array->map.map_flags & BPF_F_MMAPABLE)
 		bpf_map_area_free(array_map_vmalloc_addr(array));
 	else
 		bpf_map_area_free(array);
+	#endif /* CONFIG_BPF_SFI_MAP_MASKING */
+	/*** SANDBOX BPF END ***/
 }
 
 static void array_map_seq_show_elem(struct bpf_map *map, void *key,
@@ -810,7 +883,14 @@ static void fd_array_map_free(struct bpf_map *map)
 	for (i = 0; i < array->map.max_entries; i++)
 		BUG_ON(array->ptrs[i] != NULL);
 
+	/*** SANDBOX BPF START ***/
+	#ifdef CONFIG_BPF_SFI_MAP_MASKING
+	// Round down to free the extra space we over-allocated
+	bpf_map_area_free(array_map_vmalloc_addr(array));
+	#else
 	bpf_map_area_free(array);
+	#endif /* CONFIG_BPF_SFI_MAP_MASKING */
+	/*** SANDBOX BPF END ***/
 }
 
 static void *fd_array_map_lookup_elem(struct bpf_map *map, void *key)

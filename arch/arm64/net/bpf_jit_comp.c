@@ -13,6 +13,8 @@
 #include <linux/memory.h>
 #include <linux/printk.h>
 #include <linux/slab.h>
+#include <linux/bpf_map.h>
+#include <linux/bpf_mte.h>
 
 #include <asm/asm-extable.h>
 #include <asm/byteorder.h>
@@ -133,6 +135,15 @@ static inline void emit_a64_mov_i64(const int reg, const u64 val,
 	bool inverse;
 	int shift;
 
+#ifdef CONFIG_BPF_SFI_MAP_MASKING
+	struct bpf_map *map;
+
+	if (virt_addr_valid(val) && is_active_map(val)) {
+		map = (struct bpf_map *)val;
+		ctx->prog->map_info->current_active_map = map;
+	}
+#endif /* CONFIG_BPF_SFI_MAP_MASKING */
+
 	if (!(nrm_tmp >> 32))
 		return emit_a64_mov_i(0, reg, (u32)val, ctx);
 
@@ -183,6 +194,139 @@ static inline void emit_call(u64 target, struct jit_ctx *ctx)
 	emit_addr_mov_i64(tmp, target, ctx);
 	emit(A64_BLR(tmp), ctx);
 }
+
+#if defined(CONFIG_BPF_SFI_MASK_READ) || defined(CONFIG_BPF_SFI_MASK_WRITE)
+static inline u8 emit_sfi(u8 addr_reg, s16 off, struct jit_ctx *ctx, bool is_map)
+{
+	u64 mask;
+	u8 fp = bpf2a64[BPF_REG_FP];
+	u8 tmp = bpf2a64[TMP_REG_1];
+	u8 tmp2 = bpf2a64[TMP_REG_2];
+
+	if (is_map) {
+		// pr_info("EMIT MAP MASKING");
+		/* mov tmp, off */
+		emit_a64_mov_i(1, tmp, off, ctx);
+		/* add tmp, addr_reg, off // load effective address */
+		emit(A64_ADD(1, tmp, addr_reg, tmp), ctx);
+
+		#ifdef CONFIG_BPF_SFI_MASK_MAP_READ_WRITE
+		// If masking not supported for a mask, skip emitting masking checks
+		if (!IS_MASKING_ENABLED_FOR_MAP(ctx->prog->map_info->current_active_map->map_type))
+			return tmp;
+
+		if (ctx->prog->map_info->current_active_map->sandbox_and_mask &&
+			ctx->prog->map_info->current_active_map->sandbox_or_mask) {
+			// pr_info("EMIT SFI: array");
+			/* mov tmp2, and_mask */
+			mask = (u64)ctx->prog->map_info->current_active_map->sandbox_and_mask;
+			emit_a64_mov_i64(tmp2, mask, ctx);
+			/* and tmp, tmp, tmp2 // apply the AND mask */
+			emit(A64_AND(1, tmp, tmp, tmp2), ctx);
+			/* mov tmp2, or_mask */
+			mask = (u64)ctx->prog->map_info->current_active_map->sandbox_or_mask;
+			emit_a64_mov_i64(tmp2, mask, ctx);
+			/* or tmp, tmp, tmp2 // apply the OR mask */
+			emit(A64_ORR(1, tmp, tmp, tmp2), ctx);
+		} else {
+			// pr_info("EMIT SFI: hashmap");
+			/* mov tmp, off */
+			emit_a64_mov_i(1, tmp, off, ctx);
+			/* add tmp, addr_reg, off // load effective address */
+			emit(A64_ADD(1, tmp, addr_reg, tmp), ctx);
+			/* sub tmp2, fp, (0x7f0 + 0x30) // location of the map's AND mask */
+			emit(A64_SUB_I(1, tmp2, fp, 0x7f0 + 0x30), ctx);
+			/* ldr tmp2, [tmp2] // load the AND mask */
+			emit(A64_LDR64(tmp2, tmp2, A64_ZR), ctx);
+			/* and tmp, tmp, tmp2 // apply the AND mask */
+			emit(A64_AND(1, tmp, tmp, tmp2), ctx);
+			/* sub tmp2, fp, (0x7f0 + 0x28) // location of the map's OR mask */
+			emit(A64_SUB_I(1, tmp2, fp, 0x7f0 + 0x28), ctx);
+			/* ldr tmp2, [tmp2] // load the OR mask */
+			emit(A64_LDR64(tmp2, tmp2, A64_ZR), ctx);
+			/* or tmp, tmp, tmp2 // apply the OR mask */
+			emit(A64_ORR(1, tmp, tmp, tmp2), ctx);
+		}
+		#endif /* CONFIG_BPF_SFI_MASK_MAP_READ_WRITE */
+	} else {
+		/* mov tmp, off */
+		emit_a64_mov_i(1, tmp, off, ctx);
+		/* add tmp, addr_reg, off // load effective address */
+		emit(A64_ADD(1, tmp, addr_reg, tmp), ctx);
+		/* sub tmp2, fp, (0x7f0 + 0x10) // location of the AND mask */
+		emit(A64_SUB_I(1, tmp2, fp, 0x7f0 + 0x10), ctx);
+		/* ldr tmp2, [tmp2] // load the AND mask */
+		emit(A64_LDR64(tmp2, tmp2, A64_ZR), ctx);
+		/* and tmp, tmp, tmp2 // apply the AND mask */
+		emit(A64_AND(1, tmp, tmp, tmp2), ctx);
+		/* sub tmp2, fp, (0x7f0 + 0x8) // location of the OR mask */
+		emit(A64_SUB_I(1, tmp2, fp, 0x7f0 + 0x8), ctx);
+		/* ldr tmp2, [tmp2] // load the OR mask */
+		emit(A64_LDR64(tmp2, tmp2, A64_ZR), ctx);
+		/* or tmp, tmp, tmp2 // apply the OR mask */
+		emit(A64_ORR(1, tmp, tmp, tmp2), ctx);
+	}
+
+	return tmp;
+}
+#endif /* CONFIG_BPF_SFI_MASK_READ || CONFIG_BPF_SFI_MASK_WRITE */
+
+
+#ifdef CONFIG_BPF_SANDBOX_MTE
+static inline void emit_enable_el1_mte_checks(struct jit_ctx *ctx)
+{
+	/* Set TCO (Tag Check Override) to allow MTE checks
+	 *   msr tco, xzr
+	 */
+	emit(0xd51b42ff, ctx);
+
+	/* Set 40th bit of SCTLR_EL1 to 1
+	 * This enables MTE checks in synchronous mode
+	 *   mov x12, #1
+	 *   lsl x12, x12, #40
+	 *   mrs x10, SCTLR_EL1
+	 *   orr x12, x10, x12
+	 *   msr SCTLR_EL1, x12
+	 */
+	emit(0xd280002c, ctx);
+	emit(0xd3585d8c, ctx);
+	emit(0xd538100a, ctx);
+	emit(0xaa0c014c, ctx);
+	emit(0xd518100c, ctx);
+
+	/* isb */
+	emit(0xd5033fdf, ctx);
+}
+
+static inline void emit_disable_el1_mte_checks(struct jit_ctx *ctx)
+{
+	/* Set TCO (Tag Check Override) to disallow MTE checks
+	 *   mov x10, #1
+	 *   lsl x10, x10, #25
+	 *   msr tco, x10
+	 */
+	emit(0xd280002a, ctx);
+	emit(0xd367994a, ctx);
+	emit(0xd51b42ea, ctx);
+
+	/* isb */
+	emit(0xd5033fdf, ctx);
+}
+
+static inline void emit_set_mte_ptr_tag(u8 ptr_reg, u64 ptr_tag, struct jit_ctx *ctx)
+{
+	u8 tmp = bpf2a64[TMP_REG_1];
+
+	/* mov tmp, ~(0xfll << 56) // load tag bits clear mask */
+	emit_a64_mov_i64(tmp, ~(0xfll << 56), ctx);
+	/* and ptr_reg, ptr_reg, tmp // clear tag bits */
+	emit(A64_AND(1, ptr_reg, ptr_reg, tmp), ctx);
+	/* mov tmp, ptr_tag << 56 // load tag */
+	emit_a64_mov_i64(tmp, ptr_tag << 56, ctx);
+	/* orr ptr_reg, ptr_reg, tmp // set tag */
+	emit(A64_ORR(1, ptr_reg, ptr_reg, tmp), ctx);
+}
+#endif /* CONFIG_BPF_SANDBOX_MTE */
 
 static inline int bpf2a64_offset(int bpf_insn, int off,
 				 const struct jit_ctx *ctx)
@@ -279,13 +423,17 @@ static bool is_lsi_offset(int offset, int scale)
 #define BTI_INSNS (IS_ENABLED(CONFIG_ARM64_BTI_KERNEL) ? 1 : 0)
 #define PAC_INSNS (IS_ENABLED(CONFIG_ARM64_PTR_AUTH_KERNEL) ? 1 : 0)
 
+#define SANDBOX_MEMORY_MANAGEMENT_INSNS (IS_ENABLED(CONFIG_BPF_SANDBOX_SFI) ? 4 : 9)
+#define SANDBOX_STACK_MANAGEMENT_INSNS 2
+#define SANDBOX_MTE_INSNS (IS_ENABLED(CONFIG_BPF_SANDBOX_MTE) ? 7 : 0)
+
 /* Offset of nop instruction in bpf prog entry to be poked */
 #define POKE_OFFSET (BTI_INSNS + 1)
 
 /* Tail call offset to jump into */
 #define PROLOGUE_OFFSET (BTI_INSNS + 2 + PAC_INSNS + 8)
 
-static int build_prologue(struct jit_ctx *ctx, bool ebpf_from_cbpf)
+static int build_prologue(struct jit_ctx *ctx, bool ebpf_from_cbpf, bool is_sandboxed)
 {
 	const struct bpf_prog *prog = ctx->prog;
 	const bool is_main_prog = prog->aux->func_idx == 0;
@@ -298,6 +446,7 @@ static int build_prologue(struct jit_ctx *ctx, bool ebpf_from_cbpf)
 	const u8 fpb = bpf2a64[FP_BOTTOM];
 	const int idx0 = ctx->idx;
 	int cur_offset;
+	int eff_prologue_offset, sandbox_insns = 0;
 
 	/*
 	 * BPF prog stack layout
@@ -341,6 +490,51 @@ static int build_prologue(struct jit_ctx *ctx, bool ebpf_from_cbpf)
 	emit(A64_PUSH(fp, tcc, A64_SP), ctx);
 	emit(A64_PUSH(fpb, A64_R(28), A64_SP), ctx);
 
+#ifdef CONFIG_BPF_SANDBOX_MEMORY_MANAGEMENT
+	if (is_sandboxed) {
+		/* x0 points to the top of the private memory.
+		 * ctx (if present) is copied to the top of the private memory.
+		 * So, effectively x0 points both to the top of the private memory and
+		 * ctx (if present). x12 the same as x0, except it's untagged.
+		 */
+
+		#ifdef CONFIG_BPF_SANDBOX_MTE
+		emit(A64_MOV(1, A64_R(12), A64_R(0)), ctx);
+		emit_set_mte_ptr_tag(A64_R(12), BPF_MTE_TAG_KERNEL, ctx);
+		/* sub x11, x12, #0x18 // location in metadata to save pointer to original stack */
+		emit(A64_SUB_I(1, A64_R(11), A64_R(12), 0x18), ctx);
+		#endif /* CONFIG_BPF_SANDBOX_MTE */
+		#ifdef CONFIG_BPF_SANDBOX_SFI
+		/* sub x11, x0, #0x18 // location in metadata to save pointer to original stack */
+		emit(A64_SUB_I(1, A64_R(11), A64_R(0), 0x18), ctx);
+		#endif /* CONFIG_BPF_SANDBOX_SFI */
+		/* mov x10, sp // move sp to x10 to subsequently store it in memory */
+		emit(A64_MOV(1, A64_R(10), A64_SP), ctx);
+		/* str x10, [x11] // save the original stack pointer in sandbox metadata */
+		emit(A64_STR64(A64_R(10), A64_R(11), A64_ZR), ctx);
+		/* add sp, x0, 0x7f0 // switch the stack pointer to private stack */
+		emit(A64_ADD_I(1, A64_SP, A64_R(0), 0x7f0), ctx);
+		sandbox_insns += SANDBOX_MEMORY_MANAGEMENT_INSNS;
+	}
+#endif /* CONFIG_BPF_SANDBOX_MEMORY_MANAGEMENT */
+
+#ifdef CONFIG_BPF_SANDBOX_STACK_MANAGEMENT
+	if (is_sandboxed) {
+		/* mov x28, sp // move sp to x28, a callee-saved reg */
+		emit(A64_MOV(1, A64_R(28), A64_SP), ctx);
+		/* mov sp, x3 // switch the stack pointer to the private stack */
+		emit(A64_MOV(1, A64_SP, A64_R(3)), ctx);
+		sandbox_insns += SANDBOX_STACK_MANAGEMENT_INSNS;
+	}
+#endif /* CONFIG_BPF_SANDBOX_STACK_MANAGEMENT */
+
+// #ifdef CONFIG_BPF_SANDBOX_MTE
+//	if (is_sandboxed) {
+//		emit_enable_el1_mte_checks(ctx);
+//		sandbox_insns += SANDBOX_MTE_INSNS;
+//	}
+// #endif /* CONFIG_BPF_SANDBOX_MTE */
+
 	/* Set up BPF prog stack base register */
 	emit(A64_MOV(1, fp, A64_SP), ctx);
 
@@ -349,9 +543,10 @@ static int build_prologue(struct jit_ctx *ctx, bool ebpf_from_cbpf)
 		emit(A64_MOVZ(1, tcc, 0, 0), ctx);
 
 		cur_offset = ctx->idx - idx0;
-		if (cur_offset != PROLOGUE_OFFSET) {
+		eff_prologue_offset = PROLOGUE_OFFSET + sandbox_insns;
+		if (cur_offset != eff_prologue_offset) {
 			pr_err_once("PROLOGUE_OFFSET = %d, expected %d!\n",
-				    cur_offset, PROLOGUE_OFFSET);
+				    cur_offset, eff_prologue_offset);
 			return -1;
 		}
 
@@ -647,7 +842,7 @@ static void build_plt(struct jit_ctx *ctx)
 		plt->target = (u64)&dummy_tramp;
 }
 
-static void build_epilogue(struct jit_ctx *ctx)
+static void build_epilogue(struct jit_ctx *ctx, bool is_sandboxed)
 {
 	const u8 r0 = bpf2a64[BPF_REG_0];
 	const u8 r6 = bpf2a64[BPF_REG_6];
@@ -659,6 +854,32 @@ static void build_epilogue(struct jit_ctx *ctx)
 
 	/* We're done with BPF stack */
 	emit(A64_ADD_I(1, A64_SP, A64_SP, ctx->stack_size), ctx);
+
+// #ifdef CONFIG_BPF_SANDBOX_MTE
+//	if (is_sandboxed)
+//		emit_disable_el1_mte_checks(ctx);
+// #endif /* CONFIG_BPF_SANDBOX_MTE */
+
+#ifdef CONFIG_BPF_SANDBOX_MEMORY_MANAGEMENT
+	if (is_sandboxed) {
+		/* sub x11, sp, #(0x7f0 + 0x18) //load the location of original sp */
+		emit(A64_SUB_I(1, A64_R(11), A64_SP, 0x7f0 + 0x18), ctx);
+		#ifdef CONFIG_BPF_SANDBOX_MTE
+		emit_set_mte_ptr_tag(A64_R(11), BPF_MTE_TAG_KERNEL, ctx);
+		#endif /* CONFIG_BPF_SANDBOX_MTE */
+		/* ldr x10, [x11] // load original stack pointer into x10 */
+		emit(A64_LDR64(A64_R(10), A64_R(11), A64_ZR), ctx);
+		/* mov sp, x10 // restore the original stack pointer */
+		emit(A64_MOV(1, A64_SP, A64_R(10)), ctx);
+	}
+#endif /* CONFIG_BPF_SANDBOX_MEMORY_MANAGEMENT */
+
+#ifdef CONFIG_BPF_SANDBOX_STACK_MANAGEMENT
+	if (is_sandboxed) {
+		/* mov sp, x10 // restore the original stack pointer */
+		emit(A64_MOV(1, A64_SP, A64_R(28)), ctx);
+	}
+#endif /* CONFIG_BPF_SANDBOX_STACK_MANAGEMENT */
 
 	/* Restore x27 and x28 */
 	emit(A64_POP(fpb, A64_R(28), A64_SP), ctx);
@@ -752,7 +973,7 @@ static int add_exception_handler(const struct bpf_insn *insn,
  * <0 - failed to JIT.
  */
 static int build_insn(const struct bpf_insn *insn, struct jit_ctx *ctx,
-		      bool extra_pass)
+		      bool extra_pass, bool is_sandboxed)
 {
 	const u8 code = insn->code;
 	const u8 dst = bpf2a64[insn->dst_reg];
@@ -779,6 +1000,14 @@ static int build_insn(const struct bpf_insn *insn, struct jit_ctx *ctx,
 	case BPF_ALU | BPF_MOV | BPF_X:
 	case BPF_ALU64 | BPF_MOV | BPF_X:
 		emit(A64_MOV(is64, dst, src), ctx);
+#ifdef CONFIG_BPF_SFI_MAP_MASKING
+		if (is_sandboxed && is_map_reg(ctx->prog, src)) {
+			bitmap_set(ctx->prog->map_info->map_reg_bitmap, dst, 1);
+			// pr_info("dst %d = src %d", dst, src);
+		} else if (is_sandboxed && is_map_reg(ctx->prog, dst)) {
+			bitmap_clear(ctx->prog->map_info->map_reg_bitmap, dst, 1);
+		}
+#endif /* CONFIG_BPF_SFI_MAP_MASKING */
 		break;
 	/* dst = dst OP src */
 	case BPF_ALU | BPF_ADD | BPF_X:
@@ -1081,8 +1310,46 @@ emit_cond_jmp:
 					    &func_addr, &func_addr_fixed);
 		if (ret < 0)
 			return ret;
+
+#ifdef CONFIG_BPF_SFI_MAP_MASKING
+		if (is_sandboxed) {
+			if (is_map_lookup((u64)func_addr)) {
+				ctx->prog->map_info->is_map_lookup_invoked = true;
+				bitmap_set(ctx->prog->map_info->map_reg_bitmap, r0, 1);
+				// pr_info("after lookup call, map in reg %d", r0);
+			} else {
+				ctx->prog->map_info->is_map_lookup_invoked = false;
+				bitmap_clear(ctx->prog->map_info->map_reg_bitmap, r0, 1);
+			}
+		}
+#endif /* CONFIG_BPF_SFI_MAP_MASKING */
+
+#if defined(CONFIG_BPF_SANDBOX_MEMORY_MANAGEMENT) || defined(CONFIG_BPF_SFI_TRAMPOLINE)
+		if (is_sandboxed)
+			/* x12 can be safely used for passing the prog id
+			 * because emit_call only uses x10 (TMP_REG_1) and
+			 * emit_a64_mov_i64 uses no temp regs.
+			 */
+			emit_a64_mov_i64(A64_R(12), ctx->prog->type, ctx);
+#endif /* CONFIG_BPF_SANDBOX_MEMORY_MANAGEMENT || CONFIG_BPF_SFI_TRAMPOLINE */
+
+#if defined(CONFIG_BPF_SANDBOX_CTX) || defined(CONFIG_BPF_SFI_TRAMPOLINE)
+		if (is_sandboxed) {
+			/* x11 can be safely used for passing the call target
+			 * because emit_call only uses x10 (TMP_REG_1) and
+			 * emit_a64_mov_i64 uses no temp regs.
+			 */
+			emit_a64_mov_i64(A64_R(11), func_addr, ctx);
+			func_addr = (u64)&sandbox_tramp;
+		}
+#endif /* CONFIG_BPF_SANDBOX_CTX || CONFIG_BPF_SFI_TRAMPOLINE */
+
 		emit_call(func_addr, ctx);
+		emit(A64_NOP, ctx);
+		emit(A64_NOP, ctx);
+		emit(A64_NOP, ctx);
 		emit(A64_MOV(1, r0, A64_R(0)), ctx);
+
 		break;
 	}
 	/* tail call */
@@ -1125,6 +1392,44 @@ emit_cond_jmp:
 	case BPF_LDX | BPF_PROBE_MEM | BPF_W:
 	case BPF_LDX | BPF_PROBE_MEM | BPF_H:
 	case BPF_LDX | BPF_PROBE_MEM | BPF_B:
+#ifdef CONFIG_BPF_SFI_MASK_READ
+		if (is_sandboxed) {
+			u8 masked_addr_reg;
+
+			// pr_info("READ: src = %d to dst = %d", src, dst);
+
+#ifdef CONFIG_BPF_SFI_MAP_MASKING
+			if (is_map_reg(ctx->prog, src)
+				&& ctx->prog->map_info->current_active_map) {
+				bitmap_set(ctx->prog->map_info->map_reg_bitmap, dst, 1);
+				masked_addr_reg = emit_sfi(src, off, ctx, true);
+			} else if (is_map_reg(ctx->prog, dst)
+					   && ctx->prog->map_info->current_active_map) {
+				bitmap_clear(ctx->prog->map_info->map_reg_bitmap, dst, 1);
+				masked_addr_reg = emit_sfi(src, off, ctx, false);
+			} else
+#endif /* CONFIG_BPF_SFI_MAP_MASKING */
+			masked_addr_reg = emit_sfi(src, off, ctx, false);
+
+			switch (BPF_SIZE(code)) {
+			case BPF_W:
+				emit(A64_LDR32(dst, masked_addr_reg, A64_ZR), ctx);
+				break;
+			case BPF_H:
+				emit(A64_LDRH(dst, masked_addr_reg, A64_ZR), ctx);
+				break;
+			case BPF_B:
+				emit(A64_LDRB(dst, masked_addr_reg, A64_ZR), ctx);
+				break;
+			case BPF_DW:
+				emit(A64_LDR64(dst, masked_addr_reg, A64_ZR), ctx);
+				break;
+			}
+		} else {
+#endif /* CONFIG_BPF_SFI_MASK_READ */
+#ifdef CONFIG_BPF_SANDBOX_MTE_ANALOG_LOAD
+		emit(A64_LDR64(A64_R(10), A64_SP, A64_ZR), ctx);
+#endif /* CONFIG_BPF_SANDBOX_MTE_ANALOG_LOAD */
 		if (ctx->fpb_offset > 0 && src == fp) {
 			src_adj = fpb;
 			off_adj = off + ctx->fpb_offset;
@@ -1166,6 +1471,9 @@ emit_cond_jmp:
 			}
 			break;
 		}
+#ifdef CONFIG_BPF_SFI_MASK_READ
+		}
+#endif /* CONFIG_BPF_SFI_MASK_READ */
 
 		ret = add_exception_handler(insn, ctx, dst);
 		if (ret)
@@ -1240,6 +1548,39 @@ emit_cond_jmp:
 	case BPF_STX | BPF_MEM | BPF_H:
 	case BPF_STX | BPF_MEM | BPF_B:
 	case BPF_STX | BPF_MEM | BPF_DW:
+#ifdef CONFIG_BPF_SFI_MASK_WRITE
+		if (is_sandboxed) {
+			u8 masked_addr_reg;
+
+			// pr_info("WRITE: src = %d to dst = %d", src, dst);
+
+#ifdef CONFIG_BPF_SFI_MAP_MASKING
+			if (is_map_reg(ctx->prog, dst)
+				&& ctx->prog->map_info->current_active_map) {
+				masked_addr_reg = emit_sfi(dst, off, ctx, true);
+			} else
+#endif /* CONFIG_BPF_SFI_MAP_MASKING */
+			masked_addr_reg = emit_sfi(dst, off, ctx, false);
+
+			switch (BPF_SIZE(code)) {
+			case BPF_W:
+				emit(A64_STR32(src, masked_addr_reg, A64_ZR), ctx);
+				break;
+			case BPF_H:
+				emit(A64_STRH(src, masked_addr_reg, A64_ZR), ctx);
+				break;
+			case BPF_B:
+				emit(A64_STRB(src, masked_addr_reg, A64_ZR), ctx);
+				break;
+			case BPF_DW:
+				emit(A64_STR64(src, masked_addr_reg, A64_ZR), ctx);
+				break;
+			}
+		} else {
+#endif /* CONFIG_BPF_SFI_MASK_WRITE */
+#ifdef CONFIG_BPF_SANDBOX_MTE_ANALOG_LOAD
+		emit(A64_LDR64(A64_R(10), A64_SP, A64_ZR), ctx);
+#endif /* CONFIG_BPF_SANDBOX_MTE_ANALOG_LOAD */
 		if (ctx->fpb_offset > 0 && dst == fp) {
 			dst_adj = fpb;
 			off_adj = off + ctx->fpb_offset;
@@ -1281,6 +1622,9 @@ emit_cond_jmp:
 			}
 			break;
 		}
+#ifdef CONFIG_BPF_SFI_MASK_WRITE
+		}
+#endif /* CONFIG_BPF_SFI_MASK_WRITE */
 		break;
 
 	case BPF_STX | BPF_ATOMIC | BPF_W:
@@ -1374,7 +1718,7 @@ static int find_fpb_offset(struct bpf_prog *prog)
 	return offset;
 }
 
-static int build_body(struct jit_ctx *ctx, bool extra_pass)
+static int build_body(struct jit_ctx *ctx, bool extra_pass, bool is_sandboxed)
 {
 	const struct bpf_prog *prog = ctx->prog;
 	int i;
@@ -1394,7 +1738,7 @@ static int build_body(struct jit_ctx *ctx, bool extra_pass)
 
 		if (ctx->image == NULL)
 			ctx->offset[i] = ctx->idx;
-		ret = build_insn(insn, ctx, extra_pass);
+		ret = build_insn(insn, ctx, extra_pass, is_sandboxed);
 		if (ret > 0) {
 			i++;
 			if (ctx->image == NULL)
@@ -1462,6 +1806,16 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 	struct jit_ctx ctx;
 	u8 *image_ptr;
 
+#ifndef CONFIG_BPF_SANDBOX
+	bool is_sandboxed = 0;
+#else
+	bool is_sandboxed = IS_SANDBOX_ENABLED(prog->type);
+#endif /* CONFIG_BPF_SANDBOX */
+
+#ifdef CONFIG_BPF_SFI_MAP_MASKING
+	bpf_sandbox_map_info_init(prog);
+#endif /* CONFIG_BPF_SFI_MAP_MASKING */
+
 	if (!prog->jit_requested)
 		return orig_prog;
 
@@ -1510,18 +1864,18 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 	 * BPF line info needs ctx->offset[i] to be the offset of
 	 * instruction[i] in jited image, so build prologue first.
 	 */
-	if (build_prologue(&ctx, was_classic)) {
+	if (build_prologue(&ctx, was_classic, is_sandboxed)) {
 		prog = orig_prog;
 		goto out_off;
 	}
 
-	if (build_body(&ctx, extra_pass)) {
+	if (build_body(&ctx, extra_pass, is_sandboxed)) {
 		prog = orig_prog;
 		goto out_off;
 	}
 
 	ctx.epilogue_offset = ctx.idx;
-	build_epilogue(&ctx);
+	build_epilogue(&ctx, is_sandboxed);
 	build_plt(&ctx);
 
 	extable_align = __alignof__(struct exception_table_entry);
@@ -1549,15 +1903,15 @@ skip_init_ctx:
 	ctx.idx = 0;
 	ctx.exentry_idx = 0;
 
-	build_prologue(&ctx, was_classic);
+	build_prologue(&ctx, was_classic, is_sandboxed);
 
-	if (build_body(&ctx, extra_pass)) {
+	if (build_body(&ctx, extra_pass, is_sandboxed)) {
 		bpf_jit_binary_free(header);
 		prog = orig_prog;
 		goto out_off;
 	}
 
-	build_epilogue(&ctx);
+	build_epilogue(&ctx, is_sandboxed);
 	build_plt(&ctx);
 
 	/* 3. Extra pass to validate JITed code. */

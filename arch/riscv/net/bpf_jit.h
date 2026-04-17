@@ -1056,10 +1056,10 @@ static inline void emit_subw(u8 rd, u8 rs1, u8 rs2, struct rv_jit_context *ctx)
 
 #endif /* __riscv_xlen == 64 */
 
-void bpf_jit_build_prologue(struct rv_jit_context *ctx);
-void bpf_jit_build_epilogue(struct rv_jit_context *ctx);
+void bpf_jit_build_prologue(struct rv_jit_context *ctx, bool is_sandboxed);
+void bpf_jit_build_epilogue(struct rv_jit_context *ctx, bool is_sandboxed);
 
 int bpf_jit_emit_insn(const struct bpf_insn *insn, struct rv_jit_context *ctx,
-		      bool extra_pass);
+		      bool extra_pass, bool is_sandboxed);
 
 #endif /* _BPF_JIT_H */

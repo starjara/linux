@@ -1,4 +1,6 @@
 #include <linux/bpf.h>
+#include <linux/bpf_malloc.h>
+#include <linux/bpf_sandbox.h>
 #include <linux/btf.h>
 #include <linux/err.h>
 #include <linux/irq_work.h>
@@ -11,6 +13,7 @@
 #include <linux/kmemleak.h>
 #include <uapi/linux/btf.h>
 #include <linux/btf_ids.h>
+#include <linux/bpf_mte.h>
 
 #define RINGBUF_CREATE_FLAG_MASK (BPF_F_NUMA_NODE)
 
@@ -144,6 +147,10 @@ static struct bpf_ringbuf *bpf_ringbuf_area_alloc(size_t data_sz, int numa_node)
 		kmemleak_not_leak(pages);
 		rb->pages = pages;
 		rb->nr_pages = nr_pages;
+#ifdef CONFIG_BPF_SANDBOX_MTE
+		bpf_mte_tag_mem(bpf_mte_set_tag(rb->data, BPF_MTE_TAG_SANDBOX),
+						nr_data_pages * PAGE_SIZE, false);
+#endif /* CONFIG_BPF_SANDBOX_MTE */
 		return rb;
 	}
 
@@ -411,6 +418,11 @@ static void *__bpf_ringbuf_reserve(struct bpf_ringbuf *rb, u64 size)
 	unsigned long cons_pos, prod_pos, new_prod_pos, flags;
 	u32 len, pg_off;
 	struct bpf_ringbuf_hdr *hdr;
+	#ifdef CONFIG_BPF_SANDBOX_MEMORY_MANAGEMENT
+		void *sandbox_reserve;
+		bool caller_sandboxed = is_caller_sandboxed();
+	#endif
+
 
 	if (unlikely(size > RINGBUF_MAX_RECORD_SZ))
 		return NULL;
@@ -444,12 +456,25 @@ static void *__bpf_ringbuf_reserve(struct bpf_ringbuf *rb, u64 size)
 	hdr->len = size | BPF_RINGBUF_BUSY_BIT;
 	hdr->pg_off = pg_off;
 
+#ifdef CONFIG_BPF_SANDBOX_MTE
+	hdr = bpf_mte_set_tag(hdr, BPF_MTE_TAG_SANDBOX);
+#endif /* CONFIG_BPF_SANDBOX_MTE */
+
 	/* pairs with consumer's smp_load_acquire() */
 	smp_store_release(&rb->producer_pos, new_prod_pos);
 
 	spin_unlock_irqrestore(&rb->spinlock, flags);
 
-	return (void *)hdr + BPF_RINGBUF_HDR_SZ;
+	#ifdef CONFIG_BPF_SANDBOX_MEMORY_MANAGEMENT
+		if (caller_sandboxed) {
+			sandbox_reserve = bpf_malloc(size, (void *)hdr + BPF_RINGBUF_HDR_SZ);
+			return sandbox_reserve;
+		} else {
+			return (void *)hdr + BPF_RINGBUF_HDR_SZ;
+		}
+	#else
+		return (void *)hdr + BPF_RINGBUF_HDR_SZ;
+	#endif /* CONFIG_BPF_SANDBOX_MEMORY_MANAGEMENT */
 }
 
 BPF_CALL_3(bpf_ringbuf_reserve, struct bpf_map *, map, u64, size, u64, flags)
@@ -478,7 +503,27 @@ static void bpf_ringbuf_commit(void *sample, u64 flags, bool discard)
 	struct bpf_ringbuf *rb;
 	u32 new_len;
 
+#ifdef CONFIG_BPF_SANDBOX_MEMORY_MANAGEMENT
+	void *data;
+
+	if (is_caller_sandboxed()) {
+		data = bpf_sandbox_get_kernel_ptr((u64)sample);
+		hdr = (void *)data - BPF_RINGBUF_HDR_SZ;
+		if (!hdr)
+			panic("hdr NULL in ringbuf commit");
+		memcpy(data, sample, hdr->len ^ BPF_RINGBUF_BUSY_BIT);
+		bpf_free(sample);
+	} else {
+		hdr = sample - BPF_RINGBUF_HDR_SZ;
+	}
+#else
 	hdr = sample - BPF_RINGBUF_HDR_SZ;
+#endif /* CONFIG_BPF_SANDBOX_MEMORY_MANAGEMENT */
+
+#ifdef CONFIG_BPF_SANDBOX_MTE
+	hdr = bpf_mte_set_tag(hdr, BPF_MTE_TAG_KERNEL);
+#endif /* CONFIG_BPF_SANDBOX_MTE */
+
 	rb = bpf_ringbuf_restore_from_rec(hdr);
 	new_len = hdr->len ^ BPF_RINGBUF_BUSY_BIT;
 	if (discard)

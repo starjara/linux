@@ -15,6 +15,7 @@
 
 static int build_body(struct rv_jit_context *ctx, bool extra_pass, int *offset)
 {
+        bool is_sandboxed = IS_SANDBOX_ENABLED(ctx->prog->type);
 	const struct bpf_prog *prog = ctx->prog;
 	int i;
 
@@ -22,7 +23,7 @@ static int build_body(struct rv_jit_context *ctx, bool extra_pass, int *offset)
 		const struct bpf_insn *insn = &prog->insnsi[i];
 		int ret;
 
-		ret = bpf_jit_emit_insn(insn, ctx, extra_pass);
+		ret = bpf_jit_emit_insn(insn, ctx, extra_pass, is_sandboxed);
 		/* BPF_LD | BPF_IMM | BPF_DW: skip the next instruction. */
 		if (ret > 0)
 			i++;
@@ -48,6 +49,8 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 	struct rv_jit_data *jit_data;
 	struct rv_jit_context *ctx;
 
+  bool is_sandboxed = IS_SANDBOX_ENABLED(ctx->prog->type);
+  
 	if (!prog->jit_requested)
 		return orig_prog;
 
@@ -96,9 +99,9 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 			goto out_offset;
 		}
 		ctx->body_len = ctx->ninsns;
-		bpf_jit_build_prologue(ctx);
+		bpf_jit_build_prologue(ctx, is_sandboxed);
 		ctx->epilogue_offset = ctx->ninsns;
-		bpf_jit_build_epilogue(ctx);
+		bpf_jit_build_epilogue(ctx, is_sandboxed);
 
 		if (ctx->ninsns == prev_ninsns) {
 			if (jit_data->header)
@@ -143,13 +146,13 @@ skip_init_ctx:
 	ctx->ninsns = 0;
 	ctx->nexentries = 0;
 
-	bpf_jit_build_prologue(ctx);
+	bpf_jit_build_prologue(ctx, is_sandboxed);
 	if (build_body(ctx, extra_pass, NULL)) {
 		bpf_jit_binary_free(jit_data->header);
 		prog = orig_prog;
 		goto out_offset;
 	}
-	bpf_jit_build_epilogue(ctx);
+	bpf_jit_build_epilogue(ctx, is_sandboxed);
 
 	if (bpf_jit_enable > 1)
 		bpf_jit_dump(prog->len, prog_size, pass, ctx->insns);

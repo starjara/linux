@@ -60,7 +60,7 @@ config CC_HAS_KASAN_MEMINTRINSIC_PREFIX
 
 choice
 	prompt "KASAN mode"
-	default KASAN_GENERIC
+	default KASAN_HW_TAGS
 	help
 	  KASAN has three modes:
 

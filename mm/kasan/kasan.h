@@ -430,6 +430,8 @@ static inline void kasan_force_async_fault(void) { }
 
 #ifdef CONFIG_KASAN_SW_TAGS
 u8 kasan_random_tag(void);
+#elif defined(CONFIG_BPF_SANDBOX_MTE)
+static inline u8 kasan_random_tag(void) { return 0xFF; }
 #elif defined(CONFIG_KASAN_HW_TAGS)
 static inline u8 kasan_random_tag(void) { return hw_get_random_tag(); }
 #else

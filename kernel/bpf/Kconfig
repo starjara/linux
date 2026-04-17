@@ -99,4 +99,209 @@ config BPF_LSM
 
 	  If you are unsure how to answer this question, answer N.
 
+config BPF_SANDBOX
+	bool "Enable eBPF sandboxing"
+	default y
+	help
+	  Enables support for dynamic sandboxing of eBPF programs.
+
+	  Note: no check is enabled at this point, please select
+	  the sandbox mode (BPF_SANDBOX_SFI or BPF_SANDBOX_MT) to
+	  enable runtime checks.
+
+choice
+	prompt "Sandbox Management"
+	default BPF_SANDBOX_MEMORY_MANAGEMENT
+	help
+	  There are two kinds of sandboxes:
+
+	  1. Memory. This is essentially the full sandbox, i.e., the
+		 stack, context, metadata, is put inside sandbox.
+	  2. Stack. This is the most simple sandbox, where only the stack
+		 is put inside the sandbox.
+
+config BPF_SANDBOX_MEMORY_MANAGEMENT
+	bool "Full Sandbox"
+	depends on BPF_SANDBOX
+	help
+	  Enables eBPF sandbox management. This option allocates one
+	  sandbox per core. At runtime, eBPF programs occupy the sandbox
+	  on the core it execute. Preemption and interrupt are disabled
+	  during eBPF execution.
+
+config BPF_SANDBOX_STACK_MANAGEMENT
+	bool "Minimal Sandbox"
+	depends on BPF_SANDBOX && BPF_SANDBOX_MTE
+	help
+	  Enables eBPF stack management. In contrary to the "memory
+	  management" option, this allocates one sandbox per core but
+	  only puts the stack in the sandbox, the context is tagged as
+	  it is and not moved into the sandbox. Preemption and interrupt
+	  are disabled during eBPF execution.
+
+endchoice
+
+config BPF_SANDBOX_CTX
+	bool "Enable sandboxing support for BPF contexts"
+	depends on BPF_SANDBOX && BPF_SANDBOX_MEMORY_MANAGEMENT
+	default y
+	help
+	  Enables sandboxing support for eBPF contexts. This includes
+	  replacing the load-time context access conversions with
+	  run-time BPF context creation, swapping the context pointers
+	  in helper functions, and syncing writes to contexts upon exit.
+
+choice
+	prompt "Context Mode"
+	depends on BPF_SANDBOX_CTX
+	default BPF_SANDBOX_CTX_GENERIC
+	help
+	  There are two modes for initializing BPF contexts in the sandbox
+	  (i.e., copying the fields in kernel objects to the BPF context):
+
+	  1. Generic. Copy every field in a BPF context from its kernel object.
+	  2. Bitmap. Use a bitmap to keep track of the fields accessed by an
+		 eBPF program. Copy only those fields from the kernel object.
+
+config BPF_SANDBOX_CTX_GENERIC
+	bool "All fields"
+	depends on BPF_SANDBOX_CTX
+	help
+	  Enables sandboxing support for eBPF contexts. This includes
+	  replacing the load-time context access conversions with
+	  run-time BPF context creation, swapping the context pointers
+	  in helper functions, and syncing writes to contexts upon exit.
+
+config BPF_SANDBOX_CTX_BITMAP
+	bool "Only the fields being accessed"
+	depends on BPF_SANDBOX_CTX
+	help
+	  Enables sandboxing support for eBPF contexts. This includes
+	  replacing the load-time context access conversions with
+	  run-time BPF context creation, swapping the context pointers
+	  in helper functions, and syncing writes to contexts upon exit.
+
+endchoice
+
+choice
+	prompt "Sandbox Mode"
+	default BPF_SANDBOX_SFI
+	help
+	  There are two modes for sandboxing BPF programs:
+
+	  1. Software-based isolation via address masking (x86_64 and ARM64).
+		 Enabled with CONFIG_BPF_SANDBOX_SFI.
+	  2. Hardware-based isolation via MTE (only for ARM64). Enabled with
+		 CONFIG_BPF_SANDBOX_MTE.
+
+config BPF_SANDBOX_MTE
+	bool "MTE"
+	depends on BPF_SANDBOX && ARM64_MTE
+	help
+	  Enables sandboxing of eBPF programs by leveraging ARM Memory Tagging
+	  Extension (MTE). When the sandboxes are initialized at each core,
+	  they are assigned an allocation tag. During JIT compilation, every
+	  pointer is rewritten with a logical tag associated to its sandbox.
+
+config BPF_SANDBOX_SFI
+	bool "SFI"
+	depends on BPF_SANDBOX
+	select BPF_SANDBOX_MEMORY_MANAGEMENT
+	help
+	  Enables sandboxing of eBPF programs by leveraging software-based
+	  address masking. This can be used in x86_64 and ARM64 architectures.
+	  Each sandbox is associated with a unique mask. During JIT compilation,
+	  load/store instructions are instrumented with address masking checks.
+
+endchoice
+
+config BPF_SFI_TRAMPOLINE
+	bool "Enable control-flow integrity checks for eBPF"
+	depends on BPF_SANDBOX_SFI
+	default y
+	help
+	  Enables control-flow integrity checks on all call instructions
+	  within eBPF programs. This option leverages a trampoline
+	  mechanism to prevent eBPF programs from achieving
+	  arbitrary code execution.
+
+config BPF_SFI_MASK_WRITE
+	bool "Emit SFI address masking checks for writes in eBPF"
+	depends on BPF_SANDBOX_SFI && BPF_SANDBOX_MEMORY_MANAGEMENT
+	default y
+	help
+	  Enables address masking on all write instructions
+	  within eBPF programs. This option prevents out-of-bounds
+	  memory accesses by restricting all memory accesses to within
+	  the eBPF sandbox.
+
+config BPF_SFI_MASK_READ
+	bool "Emit SFI address masking checks for reads in eBPF"
+	depends on BPF_SANDBOX_SFI && BPF_SANDBOX_MEMORY_MANAGEMENT
+	default y
+	help
+	  Enables address masking on all read instructions
+	  within eBPF programs. This option prevents out-of-bounds
+	  memory accesses by restricting all memory accesses to within
+	  the eBPF sandbox.
+
+config BPF_SFI_MAP_MASKING
+	bool "Enable SFI address masking for BPF maps"
+	depends on BPF_SANDBOX_SFI && BPF_SANDBOX_MEMORY_MANAGEMENT
+	default y
+	help
+	  Enables address masking on all BPF map accesses.
+	  This option generates a unique mask for each BPF map,
+	  and tracks the register during JIT compilation to identify
+	  registers containing BPF maps.
+
+config BPF_SFI_MASK_MAP_READ_WRITE
+	bool "Emit SFI address masking checks for read/write in BPF map"
+	depends on BPF_SANDBOX_SFI && BPF_SFI_MAP_MASKING
+	depends on BPF_SFI_MASK_READ || BPF_SFI_MASK_WRITE
+	default y
+	help
+	  Enables address masking on all BPF map read/write instructions.
+	  Once enabled, the JIT compiler will emit address masking
+	  instructions that involve a register containing a BPF map.
+	  If a particular map type is not yet supported, no address
+	  masking instructions will be emitted on those map accesses.
+
+config BPF_SANDBOX_MTE_TAG_CTX
+	bool "Enable MTE tagging of eBPF context"
+	depends on BPF_SANDBOX_MTE && BPF_SANDBOX_STACK_MANAGEMENT
+	help
+	  Enables the analogs for MTE instructions. This option simulate the tagging
+	  of memory, and MTE tag checking, which involves two main operations:
+	  tag loading and tag comparison. The latter has negligible overhead so this
+	  simulation focuses on tag loading.
+
+config BPF_SANDBOX_MTE_ANALOG_TAG
+	bool "Enable MTE analog for tagging"
+	depends on BPF_SANDBOX_MTE
+	help
+	  Enables the analogs for MTE instructions. This option simulate the tagging
+	  of memory, and MTE tag checking, which involves two main operations:
+	  tag loading and tag comparison. The latter has negligible overhead so this
+	  simulation focuses on tag loading.
+
+config BPF_SANDBOX_MTE_ANALOG_LOAD
+	bool "Enable MTE analog for tag loading"
+	depends on BPF_SANDBOX_MTE
+	help
+	  Enables the analogs for MTE instructions. This option simulate the tagging
+	  of memory, and MTE tag checking, which involves two main operations:
+	  tag loading and tag comparison. The latter has negligible overhead so this
+	  simulation focuses on tag loading.
+
+config BPF_MEASURE_SANDBOX_INSTRUMENTATION
+	bool "Enable measurement of SFI instrumentation"
+	depends on BPF_SANDBOX_SFI && !BPF_SFI_TRAMPOLINE && !BPF_SANDBOX_MEMORY_MANAGEMENT
+	default n
+	help
+	  Enables measurement of SFI instrumentation. This option
+	  outputs the number of checks inserted during JIT compilation,
+	  and the number of checks executed by the sandboxed eBPF
+	  program to dmesg.
+
 endmenu # "BPF subsystem"

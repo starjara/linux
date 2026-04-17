@@ -16,19 +16,28 @@
 #include <asm/set_memory.h>
 #include <asm/nospec-branch.h>
 #include <asm/text-patching.h>
+/*** SANDBOX BPF START ***/
+#include <linux/bpf_sandbox.h>
+#include <linux/bpf_map.h>
+/*** SANDBOX BPF END ***/
 
-static u8 *emit_code(u8 *ptr, u32 bytes, unsigned int len)
+/*** SANDBOX BPF START ***/
+static u8 *emit_code(u8 *ptr, u64 bytes, unsigned int len)
 {
 	if (len == 1)
 		*ptr = bytes;
 	else if (len == 2)
 		*(u16 *)ptr = bytes;
-	else {
+	else if (len == 4) {
 		*(u32 *)ptr = bytes;
+		barrier();
+	} else {
+		*(u64 *)ptr = bytes;
 		barrier();
 	}
 	return ptr + len;
 }
+/*** SANDBOX BPF END ***/
 
 #define EMIT(bytes, len) \
 	do { prog = emit_code(prog, bytes, len); } while (0)
@@ -46,6 +55,11 @@ static u8 *emit_code(u8 *ptr, u32 bytes, unsigned int len)
 	do { EMIT3(b1, b2, b3); EMIT(off, 4); } while (0)
 #define EMIT4_off32(b1, b2, b3, b4, off) \
 	do { EMIT4(b1, b2, b3, b4); EMIT(off, 4); } while (0)
+
+/*** SANDBOX BPF START ***/
+#define EMIT2_off64(b1, b2, off) \
+	do { EMIT2(b1, b2); EMIT(off, 8); } while (0)
+/*** SANDBOX BPF END ***/
 
 #ifdef CONFIG_X86_KERNEL_IBT
 #define EMIT_ENDBR()	EMIT(gen_endbr(), 4)
@@ -252,8 +266,14 @@ struct jit_context {
 
 /* Number of bytes emit_patch() needs to generate instructions */
 #define X86_PATCH_SIZE		5
+/*** SANDBOX BPF START ***/
 /* Number of bytes that will be skipped on tailcall */
-#define X86_TAIL_CALL_OFFSET	(11 + ENDBR_INSN_SIZE)
+#ifdef CONFIG_BPF_SANDBOX_MEMORY_MANAGEMENT
+	#define X86_TAIL_CALL_OFFSET	(11 + 11 + ENDBR_INSN_SIZE)
+#else
+	#define X86_TAIL_CALL_OFFSET	(11 + ENDBR_INSN_SIZE)
+#endif /* CONFIG_BPF_SANDBOX_MEMORY_MANAGEMENT */
+/*** SANDBOX BPF END ***/
 
 static void push_callee_regs(u8 **pprog, bool *callee_regs_used)
 {
@@ -291,7 +311,7 @@ static void pop_callee_regs(u8 **pprog, bool *callee_regs_used)
  * while jumping to another program
  */
 static void emit_prologue(u8 **pprog, u32 stack_depth, bool ebpf_from_cbpf,
-			  bool tail_call_reachable, bool is_subprog)
+			  bool tail_call_reachable, bool is_subprog, bool is_sandboxed)
 {
 	u8 *prog = *pprog;
 
@@ -307,15 +327,28 @@ static void emit_prologue(u8 **pprog, u32 stack_depth, bool ebpf_from_cbpf,
 		else
 			EMIT2(0x66, 0x90); /* nop2 */
 	}
-	EMIT1(0x55);             /* push rbp */
-	EMIT3(0x48, 0x89, 0xE5); /* mov rbp, rsp */
+
+	EMIT1(0x55);             /* push rbp (to original stack) */
+	/*** SANDBOX BPF START ***/
+	#ifdef CONFIG_BPF_SANDBOX_MEMORY_MANAGEMENT
+		if (is_sandboxed) {
+			/* mov -0x18(rdi), rsp (save the original rsp to the metadata page) */
+			EMIT4(0x48, 0x89, 0x67, 0xE8);
+			/* mov rsp, 0x7ff(rdi) (compute the top of stack from ctx, copy to rsp) */
+			EMIT3_off32(0x48, 0x8D, 0xA7, BPF_SANDBOX_SIZE-1);
+		}
+	#endif
+	/*** SANDBOX BPF END ***/
+	EMIT3(0x48, 0x89, 0xE5); /* mov rbp, rsp */ // move rbp to the new sandbox rsp
 
 	/* X86_TAIL_CALL_OFFSET is here */
 	EMIT_ENDBR();
 
-	/* sub rsp, rounded_stack_depth */
+
 	if (stack_depth)
-		EMIT3_off32(0x48, 0x81, 0xEC, round_up(stack_depth, 8));
+			EMIT3_off32(0x48, 0x81, 0xEC, round_up(stack_depth, 8));
+	/*** SANDBOX BPF END ***/
+
 	if (tail_call_reachable)
 		EMIT1(0x50);         /* push rax */
 	*pprog = prog;
@@ -749,6 +782,79 @@ static void maybe_emit_1mod(u8 **pprog, u32 reg, bool is64)
 	*pprog = prog;
 }
 
+/*** SANDBOX BPF START ***/
+struct inst_info {
+	u16 progtype;
+	u16 addrmask;
+	u16 tramp;
+};
+
+#if defined(CONFIG_BPF_SFI_MASK_READ) || defined(CONFIG_BPF_SFI_MASK_WRITE)
+static void emit_sfi(struct bpf_prog *bpf_prog, u8 **pprog, u32 size, u32 dst_reg, u32 src_reg,
+					 int off, u32 stack_depth, bool is_map)
+{
+	u64 mask;
+	u8 *prog = *pprog;
+	u32 temp_reg = X86_REG_R9;
+
+	if (is_map) {
+		// lea    0x[off](target_reg), temp_reg
+		EMIT2(add_2mod(0x48, dst_reg, temp_reg), 0x8D);
+		emit_insn_suffix(&prog, dst_reg, temp_reg, off);
+
+		#ifdef CONFIG_BPF_SFI_MASK_MAP_READ_WRITE
+		// If masking not supported for a mask, skip emitting masking checks
+		if (!IS_MASKING_ENABLED_FOR_MAP(bpf_prog->map_info->current_active_map->map_type))
+			return;
+
+		if (bpf_prog->map_info->current_active_map->sandbox_and_mask &&
+			bpf_prog->map_info->current_active_map->sandbox_or_mask) {
+			// pr_info("EMIT SFI: array");
+			mask = (u64)bpf_prog->map_info->current_active_map->sandbox_and_mask;
+			// movabs $[and_mask] %r11
+			EMIT2_off64(0x49, 0xBB, mask);
+
+			// and %r11, %r9
+			EMIT3(0x4D, 0x21, 0xD9);
+
+			mask = (u64)bpf_prog->map_info->current_active_map->sandbox_or_mask;
+			// movabs $[or_mask] %r11
+			EMIT2_off64(0x49, 0xBB, mask);
+
+			// or %r11, %r9
+			EMIT3(0x4D, 0x09, 0xD9);
+		} else {
+			// pr_info("EMIT SFI: hashmap");
+			// and    0x[offset](%rbp) and_mask, temp_reg
+			EMIT3_off32(add_2mod(0x48, BPF_REG_FP, temp_reg),
+				0x23, add_2reg(0x80, BPF_REG_FP, temp_reg),
+				MAP_AND_MASK_OFFSET_FROM_RBP);
+
+			// or     0x[offset](%rbp) or_mask, temp_reg
+			EMIT3_off32(add_2mod(0x48, BPF_REG_FP, temp_reg),
+				0x0B, add_2reg(0x80, BPF_REG_FP, temp_reg),
+				MAP_OR_MASK_OFFSET_FROM_RBP);
+		}
+		#endif /* CONFIG_BPF_SFI_MASK_MAP_READ_WRITE */
+	} else {
+		// lea    0x[off](target_reg), temp_reg
+		EMIT2(add_2mod(0x48, dst_reg, temp_reg), 0x8D);
+		emit_insn_suffix(&prog, dst_reg, temp_reg, off);
+
+		// and    0x[offset](%rbp) and_mask, temp_reg
+		EMIT3_off32(add_2mod(0x48, BPF_REG_FP, temp_reg),
+			0x23, add_2reg(0x80, BPF_REG_FP, temp_reg), AND_MASK_OFFSET_FROM_RBP);
+
+		// or     0x[offset](%rbp) or_mask, temp_reg
+		EMIT3_off32(add_2mod(0x48, BPF_REG_FP, temp_reg),
+			0x0B, add_2reg(0x80, BPF_REG_FP, temp_reg), OR_MASK_OFFSET_FROM_RBP);
+	}
+
+	*pprog = prog;
+}
+#endif /* CONFIG_BPF_SFI_MASK_READ || CONFIG_BPF_SFI_MASK_WRITE */
+/*** SANDBOX BPF END ***/
+
 /* LDX: dst_reg = *(u8*)(src_reg + off) */
 static void emit_ldx(u8 **pprog, u32 size, u32 dst_reg, u32 src_reg, int off)
 {
@@ -964,7 +1070,7 @@ static void emit_shiftx(u8 **pprog, u32 dst_reg, u8 src_reg, bool is64, u8 op)
 #define INSN_SZ_DIFF (((addrs[i] - addrs[i - 1]) - (prog - temp)))
 
 static int do_jit(struct bpf_prog *bpf_prog, int *addrs, u8 *image, u8 *rw_image,
-		  int oldproglen, struct jit_context *ctx, bool jmp_padding)
+		  int oldproglen, struct jit_context *ctx, bool jmp_padding, struct inst_info *info)
 {
 	bool tail_call_reachable = bpf_prog->aux->tail_call_reachable;
 	struct bpf_insn *insn = bpf_prog->insnsi;
@@ -978,15 +1084,29 @@ static int do_jit(struct bpf_prog *bpf_prog, int *addrs, u8 *image, u8 *rw_image
 	u8 *prog = temp;
 	int err;
 
+	/*** SANDBOX BPF START ***/
+	u8 sandbox_ilen = 0;
+	#ifndef CONFIG_BPF_SANDBOX
+		bool is_sandboxed = 0;
+	#else
+		bool is_sandboxed = IS_SANDBOX_ENABLED(bpf_prog->type);
+	#endif /* CONFIG_BPF_SANDBOX */
+	/*** SANDBOX BPF END ***/
+
 	detect_reg_usage(insn, insn_cnt, callee_regs_used,
 			 &tail_call_seen);
 
 	/* tail call's presence in current prog implies it is reachable */
 	tail_call_reachable |= tail_call_seen;
 
+	/*** SANDBOX BPF START ***/
+	info->addrmask = 0;
+	info->tramp = 0;
+
 	emit_prologue(&prog, bpf_prog->aux->stack_depth,
 		      bpf_prog_was_classic(bpf_prog), tail_call_reachable,
-		      bpf_prog->aux->func_idx != 0);
+		      bpf_prog->aux->func_idx != 0, is_sandboxed);
+	/*** SANDBOX BPF END ***/
 	push_callee_regs(&prog, callee_regs_used);
 
 	ilen = prog - temp;
@@ -1005,6 +1125,7 @@ static int do_jit(struct bpf_prog *bpf_prog, int *addrs, u8 *image, u8 *rw_image
 		s64 jmp_offset;
 		s16 insn_off;
 		u8 jmp_cond;
+		u64 imm64;
 		u8 *func;
 		int nops;
 
@@ -1031,6 +1152,12 @@ static int do_jit(struct bpf_prog *bpf_prog, int *addrs, u8 *image, u8 *rw_image
 			emit_mov_reg(&prog,
 				     BPF_CLASS(insn->code) == BPF_ALU64,
 				     dst_reg, src_reg);
+			#ifdef CONFIG_BPF_SFI_MAP_MASKING
+			if (is_sandboxed && is_map_reg(bpf_prog, src_reg))
+				bitmap_set(bpf_prog->map_info->map_reg_bitmap, dst_reg, 1);
+			else if (is_sandboxed && is_map_reg(bpf_prog, dst_reg))
+				bitmap_clear(bpf_prog->map_info->map_reg_bitmap, dst_reg, 1);
+			#endif /* CONFIG_BPF_SFI_MAP_MASKING */
 			break;
 
 			/* neg dst */
@@ -1097,6 +1224,15 @@ static int do_jit(struct bpf_prog *bpf_prog, int *addrs, u8 *image, u8 *rw_image
 
 		case BPF_LD | BPF_IMM | BPF_DW:
 			emit_mov_imm64(&prog, dst_reg, insn[1].imm, insn[0].imm);
+			#ifdef CONFIG_BPF_SFI_MAP_MASKING
+			imm64 = (u64)insn[1].imm << 32 | insn[0].imm;
+
+			if (virt_addr_valid(imm64) && is_active_map(imm64)) {
+				struct bpf_map *map = (struct bpf_map *)imm64;
+
+				bpf_prog->map_info->current_active_map = map;
+			}
+			#endif /* CONFIG_BPF_SFI_MAP_MASKING */
 			insn++;
 			i++;
 			break;
@@ -1358,7 +1494,34 @@ st:			if (is_imm8(insn->off))
 		case BPF_STX | BPF_MEM | BPF_H:
 		case BPF_STX | BPF_MEM | BPF_W:
 		case BPF_STX | BPF_MEM | BPF_DW:
-			emit_stx(&prog, BPF_SIZE(insn->code), dst_reg, src_reg, insn->off);
+			/*** SANDBOX BPF START ***/
+			#ifdef CONFIG_BPF_SFI_MASK_WRITE
+			if (is_sandboxed) {
+				#ifdef CONFIG_BPF_SFI_MAP_MASKING
+				if (bpf_prog->map_info->current_active_map
+					&& is_map_reg(bpf_prog, dst_reg)) {
+					emit_sfi(bpf_prog, &prog, BPF_SIZE(insn->code), dst_reg,
+							src_reg, insn->off,
+							bpf_prog->aux->stack_depth, true);
+				} else
+				#endif /* CONFIG_BPF_SFI_MAP_MASKING */
+				emit_sfi(bpf_prog, &prog, BPF_SIZE(insn->code), dst_reg,
+						src_reg, insn->off,
+						bpf_prog->aux->stack_depth, false);
+			}
+			#endif
+
+			#ifdef CONFIG_BPF_SFI_MASK_WRITE
+				if (is_sandboxed)
+					emit_stx(&prog, BPF_SIZE(insn->code),
+							X86_REG_R9, src_reg, 0);
+				else
+					emit_stx(&prog, BPF_SIZE(insn->code),
+							dst_reg, src_reg, insn->off);
+			#else
+				emit_stx(&prog, BPF_SIZE(insn->code), dst_reg, src_reg, insn->off);
+			#endif
+			/*** SANDBOX BPF END ***/
 			break;
 
 			/* LDX: dst_reg = *(u8*)(src_reg + off) */
@@ -1415,7 +1578,42 @@ st:			if (is_imm8(insn->off))
 				start_of_ldx = prog;
 				end_of_jmp[-1] = start_of_ldx - end_of_jmp;
 			}
-			emit_ldx(&prog, BPF_SIZE(insn->code), dst_reg, src_reg, insn_off);
+			/*** SANDBOX BPF START ***/
+			#ifdef CONFIG_BPF_SFI_MASK_READ
+			if (is_sandboxed) {
+				#ifdef CONFIG_BPF_SFI_MAP_MASKING
+				if (bpf_prog->map_info->current_active_map
+					&& is_map_reg(bpf_prog, src_reg)) {
+					bitmap_set(bpf_prog->map_info->map_reg_bitmap, dst_reg, 1);
+					emit_sfi(bpf_prog, &prog, BPF_SIZE(insn->code), src_reg,
+							dst_reg, insn->off,
+							bpf_prog->aux->stack_depth, true);
+				} else if (bpf_prog->map_info->current_active_map
+					&& is_map_reg(bpf_prog, dst_reg)) {
+					bitmap_clear(bpf_prog->map_info->map_reg_bitmap,
+								 dst_reg, 1);
+					emit_sfi(bpf_prog, &prog, BPF_SIZE(insn->code), src_reg,
+						dst_reg, insn->off,
+						bpf_prog->aux->stack_depth, false);
+				} else
+				#endif /* CONFIG_BPF_SFI_MAP_MASKING */
+				emit_sfi(bpf_prog, &prog, BPF_SIZE(insn->code), src_reg,
+						dst_reg, insn->off,
+						bpf_prog->aux->stack_depth, false);
+			}
+			#endif
+
+			#ifdef CONFIG_BPF_SFI_MASK_READ
+				if (is_sandboxed)
+					emit_ldx(&prog, BPF_SIZE(insn->code),
+							dst_reg, X86_REG_R9, 0);
+				else
+					emit_ldx(&prog, BPF_SIZE(insn->code),
+							dst_reg, src_reg, insn_off);
+			#else
+				emit_ldx(&prog, BPF_SIZE(insn->code), dst_reg, src_reg, insn_off);
+			#endif
+			/*** SANDBOX BPF END ***/
 			if (BPF_MODE(insn->code) == BPF_PROBE_MEM) {
 				struct exception_table_entry *ex;
 				u8 *_insn = image + proglen + (start_of_ldx - temp);
@@ -1535,8 +1733,36 @@ st:			if (is_imm8(insn->off))
 			/* call */
 		case BPF_JMP | BPF_CALL: {
 			int offs;
-
 			func = (u8 *) __bpf_call_base + imm32;
+			/*** SANDBOX BPF START ***/
+			#ifdef CONFIG_BPF_SFI_MAP_MASKING
+			if (is_sandboxed) {
+				if (is_map_lookup((u64)func)) {
+					bpf_prog->map_info->is_map_lookup_invoked = true;
+					bitmap_set(bpf_prog->map_info->map_reg_bitmap,
+							   BPF_REG_0, 1);
+					// pr_info("BPF JIT: lookup invoked, map in rax");
+				} else {
+					bitmap_clear(bpf_prog->map_info->map_reg_bitmap,
+							   BPF_REG_0, 1);
+					bpf_prog->map_info->is_map_lookup_invoked = false;
+				}
+			}
+			#endif /* CONFIG_BPF_SFI_MAP_MASKING */
+			#if defined(CONFIG_BPF_SANDBOX_CTX) || \
+				defined(CONFIG_BPF_SFI_TRAMPOLINE)
+				if (is_sandboxed) {
+					// mov $0x[prog_type], %r9 (7 bytes)
+					EMIT3_off32(0x49, 0xc7, 0xc1, bpf_prog->type);
+					// movabs $[func addr] %r11 (10 bytes)
+					EMIT2_off64(0x49, 0xBB, (u64)func);
+					// 17 bytes for copying the prog_type
+					// and helper function address
+					sandbox_ilen = 17;
+					func = (u8 *)&sandbox_tramp;
+				}
+			#endif /* CONFIG_BPF_SANDBOX_CTX || CONFIG_BPF_SFI_TRAMPOLINE */
+			/*** SANDBOX BPF END ***/
 			if (tail_call_reachable) {
 				/* mov rax, qword ptr [rbp - rounded_stack_depth - 8] */
 				EMIT3_off32(0x48, 0x8B, 0x85,
@@ -1549,8 +1775,10 @@ st:			if (is_imm8(insn->off))
 					return -EINVAL;
 				offs = x86_call_depth_emit_accounting(&prog, func);
 			}
-			if (emit_call(&prog, func, image + addrs[i - 1] + offs))
+			/*** SANDBOX BPF START ***/
+			if (emit_call(&prog, func, image + addrs[i - 1] + offs + sandbox_ilen))
 				return -EINVAL;
+			/*** SANDBOX BPF END ***/
 			break;
 		}
 
@@ -1808,6 +2036,14 @@ emit_jmp:
 			/* Update cleanup_addr */
 			ctx->cleanup_addr = proglen;
 			pop_callee_regs(&prog, callee_regs_used);
+			/*** SANDBOX BPF START ***/
+			#ifdef CONFIG_BPF_SANDBOX_MEMORY_MANAGEMENT
+				if (is_sandboxed) {
+					/* mov rbp, -(0x18+BPF_SANDBOX_SIZE-1)(rbp) (restore rbp) */
+					EMIT3_off32(0x48, 0x8B, 0xAD, ORIG_RSP_OFFSET_FROM_RBP);
+				}
+			#endif
+			/*** SANDBOX BPF END ***/
 			EMIT1(0xC9);         /* leave */
 			emit_return(&prog, image + addrs[i - 1] + (prog - temp));
 			break;
@@ -2456,6 +2692,18 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 	int pass;
 	int i;
 
+	/*** SANDBOX BPF START ***/
+	struct inst_info info = {
+		.progtype = prog->type,
+		.addrmask = 0,
+		.tramp = 0,
+	};
+
+	#ifdef CONFIG_BPF_SFI_MAP_MASKING
+	bpf_sandbox_map_info_init(prog);
+	#endif /* CONFIG_BPF_SFI_MAP_MASKING */
+	/*** SANDBOX BPF END ***/
+
 	if (!prog->jit_requested)
 		return orig_prog;
 
@@ -2518,7 +2766,7 @@ skip_init_addrs:
 	for (pass = 0; pass < MAX_PASSES || image; pass++) {
 		if (!padding && pass >= PADDING_PASSES)
 			padding = true;
-		proglen = do_jit(prog, addrs, image, rw_image, oldproglen, &ctx, padding);
+		proglen = do_jit(prog, addrs, image, rw_image, oldproglen, &ctx, padding, &info);
 		if (proglen <= 0) {
 out_image:
 			image = NULL;

@@ -1,0 +1,11 @@
+diff a/kernel/bpf/verifier.c b/kernel/bpf/verifier.c	(rejected hunks)
+@@ -24,6 +24,9 @@
+ #include <linux/bpf_lsm.h>
+ #include <linux/btf_ids.h>
+ #include <linux/poison.h>
++#include <linux/bpf_sandbox.h>
++#include <linux/bpf_ctx.h>
++#include <linux/bpf_map.h>
+ 
+ #include "disasm.h"
+ 

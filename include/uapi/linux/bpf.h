@@ -987,6 +987,7 @@ enum bpf_prog_type {
 	BPF_PROG_TYPE_SK_LOOKUP,
 	BPF_PROG_TYPE_SYSCALL, /* a program that can execute syscalls */
 	BPF_PROG_TYPE_NETFILTER,
+	MAX_BPF_PROG_TYPE,
 };
 
 enum bpf_attach_type {
@@ -6196,9 +6197,9 @@ enum xdp_action {
  * new fields must be added to the end of this structure
  */
 struct xdp_md {
-	__u32 data;
-	__u32 data_end;
-	__u32 data_meta;
+	__u64 data;
+	__u64 data_end;
+	__u64 data_meta;
 	/* Below access go through struct xdp_rxq_info */
 	__u32 ingress_ifindex; /* rxq->dev->ifindex */
 	__u32 rx_queue_index;  /* rxq->queue_index  */

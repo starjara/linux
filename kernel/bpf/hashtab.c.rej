@@ -1,0 +1,61 @@
+diff a/kernel/bpf/hashtab.c b/kernel/bpf/hashtab.c	(rejected hunks)
+@@ -249,7 +252,8 @@ static void htab_free_prealloced_fields(struct bpf_htab *htab)
+ 		struct htab_elem *elem;
+ 
+ 		elem = get_htab_elem(htab, i);
+-		bpf_obj_free_fields(htab->map.record, elem->key + round_up(htab->map.key_size, 8));
++		bpf_obj_free_fields(htab->map.record,
++			elem->key + round_up(htab->map.key_size, 16));
+ 		cond_resched();
+ 	}
+ }
+@@ -752,14 +780,14 @@ static int htab_lru_map_gen_lookup(struct bpf_map *map,
+ 			     1);
+ 	*insn++ = BPF_ALU64_IMM(BPF_ADD, ret,
+ 				offsetof(struct htab_elem, key) +
+-				round_up(map->key_size, 8));
++				round_up(map->key_size, 16));
+ 	return insn - insn_buf;
+ }
+ 
+ static void check_and_free_fields(struct bpf_htab *htab,
+ 				  struct htab_elem *elem)
+ {
+-	void *map_value = elem->key + round_up(htab->map.key_size, 8);
++	void *map_value = elem->key + round_up(htab->map.key_size, 16);
+ 
+ 	bpf_obj_free_fields(htab->map.record, map_value);
+ }
+@@ -920,7 +948,7 @@ static void pcpu_copy_value(struct bpf_htab *htab, void __percpu *pptr,
+ 		/* copy true value_size bytes */
+ 		memcpy(this_cpu_ptr(pptr), value, htab->map.value_size);
+ 	} else {
+-		u32 size = round_up(htab->map.value_size, 8);
++		u32 size = round_up(htab->map.value_size, 16);
+ 		int off = 0, cpu;
+ 
+ 		for_each_possible_cpu(cpu) {
+@@ -940,7 +968,7 @@ static void pcpu_init_value(struct bpf_htab *htab, void __percpu *pptr,
+ 	 * (onallcpus=false always when coming from bpf prog).
+ 	 */
+ 	if (!onallcpus) {
+-		u32 size = round_up(htab->map.value_size, 8);
++		u32 size = round_up(htab->map.value_size, 16);
+ 		int current_cpu = raw_smp_processor_id();
+ 		int cpu;
+ 
+@@ -2040,12 +2075,12 @@ static int __bpf_hash_map_seq_show(struct seq_file *seq, struct htab_elem *elem)
+ 		ctx.meta = &meta;
+ 		ctx.map = info->map;
+ 		if (elem) {
+-			roundup_key_size = round_up(map->key_size, 8);
++			roundup_key_size = round_up(map->key_size, 16);
+ 			ctx.key = elem->key;
+ 			if (!info->percpu_value_buf) {
+ 				ctx.value = elem->key + roundup_key_size;
+ 			} else {
+-				roundup_value_size = round_up(map->value_size, 8);
++				roundup_value_size = round_up(map->value_size, 16);
+ 				pptr = htab_elem_get_ptr(elem, map->key_size);
+ 				for_each_possible_cpu(cpu) {
+ 					bpf_long_memcpy(info->percpu_value_buf + off,

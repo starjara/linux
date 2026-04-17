@@ -26,6 +26,12 @@
 #include <linux/poison.h>
 #include <linux/module.h>
 
+// +
+#include <linux/bpf_sandbox.h>
+#include <linux/bpf_ctx.h>
+#include <linux/bpf_map.h>
+// End of +
+ 
 #include "disasm.h"
 
 static const struct bpf_verifier_ops * const bpf_verifier_ops[] = {
@@ -17764,6 +17770,23 @@ static int do_misc_fixups(struct bpf_verifier_env *env)
 
 			map_ptr = BPF_MAP_PTR(aux->map_ptr_state);
 			ops = map_ptr->ops;
+			/*** SANDBOX BPF START ***/
+			#ifdef CONFIG_BPF_SFI_TRAMPOLINE
+			record_map_ops(prog->type, ops);
+			#endif
+			// Disable lookup function inlining
+			#ifdef CONFIG_BPF_SFI_MAP_MASKING
+			if (IS_SANDBOX_ENABLED(prog->type)) {
+				bpf_sandbox_add_map_lookup(ops);
+				goto patch_map_ops_generic;
+			}
+			#endif
+			#ifdef CONFIG_BPF_SANDBOX_MTE
+			if (IS_SANDBOX_ENABLED(prog->type)) {
+				goto patch_map_ops_generic;
+			}
+			#endif
+			/*** SANDBOX BPF END ***/
 			if (insn->imm == BPF_FUNC_map_lookup_elem &&
 			    ops->map_gen_lookup) {
 				cnt = ops->map_gen_lookup(map_ptr, insn_buf);
@@ -18875,6 +18898,12 @@ int bpf_check(struct bpf_prog **prog, union bpf_attr *attr, bpfptr_t uattr, __u3
 	if (ret < 0)
 		goto skip_full_check;
 
+	/*** SANDBOX BPF START ***/
+	#if defined(CONFIG_BPF_SANDBOX_MEMORY_MANAGEMENT) || defined(CONFIG_BPF_SFI_TRAMPOLINE)
+	init_sandbox_env(env);
+	#endif /* CONFIG_BPF_SANDBOX_MEMORY_MANAGEMENT || CONFIG_BPF_SFI_TRAMPOLINE */
+	/*** SANDBOX BPF END ***/
+
 	ret = check_subprogs(env);
 	if (ret < 0)
 		goto skip_full_check;
@@ -18929,9 +18958,24 @@ skip_full_check:
 			sanitize_dead_code(env);
 	}
 
-	if (ret == 0)
+	if (ret == 0) {
 		/* program is valid, convert *(u32*)(ctx + off) accesses */
-		ret = convert_ctx_accesses(env);
+		/*** SANDBOX BPF START ***/
+		#ifdef CONFIG_BPF_SANDBOX_CTX
+		if (IS_SANDBOX_CTX_SUPPORTED(env->prog->type)) {
+			#ifdef CONFIG_BPF_SANDBOX_CTX_BITMAP
+			record_ctx_accesses(env);
+			#endif /* CONFIG_BPF_SANDBOX_CTX_BITMAP */
+		} else
+			ret = convert_ctx_accesses(env);
+		#elif defined(CONFIG_BPF_SANDBOX_STACK_MANAGEMENT)
+			record_ctx_accesses(env);
+			ret = convert_ctx_accesses(env);
+		#else
+			ret = convert_ctx_accesses(env);
+		#endif /* CONFIG_BPF_SANDBOX_CTX */
+		/*** SANDBOX BPF END ***/
+	}
 
 	if (ret == 0)
 		ret = do_misc_fixups(env);

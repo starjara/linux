@@ -58,6 +58,9 @@ extern struct kobject *btf_kobj;
 extern struct bpf_mem_alloc bpf_global_ma;
 extern bool bpf_global_ma_set;
 
+/* BPF program can access up to 512 bytes of stack space. */
+#define MAX_BPF_STACK	512
+
 typedef u64 (*bpf_callback_t)(u64, u64, u64, u64, u64);
 typedef int (*bpf_iter_init_seq_priv_t)(void *private_data,
 					struct bpf_iter_aux_info *aux);
@@ -275,7 +278,23 @@ struct bpf_map {
 	} owner;
 	bool bypass_spec_v1;
 	bool frozen; /* write-once; write-protected by freeze_mutex */
+	/*** SANDBOX BPF START ***/
+	#ifdef CONFIG_BPF_SANDBOX_MEMORY_MANAGEMENT
+	u64 sandbox_or_mask;
+	u64 sandbox_and_mask;
+	#endif /* CONFIG_BPF_SANDBOX_MEMORY_MANAGEMENT */
+	/*** SANDBOX BPF END ***/
 };
+
+/*** SANDBOX BPF START ***/
+#ifdef CONFIG_BPF_SFI_MAP_MASKING
+struct bpf_sandbox_map_jit_info {
+	bool is_map_lookup_invoked;
+	unsigned long *map_reg_bitmap;
+	struct bpf_map *current_active_map;
+};
+#endif /* CONFIG_BPF_SFI_MAP_MASKING */
+/*** SANDBOX BPF END ***/
 
 static inline const char *btf_field_type_name(enum btf_field_type type)
 {
@@ -1472,6 +1491,11 @@ struct bpf_prog {
 					    const struct bpf_insn *insn);
 	struct bpf_prog_aux	*aux;		/* Auxiliary fields */
 	struct sock_fprog_kern	*orig_prog;	/* Original BPF program */
+	unsigned long *ctx_read_write_bitmap;
+	unsigned long *ctx_write_bitmap;
+	#ifdef CONFIG_BPF_SFI_MAP_MASKING
+	struct bpf_sandbox_map_jit_info *map_info;
+	#endif /* CONFIG_BPF_SFI_MAP_MASKING */
 	/* Instructions for interpreter */
 	union {
 		DECLARE_FLEX_ARRAY(struct sock_filter, insns);

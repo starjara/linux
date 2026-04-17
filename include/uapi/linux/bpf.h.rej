@@ -1,0 +1,9 @@
+diff a/include/uapi/linux/bpf.h b/include/uapi/linux/bpf.h	(rejected hunks)
+@@ -986,6 +986,7 @@ enum bpf_prog_type {
+ 	BPF_PROG_TYPE_LSM,
+ 	BPF_PROG_TYPE_SK_LOOKUP,
+ 	BPF_PROG_TYPE_SYSCALL, /* a program that can execute syscalls */
++	MAX_BPF_PROG_TYPE,
+ };
+ 
+ enum bpf_attach_type {

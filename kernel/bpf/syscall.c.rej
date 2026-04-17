@@ -1,0 +1,20 @@
+diff a/kernel/bpf/syscall.c b/kernel/bpf/syscall.c	(rejected hunks)
+@@ -35,6 +35,7 @@
+ #include <linux/rcupdate_trace.h>
+ #include <linux/memcontrol.h>
+ #include <linux/trace_events.h>
++#include <linux/bpf_ctx.h>
+ 
+ #define IS_FD_ARRAY(map) ((map)->map_type == BPF_MAP_TYPE_PERF_EVENT_ARRAY || \
+ 			  (map)->map_type == BPF_MAP_TYPE_CGROUP_ARRAY || \
+@@ -2628,6 +2629,10 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr)
+ 	if (err < 0)
+ 		goto free_prog_sec;
+ 
++	/*** SANDBOX BPF START ***/
++	bpf_ctx_bitmap_alloc(prog, type);
++	/*** SANDBOX BPF END ***/
++
+ 	/* run eBPF verifier */
+ 	err = bpf_check(&prog, attr, uattr);
+ 	if (err < 0)
