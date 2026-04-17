@@ -229,9 +229,17 @@ static void *array_map_lookup_elem(struct bpf_map *map, void *key)
 	struct bpf_array *array = container_of(map, struct bpf_array, map);
 	u32 index = *(u32 *)key;
 
+	void *ret;
+
+	pr_info("array : %px, index : %u\n", array, index);
+
 	if (unlikely(index >= array->map.max_entries))
 		return NULL;
 
+	ret = array->value + (u64)array->elem_size *
+	  (index & array->index_mask);
+
+	pr_info("ret [%px] : 0x%lx\n", ret, *(u64 *)ret);
 	return bpf_mte_set_tag((void *)(array->value + (u64)array->elem_size *
 					(index & array->index_mask)), BPF_MTE_TAG_SANDBOX);
 }

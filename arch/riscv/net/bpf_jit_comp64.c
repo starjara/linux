@@ -306,14 +306,14 @@ static void __build_epilogue(bool is_tail_call, struct rv_jit_context *ctx, bool
 	  /* ldr x10, [x11] // load original stack pointer into x10 */
 	  emit_ld(RV_REG_S10, 0, RV_REG_S11, ctx);
 	  /* mov sp, x10 // restore the original stack pointer */
-	  emit_mv(RV_REG_SP, RV_REG_S10, ctx);
+	  //emit_mv(RV_REG_SP, RV_REG_S10, ctx);
 	}
 #endif /* CONFIG_BPF_SANDBOX_MEMORY_MANAGEMENT */
 
 #ifdef CONFIG_BPF_SANDBOX_STACK_MANAGEMENT
 	if (is_sandboxed) {
 		/* mov sp, x10 // restore the original stack pointer */
-	  emit_mv(RV_REG_SP, RV_REG_S2, ctx);
+	  emit_mv(RV_REG_SP, RV_REG_S9, ctx);
 	}
 #endif /* CONFIG_BPF_SANDBOX_STACK_MANAGEMENT */
 
@@ -2055,24 +2055,25 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx, bool is_sandboxed)
 		 * ctx (if present). x12 the same as x0, except it's untagged.
 		 */
 
-		#ifdef CONFIG_BPF_SANDBOX_SFI
 		/* sub x11, x0, #0x18 // location in metadata to save pointer to original stack */
 		emit_addi(RV_REG_S11, RV_REG_A0, -0x18, ctx);
-		#endif /* CONFIG_BPF_SANDBOX_SFI */
 		/* mv x10, sp // move sp to x10 to subsequently store it in memory */
 		emit_mv(RV_REG_S10, RV_REG_SP, ctx);
 		/* sd x10, [x11] // save the original stack pointer in sandbox metadata */
 		emit_sd(RV_REG_S11, 0, RV_REG_S10, ctx);
 		/* add sp, x0, 0x7f0 // switch the stack pointer to private stack */
+		emit_mv(RV_REG_S11, RV_REG_SP, ctx);
 		emit_addi(RV_REG_SP, RV_REG_A0, 0x7f0, ctx);
 		sandbox_insns += SANDBOX_MEMORY_MANAGEMENT_INSNS;
+
+
 	}
 #endif /* CONFIG_BPF_SANDBOX_MEMORY_MANAGEMENT */
 
 #ifdef CONFIG_BPF_SANDBOX_STACK_MANAGEMENT
 	if (is_sandboxed) {
 	  /* mov x28, sp // move sp to x28, a callee-saved reg */
-	  emit_mv(RV_REG_S2, RV_REG_SP, ctx);
+	  emit_mv(RV_REG_S9, RV_REG_SP, ctx);
 	  /* mov sp, x3 // switch the stack pointer to the private stack */
 	  emit_mv(RV_REG_SP, RV_REG_A3, ctx);
 	  sandbox_insns += SANDBOX_STACK_MANAGEMENT_INSNS;
@@ -2082,7 +2083,9 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx, bool is_sandboxed)
 	emit_addi(RV_REG_FP, RV_REG_SP, stack_adjust, ctx);
 
 	if (is_sandboxed) {
-		emit_addi(RV_REG_S5, RV_REG_SP, 0, ctx);
+	  emit_addi(RV_REG_S5, RV_REG_SP, 0, ctx);
+	  emit_mv(RV_REG_SP, RV_REG_S11, ctx);
+	  //emit_addi(RV_REG_SP, RV_REG_A0, -0x7f0, ctx);
 	}
 	else if (bpf_stack_adjust)
 		emit_addi(RV_REG_S5, RV_REG_SP, bpf_stack_adjust, ctx);
@@ -2094,6 +2097,7 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx, bool is_sandboxed)
 		emit_mv(RV_REG_TCC_SAVED, RV_REG_TCC, ctx);
 
 	ctx->stack_size = stack_adjust;
+
 }
 
 void bpf_jit_build_epilogue(struct rv_jit_context *ctx, bool is_sandboxed)

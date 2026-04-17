@@ -219,7 +219,7 @@ EXPORT_SYMBOL(sandbox_tramp);
 
 
 #ifdef CONFIG_ARCH_RV64I
-void sandbox_tramp(volatile u64 r1, volatile u64 r2, volatile u64 r3, volatile u64 r4,
+u64 sandbox_tramp(volatile u64 r1, volatile u64 r2, volatile u64 r3, volatile u64 r4,
 		   volatile u64 r5)
 {
 	u64 prog_id;
@@ -227,23 +227,19 @@ void sandbox_tramp(volatile u64 r1, volatile u64 r2, volatile u64 r3, volatile u
 
 #ifdef CONFIG_BPF_SANDBOX_CTX
 	if (unlikely(is_skb_helper(prog_id, call_target)) ||
-		unlikely(is_xdp_helper(prog_id, call_target)))
+		unlikely(is_xdp_helper(prog_id, call_target)) ||
+	    call_target == (u64)bpf_skb_load_helper_8_no_cache)
 		convert_bpf_ctx_to_kernel_ctx(&r1);
-	
-	if (call_target == (u64)bpf_skb_load_helper_8_no_cache) {
-		convert_bpf_ctx_to_kernel_ctx(&r1);
-		pr_info("ctx converted\n");
-	}
 #endif /* CONFIG_BPF_SANDBOX_CTX */
 
 #ifdef CONFIG_BPF_SFI_TRAMPOLINE
 	// Don't proceed if it's not a valid helper function
 	if (unlikely(!is_allowed_helper(prog_id, call_target)))
-		return;
+		return 0;
 #endif /* CONFIG_BPF_SFI_TRAMPOLINE */
 
 	// Call the valid helper function
-	bpf_sandbox_call_trampoline_target(call_target, r1, r2, r3, r4, r5);
+	return bpf_sandbox_call_trampoline_target(call_target, r1, r2, r3, r4, r5);
 }
 EXPORT_SYMBOL(sandbox_tramp);
 #endif

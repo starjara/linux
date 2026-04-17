@@ -136,7 +136,7 @@ u64 sandbox_tramp(void);
 void sandbox_tramp(volatile u64 r1, volatile u64 r2, volatile u64 r3, volatile u64 r4,
 		volatile u64 r5);
 #elif defined(CONFIG_ARCH_RV64I)
-void sandbox_tramp(volatile u64 r1, volatile u64 r2, volatile u64 r3, volatile u64 r4,
+u64 sandbox_tramp(volatile u64 r1, volatile u64 r2, volatile u64 r3, volatile u64 r4,
 		volatile u64 r5);
 #endif
 

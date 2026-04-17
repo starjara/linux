@@ -48,10 +48,13 @@ static __always_inline u64 bpf_sandbox_get_trampoline_target(u64 *p)
 	return call_target;
 }
 
-static __always_inline void bpf_sandbox_call_trampoline_target(volatile u64 call_target,
+static __always_inline u64 bpf_sandbox_call_trampoline_target(volatile u64 call_target,
 		volatile u64 r1, volatile u64 r2, volatile u64 r3, volatile u64 r4,
 		volatile u64 r5)
 {
+
+	volatile u64 ret;
+	
 	asm volatile (
 		"mv a0, %[a]\n"
 		"mv a1, %[b]\n"
@@ -63,14 +66,17 @@ static __always_inline void bpf_sandbox_call_trampoline_target(volatile u64 call
 		"sd ra, 0(sp)\n"
 		
 		"jalr ra, 0(%[t])\n"
+		"mv %[r], a0\n\t"
 
 		"ld ra, 0(sp)\n"
 		"addi sp, sp, 16\n"
-		:
+		: [r] "=r" (ret)
 		: [t] "r" (call_target), [a] "r" (r1), [b] "r" (r2),
 		  [c] "r" (r3), [d] "r" (r4), [e] "r" (r5)
 		: "x0", "x1", "x2", "x3", "x4"
 		);
+
+	return ret;
 }
 
 static __always_inline void bpf_sandbox_set_memory(void *mem_ptr,

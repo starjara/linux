@@ -364,7 +364,7 @@ void bpf_sync_kernel_ctx(const struct bpf_prog *prog,
 {
 	switch (prog->type) {
 	case BPF_PROG_TYPE_SOCKET_FILTER:
-		bpf_sync_sk_filter_ctx(prog, kernel_ctx, bpf_ctx);
+	  //bpf_sync_sk_filter_ctx(prog, kernel_ctx, bpf_ctx);
 		break;
 	case BPF_PROG_TYPE_XDP:
 		bpf_sync_xdp_ctx(prog, kernel_ctx, bpf_ctx); // pass
