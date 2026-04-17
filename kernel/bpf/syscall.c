@@ -2671,17 +2671,26 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr, u32 uattr_size)
 	if (err < 0)
 		goto free_prog_sec;
 
+	/* JARA: Create gbpf pgd, and map first page */
+	if (is_gbpf && prog->aux->gaux->gpgd == NULL) {
+	  gbpf_call_create_pgd(prog);
+	  
+	  //gbpf_call_map(prog);
+	  prog->aux->gaux->gbpf_page = alloc_pages(GFP_KERNEL | __GFP_ZERO, 0);
+	  u64 base = (u64)page_to_virt(prog->aux->gaux->gbpf_page);
+	  gbpf_call_map_ext_addr(prog, base, PAGE_SIZE, base, 0, 0);
+	  
+	  prog->aux->vmid = gbpf_call_get_vmid();
+	} 
+	/* End of JARA */
+	
 	/* run eBPF verifier */
 	err = bpf_check(&prog, attr, uattr, uattr_size);
 	if (err < 0)
 		goto free_used_maps;
 
-	/* JARA: Create gbpf pgd, and map first page */
-	if (is_gbpf && prog->aux->gaux->gpgd == NULL) {
-	  gbpf_call_create_pgd(prog);
-	  gbpf_call_map(prog);
-	  prog->aux->vmid = gbpf_call_get_vmid();
-	  
+	/* JARA: Create map desc table */
+	if (is_gbpf && prog->aux->gaux->gpgd != NULL) {
 	  if (prog->aux->used_map_cnt) 
 	    gbpf_init_prog_map_descs(prog);
 	}
@@ -2741,14 +2750,17 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr, u32 uattr_size)
 		pr_info("[%d] : %px\n", cpu, *per_cpu_ptr(array->pptrs, cpu));
 #endif
 
-		gbpf_call_map_ext(prog, *per_cpu_ptr(array->pptrs, cpu), map->value_region.size-PAGE_SIZE, PERCPU_MAP, i, cpu);
+		//gbpf_call_map_ext(prog, *per_cpu_ptr(array->pptrs, cpu), map->value_region.size-PAGE_SIZE, PERCPU_MAP, i, cpu);
+		gbpf_call_map_ext_addr(prog, *per_cpu_ptr(array->pptrs, cpu), map->value_region.size-PAGE_SIZE, (u64)*per_cpu_ptr(array->pptrs, cpu), i, cpu);
 	      }
 	    }
 	    else {
 	      if (map->map_type == BPF_MAP_TYPE_ARRAY) 
-		gbpf_call_map_ext(prog, map->gbpf_alloc_base, map->value_region.size-PAGE_SIZE, MAP, i, 0);
+		//gbpf_call_map_ext(prog, map->gbpf_alloc_base, map->value_region.size-PAGE_SIZE, MAP, i, 0);
+		gbpf_call_map_ext_addr(prog, map->gbpf_alloc_base, map->value_region.size-PAGE_SIZE, (u64)map->gbpf_alloc_base, i, 0);
 	      else
-		gbpf_call_map_ext(prog, map->gbpf_alloc_base, map->value_region.size, MAP, i, 0);
+		//gbpf_call_map_ext(prog, map->gbpf_alloc_base, map->value_region.size, MAP, i, 0);
+		gbpf_call_map_ext_addr(prog, map->gbpf_alloc_base, map->value_region.size, (u64)map->gbpf_alloc_base, i, 0);
 	    }
 	  }
 	}

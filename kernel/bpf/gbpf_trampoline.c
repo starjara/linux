@@ -7,7 +7,7 @@
 
 //#define LOG_E pr_info("[gbpf_trampoline.c] Enter: %s\n", __func__)
 #define LOG_E ;
-//#define GBPF_DEBUG 1
+#define GBPF_DEBUG 1
 
 //u64 h_before, h_after;
 
@@ -165,9 +165,10 @@ static u64 gbpf_convert_helper_ret(u64 ret, struct gbpf_aux *gaux, const map_add
   return ret;
  
 }
-
 noinline u64 gbpf_helper_call_trampoline(u64 arg1, u64 arg2, u64 arg3, u64 arg4, u64 arg5)
+
 {
+  /*
   struct gbpf_aux *gaux;
   map_addr_meta meta = {};
   u64 call_target;
@@ -204,12 +205,56 @@ noinline u64 gbpf_helper_call_trampoline(u64 arg1, u64 arg2, u64 arg3, u64 arg4,
 #endif
 
   
-  /*
-  u64 after = ktime_get();
+  //u64 after = ktime_get();
 
-  pr_info("helper : %llu ns", h_after - h_before);
-  pr_info("Trampoline : %llu ns", after - before);
+  //pr_info("helper : %llu ns", h_after - h_before);
+  //pr_info("Trampoline : %llu ns", after - before);
+
+  return ret;
   */
+
+  u64 call_target;
+  u64 imm;
+  u64 ret;
+  u64 mask = 0xFFFF000000000000;
+  gbpf_helper_fn_t	fn;
+
+  asm volatile (
+		"mv %0, s11\n\t"
+		: "=r"(imm)
+		:
+		:);
+
+  call_target = (u64)((u8 *)__bpf_call_base + (s32)imm);
+
+  u64 tmp = arg1 | mask;
+  if (virt_addr_valid(tmp)) {
+    arg1 = tmp;
+  }
+  tmp = arg2 | mask;
+  if (virt_addr_valid(tmp)) {
+    arg2 = tmp;
+  }
+  tmp = arg3 | mask;
+  if (virt_addr_valid(tmp)) {
+    arg3 = tmp;
+  }
+  tmp = arg4 | mask;
+  if (virt_addr_valid(tmp)) {
+    arg4 = tmp;
+  }
+  tmp = arg5 | mask;
+  if (virt_addr_valid(tmp)) {
+    arg5 = tmp;
+  }
+  
+  fn = (gbpf_helper_fn_t)(unsigned long)call_target;
+
+  ret = fn(arg1, arg2, arg3, arg4, arg5);
+
+  if (virt_addr_valid(ret)) {
+    ret &= ~mask;
+  }
 
   return ret;
 }

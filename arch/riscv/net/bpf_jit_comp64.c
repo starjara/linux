@@ -258,19 +258,22 @@ static void __build_epilogue(bool is_tail_call, struct rv_jit_context *ctx)
 	   * S10 is still the fixed trampoline/frame base here.
 	   * Restore old HGATP first.
 	   */
-	  emit_ld(RV_REG_S11, GBPF_STK_OLD_HGATP, RV_REG_S10, ctx);
+	  //emit_ld(RV_REG_S11, GBPF_STK_OLD_HGATP, RV_REG_S10, ctx);
+	  emit_ld(RV_REG_S11, GBPF_STK_OLD_HGATP, RV_REG_SP, ctx);
 	  emit_csrw(0, RV_REG_S11, RV_CSR_HGATP, ctx);
 	  
 	  /*
 	   * Restore saved S11 from frame slot.
 	   */
-	  emit_ld(RV_REG_S11, GBPF_STK_SAVE_S11, RV_REG_S10, ctx);
+	  //emit_ld(RV_REG_S11, GBPF_STK_SAVE_S11, RV_REG_S10, ctx);
+	  emit_ld(RV_REG_S11, GBPF_STK_SAVE_S11, RV_REG_SP, ctx);
 	  
 	  /*
 	   * Restore saved S10 last.
 	   * After this point S10-based frame slots must not be accessed anymore.
 	   */
-	  emit_ld(RV_REG_S10, GBPF_STK_SAVE_S10, RV_REG_S10, ctx);
+	  //emit_ld(RV_REG_S10, GBPF_STK_SAVE_S10, RV_REG_S10, ctx);
+	  //emit_ld(RV_REG_S10, GBPF_STK_SAVE_S10, RV_REG_SP, ctx);
 
 	  
 	}
@@ -1505,8 +1508,6 @@ out_be:
 		  pr_info("helper_call_imm : 0x%llx\n", (u64)insn->imm);
 		  pr_info("helper_id(off)  : 0x%llx\n", (u64)insn->off);
 #endif
-		  /* End of Added */
-
 		  ret = emit_call((u64)&gbpf_helper_call_trampoline, true, ctx);
 			
 		  if (ret)
@@ -1554,9 +1555,14 @@ out_be:
 		  if (ret)
 		    return ret;
 		} else {
-		  //emit_imm(rd, imm64, ctx);
+		  /* JARA : imm range */
+		  if (virt_addr_valid(imm64))
+		    imm64 &= 0xFFFFFFFFFFFF;
+		  /* End of JARA */
+		  emit_imm(rd, imm64, ctx);
 
 		  /* JARA: Maybe map base addr */
+		  /*
 		  if (gbpf_ready && ctx->prog->aux && ctx->prog->aux->gaux->gbpf_page) {
 		    //if (imm64 >= 0xff60000000000000ULL) {
 		    if (virt_addr_valid(imm64)) {
@@ -1582,6 +1588,7 @@ out_be:
 		  else {
 		    emit_imm(rd, imm64, ctx);
 		  }
+		  */
 		  /* End of JARA */
 		}
 		return 1;
@@ -2047,26 +2054,28 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 	
 	/* JARA: Write hgatp for bpf program */
 	if (gbpf_ready && ctx->prog->aux->gaux->gbpf_page) {
+
+
 	  /* HGAT Setup */
 	  u64 hgatp = ctx->prog->aux->vmid;
 	  hgatp = hgatp << HGATP_VMID_SHIFT;
-	  hgatp |= HGATP_MODE_SV39X4 << HGATP_MODE_SHIFT;
+	  hgatp |= HGATP_MODE_SV48X4 << HGATP_MODE_SHIFT;
 	  hgatp |= ((page_to_phys(ctx->prog->aux->gaux->gpgd) >> PAGE_SHIFT) & HGATP_PPN);
 	  
 	  // Backup S11 and S10 save GAXU reg
 	  emit_sd(RV_REG_SP, GBPF_STK_SAVE_S11, RV_REG_S11, ctx);
-	  emit_sd(RV_REG_SP, GBPF_STK_SAVE_S10, RV_REG_S10, ctx);
-	  emit_sd(RV_REG_SP, GBPF_STK_SAVE_GAUX, RV_REG_A0, ctx);
+	  //emit_sd(RV_REG_SP, GBPF_STK_SAVE_S10, RV_REG_S10, ctx);
+	  //emit_sd(RV_REG_SP, GBPF_STK_SAVE_GAUX, RV_REG_A0, ctx);
 
-	  emit_addi(RV_REG_S10, RV_REG_SP, 0, ctx);   /* mv s10, sp */
+	  //emit_addi(RV_REG_S10, RV_REG_SP, 0, ctx);   /* mv s10, sp */
 	  
 	  // Read HGATP to S11 and backup HGATP to kernel SP
 	  emit_csrw(RV_REG_S11, 0, RV_CSR_HGATP, ctx);
-	  emit_sd(RV_REG_S10, GBPF_STK_OLD_HGATP, RV_REG_S11, ctx);
+	  //emit_sd(RV_REG_S10, GBPF_STK_OLD_HGATP, RV_REG_S11, ctx);
+	  emit_sd(RV_REG_SP, GBPF_STK_OLD_HGATP, RV_REG_S11, ctx);
 
-	  emit_imm(RV_REG_A0, GBPF_CTX_BASE, ctx);
+	  //emit_imm(RV_REG_A0, GBPF_CTX_BASE, ctx);
 
-	  
 	  /*
 	   * Switch HGATP to GBPF page-table.
 	   */
@@ -2076,12 +2085,22 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 	  /*
 	   * Initialize BPF virtual stack pointer.
 	   */
-	  emit_imm(RV_REG_S5, GBPF_CTX_BASE + PAGE_SIZE, ctx);
+	  // emit_imm(RV_REG_S5, GBPF_CTX_BASE + PAGE_SIZE, ctx);
 
+
+	  emit_imm(RV_REG_S11, 0x0000FFFFFFFFFFFF, ctx);
+	  emit_and(RV_REG_A0, RV_REG_A0, RV_REG_S11, ctx);
+	  emit_imm(RV_REG_T1, PAGE_SIZE, ctx);
+	  emit_add(RV_REG_S5, RV_REG_A0, RV_REG_T1, ctx);
+	  
+	  /*
 	  if (bpf_stack_adjust) {
 	    ctx->prog->aux->bpf_stack_adjust = bpf_stack_adjust;
+	    emit_addi(RV_REG_S5, RV_REG_S5, -bpf_stack_adjust, ctx);
 	  }
+	  */
 	}
+
 	/* End of JARA */
 
 	emit_addi(RV_REG_FP, RV_REG_SP, stack_adjust, ctx);

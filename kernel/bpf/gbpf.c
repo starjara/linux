@@ -35,7 +35,8 @@ static int gbpf_map_pkt_page(const struct bpf_prog *prog, const void *pkt_ptr)
 	if (prog->aux->gaux->pkt_page == pkt_page)
 		return 0;
 
-	err = gbpf_call_map_ext(prog, pkt_page, PAGE_SIZE, PKT, 0, 0);
+	//err = gbpf_call_map_ext(prog, pkt_page, PAGE_SIZE, PKT, 0, 0);
+	err = gbpf_call_map_ext_addr(prog, pkt_page, PAGE_SIZE, (u64)pkt_page, 0, 0);
 	if (err)
 		return err;
 
@@ -46,6 +47,8 @@ static int gbpf_map_pkt_page(const struct bpf_prog *prog, const void *pkt_ptr)
 static void *gbpf_copy_ctx_xdp(const struct xdp_buff *xdp,
 			       const struct bpf_prog *prog)
 {
+  /*
+>>>>>>> Stashed changes
   struct gbpf_aux *gaux = prog->aux->gaux;
   struct xdp_buff *shadow;
   void *pkt_page, *end;
@@ -157,6 +160,14 @@ static void *gbpf_copy_ctx_xdp(const struct xdp_buff *xdp,
   
   return (void *)gaux;
 
+  return (void *)prog->aux->gaux;
+  */
+  struct xdp_buff *shadow;
+  shadow = page_to_virt(prog->aux->gaux->gbpf_page);
+  memcpy(shadow, xdp, sizeof(*shadow));
+  
+  return (void *)xdp;
+  //return (void *)prog->aux->gaux;
 }
 
 /*
@@ -242,6 +253,7 @@ static void gbpf_copy_skb_hard(struct sk_buff *dst, const struct sk_buff *src)
 static void *gbpf_copy_ctx_skb(const struct sk_buff *skb,
 			       const struct bpf_prog *prog)
 {
+  /*
   struct gbpf_aux *gaux = prog->aux->gaux;
 	struct sk_buff *shadow;
 	void *shadow_ctx;
@@ -290,6 +302,14 @@ static void *gbpf_copy_ctx_skb(const struct sk_buff *skb,
 	shadow->end = end_off;
 
 	return (void *)gaux;
+	*/
+  
+  struct sk_buff *shadow;
+  shadow = page_to_virt(prog->aux->gaux->gbpf_page);
+  memcpy(shadow, skb, sizeof(*shadow));
+	 
+  return (void *)skb;
+  //return (void *)prog->aux->gaux;
 }
 
 static void *gbpf_copy_ctx_generic(const void *ctx,
@@ -321,6 +341,7 @@ void *gbpf_copy_ctx(const void *ctx, const struct bpf_prog *prog)
 
 #ifdef GBPF_DEBUG
 	pr_info("\nprog->aux->gaux: %px\n", prog->aux->gaux);
+	pr_info("prog->aux->gaux->gbpf_page: %lx\n", page_to_virt(prog->aux->gaux->gbpf_page));
 #endif
 
 	ctx_size = gbpf_ctx_size_map[prog->type];
@@ -349,6 +370,7 @@ void *gbpf_copy_ctx(const void *ctx, const struct bpf_prog *prog)
 
   pr_info("ctx copy: %llu ns", after - before);
 	*/
+	ret = page_to_virt(prog->aux->gaux->gbpf_page);
 
 	return ret; 
 }
