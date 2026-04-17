@@ -10,12 +10,14 @@
 #include <linux/filter.h>
 #include "bpf_jit.h"
 
+
+#include <linux/bpf_map.h>
+
 /* Number of iterations to try until offsets converge. */
 #define NR_JIT_ITERATIONS	32
 
-static int build_body(struct rv_jit_context *ctx, bool extra_pass, int *offset)
+static int build_body(struct rv_jit_context *ctx, bool extra_pass, int *offset, bool is_sandboxed)
 {
-        bool is_sandboxed = IS_SANDBOX_ENABLED(ctx->prog->type);
 	const struct bpf_prog *prog = ctx->prog;
 	int i;
 
@@ -49,8 +51,16 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 	struct rv_jit_data *jit_data;
 	struct rv_jit_context *ctx;
 
-  bool is_sandboxed = IS_SANDBOX_ENABLED(ctx->prog->type);
-  
+#ifndef CONFIG_BPF_SANDBOX
+	bool is_sandboxed = 0;
+#else
+	bool is_sandboxed = IS_SANDBOX_ENABLED(prog->type);
+#endif /* CONFIG_BPF_SANDBOX */
+
+#ifdef CONFIG_BPF_SFI_MAP_MASKING
+	bpf_sandbox_map_info_init(prog);
+#endif /* CONFIG_BPF_SFI_MAP_MASKING */
+
 	if (!prog->jit_requested)
 		return orig_prog;
 
@@ -94,7 +104,7 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 	for (i = 0; i < NR_JIT_ITERATIONS; i++) {
 		pass++;
 		ctx->ninsns = 0;
-		if (build_body(ctx, extra_pass, ctx->offset)) {
+		if (build_body(ctx, extra_pass, ctx->offset, is_sandboxed)) {
 			prog = orig_prog;
 			goto out_offset;
 		}
@@ -147,7 +157,7 @@ skip_init_ctx:
 	ctx->nexentries = 0;
 
 	bpf_jit_build_prologue(ctx, is_sandboxed);
-	if (build_body(ctx, extra_pass, NULL)) {
+	if (build_body(ctx, extra_pass, NULL, is_sandboxed)) {
 		bpf_jit_binary_free(jit_data->header);
 		prog = orig_prog;
 		goto out_offset;

@@ -206,7 +206,7 @@ static __always_inline bool is_caller_sandboxed(void)
 #if defined(CONFIG_BPF_SFI_TRAMPOLINE) || defined(CONFIG_BPF_SANDBOX_MEMORY_MANAGEMENT)
 	u8 prog_id;
 
-#if defined(CONFIG_X86_64) || defined(CONFIG_ARM64)
+#if defined(CONFIG_X86_64) || defined(CONFIG_ARM64) || defined(CONFIG_ARCH_RV64I)
 	prog_id = bpf_helper_get_prog_type();
 	return IS_SANDBOX_ENABLED(prog_id);
 #else
@@ -259,6 +259,8 @@ static __always_inline void *sandbox_alloc(const struct bpf_prog *prog, const vo
 {
 	size_t ctx_size;
 
+	pr_info("Sandbox allocation\n");
+
 	if (kernel_ctx) {
 		ctx_size = bpf_ctx_size_map[prog->type]; // TODO: change this to bpf ctx size
 		current_sandbox_info->kern_ctx = (u64)kernel_ctx;
@@ -289,6 +291,7 @@ static __always_inline void *sandbox_alloc(const struct bpf_prog *prog, const vo
  */
 static __always_inline void sandbox_free(const struct bpf_prog *prog)
 {
+  pr_info("Sandbox free\n");
 #ifdef CONFIG_BPF_SANDBOX_CTX
 	bpf_sync_kernel_ctx(prog, (void *)current_sandbox_info->kern_ctx, current_sandbox_mem);
 #endif /* CONFIG_BPF_SANDBOX_CTX */

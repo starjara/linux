@@ -212,6 +212,36 @@ void sandbox_tramp(volatile u64 r1, volatile u64 r2, volatile u64 r3, volatile u
 EXPORT_SYMBOL(sandbox_tramp);
 #endif
 
+
+#ifdef CONFIG_ARCH_RV64I
+void sandbox_tramp(volatile u64 r1, volatile u64 r2, volatile u64 r3, volatile u64 r4,
+		   volatile u64 r5)
+{
+	u64 prog_id;
+	volatile u64 call_target = bpf_sandbox_get_trampoline_target(&prog_id);
+
+#ifdef CONFIG_BPF_SANDBOX_CTX
+	pr_info("check helper and convert ctx\n");
+	if (unlikely(is_skb_helper(prog_id, call_target)) ||
+		unlikely(is_xdp_helper(prog_id, call_target)))
+		convert_bpf_ctx_to_kernel_ctx(&r1);
+#endif /* CONFIG_BPF_SANDBOX_CTX */
+
+#ifdef CONFIG_BPF_SFI_TRAMPOLINE
+	// Don't proceed if it's not a valid helper function
+	pr_info("helper valid?\n");
+	if (unlikely(!is_allowed_helper(prog_id, call_target)))
+		return;
+	pr_info("yes it is\n");
+#endif /* CONFIG_BPF_SFI_TRAMPOLINE */
+
+	// Call the valid helper function
+	pr_info("call helper\n");
+	bpf_sandbox_call_trampoline_target(call_target, r1, r2, r3, r4, r5);
+}
+EXPORT_SYMBOL(sandbox_tramp);
+#endif
+
 /**
  * func_ht_add - adds a function to the hashtable of allowed helper functions
  *
@@ -432,8 +462,9 @@ EXPORT_SYMBOL(sandbox_ctx);
  */
 static int __init init_bpf_sandbox(void)
 {
-	pr_info("BPF Sandbox: Core %d initializing sandbox management...", smp_processor_id());
+	pr_info("BPF Sandbox: Core %d initializing sandbox management ...", smp_processor_id());
 	sandboxes = kmalloc(BPF_SANDBOX_TOTAL_SIZE * nr_cpu_ids, GFP_ATOMIC);
+	pr_info("BPF Sandbox: Core %d initializing sandbox management at %px ...", smp_processor_id(), sandboxes);
 	if (!sandboxes)
 		panic("BPF Sandbox: could not allocate sandboxes");
 

@@ -37,8 +37,8 @@ static __always_inline u64 bpf_sandbox_get_trampoline_target(u64 *p)
 	volatile u64 call_target;
 
 	asm volatile(
-		"mv %[p], t0\n"
-		"mv %[t], t1\n"
+		"mv %[p], s10\n"
+		"mv %[t], s11\n"
 		: [p] "=r" (prog_id), [t] "=r" (call_target)
 		:
 		);
@@ -58,7 +58,7 @@ static __always_inline void bpf_sandbox_call_trampoline_target(volatile u64 call
 		"mv a3, %[d]\n"
 		"mv a4, %[e]\n"
 
-		"addi sp, sp -16\n"
+		"addi sp, sp, -16\n"
 		"sd ra, 0(sp)\n"
 		
 		"jalr ra, 0(%[t])\n"

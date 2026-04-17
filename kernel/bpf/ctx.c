@@ -13,7 +13,7 @@ void bpf_create__sk_buff_tstamp_read(const struct bpf_prog *prog,
 	#ifdef CONFIG_NET_CLS_ACT
 		if (!prog->tstamp_type_access) {
 		  //memcpy(&bpf_ctx->tstamp_type, kernel_ctx->__pkt_vlan_present_offset, sizeof(__u64));
-		  memcpy(&bpf_ctx->tstamp, kernel_ctx->tstamp,
+		  memcpy(&bpf_ctx->tstamp, &kernel_ctx->tstamp,
 					sizeof(__u64));
 			bpf_ctx->tstamp = bpf_ctx->tstamp &
 							(TC_AT_INGRESS_MASK |

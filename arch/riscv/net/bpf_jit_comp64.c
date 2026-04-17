@@ -296,6 +296,27 @@ static void __build_epilogue(bool is_tail_call, struct rv_jit_context *ctx, bool
 {
 	int stack_adjust = ctx->stack_size, store_offset = stack_adjust - 8;
 
+	
+#ifdef CONFIG_BPF_SANDBOX_MEMORY_MANAGEMENT
+	if (is_sandboxed) {
+	  /* sub x11, sp, #(0x7f0 + 0x18) //load the location of original sp */
+	  //emit_addi(RV_REG_S11, RV_REG_SP, (0x7f0 + 0x18) * -1, ctx);
+	  emit_imm(RV_REG_S11, (0x7f0 + 0x18) * -1, ctx);
+	  emit_add(RV_REG_S11, RV_REG_SP, RV_REG_S11, ctx);
+	  /* ldr x10, [x11] // load original stack pointer into x10 */
+	  emit_ld(RV_REG_S10, 0, RV_REG_S11, ctx);
+	  /* mov sp, x10 // restore the original stack pointer */
+	  emit_mv(RV_REG_SP, RV_REG_S10, ctx);
+	}
+#endif /* CONFIG_BPF_SANDBOX_MEMORY_MANAGEMENT */
+
+#ifdef CONFIG_BPF_SANDBOX_STACK_MANAGEMENT
+	if (is_sandboxed) {
+		/* mov sp, x10 // restore the original stack pointer */
+	  emit_mv(RV_REG_SP, RV_REG_S2, ctx);
+	}
+#endif /* CONFIG_BPF_SANDBOX_STACK_MANAGEMENT */
+
 	if (seen_reg(RV_REG_RA, ctx)) {
 		emit_ld(RV_REG_RA, store_offset, RV_REG_SP, ctx);
 		store_offset -= 8;
@@ -327,25 +348,8 @@ static void __build_epilogue(bool is_tail_call, struct rv_jit_context *ctx, bool
 		store_offset -= 8;
 	}
 
+
 	emit_addi(RV_REG_SP, RV_REG_SP, stack_adjust, ctx);
-
-#ifdef CONFIG_BPF_SANDBOX_MEMORY_MANAGEMENT
-	if (is_sandboxed) {
-	  /* sub x11, sp, #(0x7f0 + 0x18) //load the location of original sp */
-	  emit_addi(RV_REG_T1, RV_REG_SP, 0x7f0 + 0x18, ctx);
-	  /* ldr x10, [x11] // load original stack pointer into x10 */
-	  emit_ld(RV_REG_T0, 0, RV_REG_T1, ctx);
-	  /* mov sp, x10 // restore the original stack pointer */
-	  emit_mv(RV_REG_SP, RV_REG_T0, ctx);
-	}
-#endif /* CONFIG_BPF_SANDBOX_MEMORY_MANAGEMENT */
-
-#ifdef CONFIG_BPF_SANDBOX_STACK_MANAGEMENT
-	if (is_sandboxed) {
-		/* mov sp, x10 // restore the original stack pointer */
-	  emit_mv(RV_REG_SP, RV_REG_S2, ctx);
-	}
-#endif /* CONFIG_BPF_SANDBOX_STACK_MANAGEMENT */
 	
 	/* Set return value. */
 	if (!is_tail_call)
@@ -1149,6 +1153,16 @@ int bpf_jit_emit_insn(const struct bpf_insn *insn, struct rv_jit_context *ctx,
 		emit_mv(rd, rs, ctx);
 		if (!is64 && !aux->verifier_zext)
 			emit_zext_32(rd, ctx);
+
+#ifdef CONFIG_BPF_SFI_MAP_MASKING
+		if (is_sandboxed && is_map_reg(ctx->prog, rs)) {
+			bitmap_set(ctx->prog->map_info->map_reg_bitmap, rd, 1);
+			// pr_info("dst %d = src %d", dst, src);
+		} else if (is_sandboxed && is_map_reg(ctx->prog, rd)) {
+			bitmap_clear(ctx->prog->map_info->map_reg_bitmap, rd, 1);
+		}
+#endif /* CONFIG_BPF_SFI_MAP_MASKING */
+
 		break;
 
 	/* dst = dst OP src */
@@ -1549,7 +1563,7 @@ out_be:
 			if (is_map_lookup((u64)addr)) {
 				ctx->prog->map_info->is_map_lookup_invoked = true;
 				bitmap_set(ctx->prog->map_info->map_reg_bitmap, r0, 1);
-				// pr_info("after lookup call, map in reg %d", r0);
+				//pr_info("after lookup call, map in reg %d", r0);
 			} else {
 				ctx->prog->map_info->is_map_lookup_invoked = false;
 				bitmap_clear(ctx->prog->map_info->map_reg_bitmap, r0, 1);
@@ -1563,7 +1577,7 @@ out_be:
 			 * because emit_call only uses x10 (TMP_REG_1) and
 			 * emit_a64_mov_i64 uses no temp regs.
 			 */
-			emit_imm(RV_REG_T0, ctx->prog->type, ctx);
+			emit_imm(RV_REG_S10, ctx->prog->type, ctx);
 #endif /* CONFIG_BPF_SANDBOX_MEMORY_MANAGEMENT || CONFIG_BPF_SFI_TRAMPOLINE */
 
 #if defined(CONFIG_BPF_SANDBOX_CTX) || defined(CONFIG_BPF_SFI_TRAMPOLINE)
@@ -1572,7 +1586,7 @@ out_be:
 			 * because emit_call only uses x10 (TMP_REG_1) and
 			 * emit_a64_mov_i64 uses no temp regs.
 			 */
-			emit_imm(RV_REG_T1, addr, ctx);
+			emit_imm(RV_REG_S11, addr, ctx);
 			
 			addr = (u64)&sandbox_tramp;
 		}
@@ -1811,6 +1825,7 @@ out_be:
 			masked_addr_reg = emit_sfi(rd, off, ctx, false);
 			
 			emit(rv_sb(masked_addr_reg, 0, rs), ctx);
+			break;
 		} else {
 
 		  if (is_12b_int(off)) {
@@ -1840,6 +1855,7 @@ out_be:
 			masked_addr_reg = emit_sfi(rd, off, ctx, false);
 			
 			emit(rv_sh(masked_addr_reg, 0, rs), ctx);
+			break;
 		} else {
 
 		if (is_12b_int(off)) {
@@ -1869,6 +1885,7 @@ out_be:
 			masked_addr_reg = emit_sfi(rd, off, ctx, false);
 			
 			emit(rv_sw(masked_addr_reg, 0, rs), ctx);
+			break;
 		} else {
 
 		  if (is_12b_int(off)) {
@@ -1898,6 +1915,7 @@ out_be:
 			masked_addr_reg = emit_sfi(rd, off, ctx, false);
 			
 			emit_sd(masked_addr_reg, 0, rs, ctx);
+			break;
 		} else {
 		if (is_12b_int(off)) {
 			emit_sd(rd, off, rs, ctx);
@@ -2016,12 +2034,12 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx, bool is_sandboxed)
 
 		#ifdef CONFIG_BPF_SANDBOX_SFI
 		/* sub x11, x0, #0x18 // location in metadata to save pointer to original stack */
-		emit_addi(RV_REG_T1, RV_REG_A0, 0x18, ctx);
+		emit_addi(RV_REG_S11, RV_REG_A0, -0x18, ctx);
 		#endif /* CONFIG_BPF_SANDBOX_SFI */
-		/* mov x10, sp // move sp to x10 to subsequently store it in memory */
-		emit_mv(RV_REG_T0, RV_REG_SP, ctx);
-		/* str x10, [x11] // save the original stack pointer in sandbox metadata */
-		emit_sd(RV_REG_T0, 0, RV_REG_T1, ctx);
+		/* mv x10, sp // move sp to x10 to subsequently store it in memory */
+		emit_mv(RV_REG_S10, RV_REG_SP, ctx);
+		/* sd x10, [x11] // save the original stack pointer in sandbox metadata */
+		emit_sd(RV_REG_S11, 0, RV_REG_S10, ctx);
 		/* add sp, x0, 0x7f0 // switch the stack pointer to private stack */
 		emit_addi(RV_REG_SP, RV_REG_A0, 0x7f0, ctx);
 		sandbox_insns += SANDBOX_MEMORY_MANAGEMENT_INSNS;
@@ -2040,7 +2058,10 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx, bool is_sandboxed)
 
 	emit_addi(RV_REG_FP, RV_REG_SP, stack_adjust, ctx);
 
-	if (bpf_stack_adjust)
+	if (is_sandboxed) {
+		emit_addi(RV_REG_S5, RV_REG_SP, 0, ctx);
+	}
+	else if (bpf_stack_adjust)
 		emit_addi(RV_REG_S5, RV_REG_SP, bpf_stack_adjust, ctx);
 
 	/* Program contains calls and tail calls, so RV_REG_TCC need
