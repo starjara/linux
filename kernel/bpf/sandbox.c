@@ -77,6 +77,17 @@ size_t bpf_ctx_size_map[] = {
 };
 EXPORT_SYMBOL(bpf_ctx_size_map);
 
+static bool is_skb_load_helper(u64 addr)
+{
+  if (addr == (u64)bpf_skb_load_helper_8_no_cache ||
+      addr == (u64)bpf_skb_load_helper_16_no_cache ||
+      addr == (u64)bpf_skb_load_helper_32_no_cache )
+    return true;
+
+  return false;
+
+}
+
 /**
  * is_allowed_helper() - checks if a helper function is allowed
  *
@@ -228,7 +239,7 @@ u64 sandbox_tramp(volatile u64 r1, volatile u64 r2, volatile u64 r3, volatile u6
 #ifdef CONFIG_BPF_SANDBOX_CTX
 	if (unlikely(is_skb_helper(prog_id, call_target)) ||
 		unlikely(is_xdp_helper(prog_id, call_target)) ||
-	    call_target == (u64)bpf_skb_load_helper_8_no_cache)
+	    is_skb_load_helper(call_target) )
 		convert_bpf_ctx_to_kernel_ctx(&r1);
 #endif /* CONFIG_BPF_SANDBOX_CTX */
 

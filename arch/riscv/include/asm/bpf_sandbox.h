@@ -8,6 +8,8 @@
 
 //#include <asm/memory.h>
 
+typedef u64 (*gbpf_helper_fn_t)(u64, u64, u64, u64, u64);
+
 static __always_inline void convert_bpf_ctx_to_kernel_ctx(volatile u64 *ctx_ptr)
 {
 	volatile u64 ctx = (*ctx_ptr);
@@ -54,13 +56,18 @@ static __always_inline u64 bpf_sandbox_call_trampoline_target(volatile u64 call_
 {
 
 	volatile u64 ret;
+
+	gbpf_helper_fn_t	fn;
+	fn = (gbpf_helper_fn_t)(unsigned long)call_target;
+	ret = fn(r1, r2, r3, r4, r5);
 	
+	/*
 	asm volatile (
-		"mv a0, %[a]\n"
-		"mv a1, %[b]\n"
-		"mv a2, %[c]\n"
-		"mv a3, %[d]\n"
 		"mv a4, %[e]\n"
+		"mv a3, %[d]\n"
+		"mv a2, %[c]\n"
+		"mv a1, %[b]\n"
+		"mv a0, %[a]\n"
 
 		"addi sp, sp, -16\n"
 		"sd ra, 0(sp)\n"
@@ -75,6 +82,7 @@ static __always_inline u64 bpf_sandbox_call_trampoline_target(volatile u64 call_
 		  [c] "r" (r3), [d] "r" (r4), [e] "r" (r5)
 		: "x0", "x1", "x2", "x3", "x4"
 		);
+	*/
 
 	return ret;
 }

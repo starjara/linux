@@ -680,17 +680,32 @@ static void *__htab_map_lookup_elem(struct bpf_map *map, void *key)
 	struct htab_elem *l;
 	u32 hash, key_size;
 
+	pr_info("\nhtab_map_lookup_elem\n");
+	
 	WARN_ON_ONCE(!rcu_read_lock_held() && !rcu_read_lock_trace_held() &&
 		     !rcu_read_lock_bh_held());
 
+	pr_info("key : [%px] 0x%lx\n", key, *(u32 *)key);
+	
 	key_size = map->key_size;
 
 	hash = htab_map_hash(key, key_size, htab->hashrnd);
 
+	pr_info("hash : 0x%x\n", hash);
+
 	head = select_bucket(htab, hash);
+
+	pr_info("head : %px\n", head);
 
 	l = lookup_nulls_elem_raw(head, hash, key, key_size, htab->n_buckets);
 
+	if (l) {
+	  pr_info("elem.key : %lx\n", l->key);
+	  pr_info("value : %lx\n", l->key + round_up(map->key_size, 16));
+	}
+	else
+	  pr_info("Failed to get elem\n");
+	
 	return l;
 }
 
@@ -1076,7 +1091,8 @@ static struct htab_elem *alloc_htab_elem(struct bpf_htab *htab, void *key,
 		if (!prealloc)
 			htab_elem_set_ptr(l_new, key_size, pptr);
 	} else if (fd_htab_map_needs_adjust(htab)) {
-		size = round_up(size, 8);
+	  //size = round_up(size, 8);
+	  size = round_up(size, 16);
 		memcpy(l_new->key + round_up(key_size, 16), value, size);
 	} else {
 		copy_map_value(&htab->map,
@@ -1117,6 +1133,8 @@ static long htab_map_update_elem(struct bpf_map *map, void *key, void *value,
 	u32 key_size, hash;
 	int ret;
 
+	pr_info("\nhtab_map_update_elem\n");
+	
 	if (unlikely((map_flags & ~BPF_F_LOCK) > BPF_EXIST))
 		/* unknown flags */
 		return -EINVAL;
@@ -1126,10 +1144,16 @@ static long htab_map_update_elem(struct bpf_map *map, void *key, void *value,
 
 	key_size = map->key_size;
 
+	pr_info("key : [%px] 0x%lx\n", key, *(u32 *)key);
+	
 	hash = htab_map_hash(key, key_size, htab->hashrnd);
 
+	pr_info("hash : 0x%x\n", hash);
+	
 	b = __select_bucket(htab, hash);
 	head = &b->head;
+
+	pr_info("head : %px\n", head);
 
 	if (unlikely(map_flags & BPF_F_LOCK)) {
 		if (unlikely(!btf_record_has_field(map->record, BPF_SPIN_LOCK)))
@@ -1159,6 +1183,14 @@ static long htab_map_update_elem(struct bpf_map *map, void *key, void *value,
 
 	l_old = lookup_elem_raw(head, hash, key, key_size);
 
+	if (l_old) {
+	  pr_info("elem.key : %lx\n", l_old->key);
+	  pr_info("value : %lx\n", l_old->key + round_up(map->key_size, 16));
+	}
+	else
+	  pr_info("Failed to get old elem\n");
+	
+
 	ret = check_flags(htab, l_old, map_flags);
 	if (ret)
 		goto err;
@@ -1179,6 +1211,15 @@ static long htab_map_update_elem(struct bpf_map *map, void *key, void *value,
 
 	l_new = alloc_htab_elem(htab, key, value, key_size, hash, false, false,
 				l_old);
+
+	if (l_new) {
+	  pr_info("Alloc new elem\n");
+	  pr_info("elem.key : %lx\n", l_new->key);
+	  pr_info("value : %lx\n", l_new->key + round_up(map->key_size, 16));
+	}
+	else
+	  pr_info("Failed to get elem\n");
+	
 	if (IS_ERR(l_new)) {
 		/* all pre-allocated elements are in use or memory exhausted */
 		ret = PTR_ERR(l_new);
@@ -2237,7 +2278,8 @@ out:
 static u64 htab_map_mem_usage(const struct bpf_map *map)
 {
 	struct bpf_htab *htab = container_of(map, struct bpf_htab, map);
-	u32 value_size = round_up(htab->map.value_size, 8);
+	//u32 value_size = round_up(htab->map.value_size, 8);
+	u32 value_size = round_up(htab->map.value_size, 16);
 	bool prealloc = htab_is_prealloc(htab);
 	bool percpu = htab_is_percpu(htab);
 	bool lru = htab_is_lru(htab);
