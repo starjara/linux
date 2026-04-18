@@ -256,13 +256,15 @@ static inline u8 emit_sfi(u8 addr_reg, s16 off, struct rv_jit_context *ctx, bool
 	/* add tmp, addr_reg, off // load effective address */
 	emit_add(tmp, addr_reg, tmp, ctx);
 	/* sub tmp2, fp, (0x7f0 + 0x30) // location of the map's AND mask */
-	emit_addi(tmp2, fp, (0x7f0 + 0x30) * -1, ctx);
+	emit_imm(tmp2, (0x7f0 + 0x30) * -1, ctx);
+	emit_add(tmp2, fp, tmp2, ctx);
 	/* ldr tmp2, [tmp2] // load the AND mask */
 	emit_ld(tmp2, 0, tmp2, ctx);
 	/* and tmp, tmp, tmp2 // apply the AND mask */
 	emit_and(tmp, tmp, tmp2, ctx);
 	/* sub tmp2, fp, (0x7f0 + 0x28) // location of the map's OR mask */
-	emit_addi(tmp2, fp, (0x7f0 + 0x28) * -1, ctx);
+	emit_imm(tmp2, (0x7f0 + 0x28) * -1, ctx);
+	emit_add(tmp2, fp, tmp2, ctx);
 	/* ldr tmp2, [tmp2] // load the OR mask */
 	emit_ld(tmp2, 0, tmp2, ctx);
 	/* or tmp, tmp, tmp2 // apply the OR mask */
