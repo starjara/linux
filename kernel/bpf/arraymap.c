@@ -151,6 +151,21 @@ static struct bpf_map *array_map_alloc(union bpf_attr *attr)
 		return ERR_PTR(-ENOMEM);
 	}
 
+	pr_info("array @ %px\n", array);
+	pr_info("array->map @ %px\n", array->map);
+	pr_info("array->map.ops @ %llx\n", (unsigned long long)array->map.ops);
+	pr_info("sizeof struct map_info : 0x%zx\n", sizeof(struct bpf_map_info));
+	
+	pr_info("++++ Bonus ++++\n");
+	#include <linux/stddef.h>
+
+	pr_info("offsetof(pid_namespace, idr) = 0x%zx\n",
+		offsetof(struct pid_namespace, idr));
+	pr_info("offsetof(pid_namespace, child_reaper) = 0x%zx\n",
+		offsetof(struct pid_namespace, child_reaper));
+	pr_info("init_pid_ns addr = %px\n", &init_pid_ns);
+	pr_info("init_pid_ns.child_reaper = %px\n", init_pid_ns.child_reaper);
+		
 	return &array->map;
 }
 
@@ -168,7 +183,17 @@ static void *array_map_lookup_elem(struct bpf_map *map, void *key)
 	if (unlikely(index >= array->map.max_entries))
 		return NULL;
 
-	return array->value + (u64)array->elem_size * (index & array->index_mask);
+
+	void *ret = array->value + (u64)array->elem_size * (index & array->index_mask);
+
+	pr_info("\n+++++++ lookup +++++++ \n");
+	pr_info("map @ [%px], array @ [%px], key @ [%px] : %u\n", map, array, key, index);
+	pr_info("ret @ [%px] : 0x%lx\n", ret, *(u64 *)ret);
+	pr_info("array->map.ops @ %llx\n", (unsigned long long)array->map.ops);
+
+
+	return ret;
+	//return array->value + (u64)array->elem_size * (index & array->index_mask);
 }
 
 static int array_map_direct_value_addr(const struct bpf_map *map, u64 *imm,
@@ -314,6 +339,13 @@ static long array_map_update_elem(struct bpf_map *map, void *key, void *value,
 	u32 index = *(u32 *)key;
 	char *val;
 
+	/* 
+	  pr_info("\n+++++++ update +++++++ \n");
+	pr_info("map @ [%px], key @ [%px]\n", map, key);
+	pr_info("index : %u\n", index);
+	pr_info("value @ [%px] : 0x%lx\n", value, *(u64 *)value);
+	*/
+	
 	if (unlikely((map_flags & ~BPF_F_LOCK) > BPF_EXIST))
 		/* unknown flags */
 		return -EINVAL;

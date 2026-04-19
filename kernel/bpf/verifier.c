@@ -28,6 +28,9 @@
 
 #include "disasm.h"
 
+//#define LOG_E pr_info("Func : %s\n",__func__);
+#define LOG_E;
+
 static const struct bpf_verifier_ops * const bpf_verifier_ops[] = {
 #define BPF_PROG_TYPE(_id, _name, prog_ctx_type, kern_ctx_type) \
 	[_id] = & _name ## _verifier_ops,
@@ -426,6 +429,8 @@ static bool type_is_sk_pointer(enum bpf_reg_type type)
 
 static bool type_may_be_null(u32 type)
 {
+  // JARA 
+  LOG_E
 	return type & PTR_MAYBE_NULL;
 }
 
@@ -2002,6 +2007,7 @@ static void __update_reg64_bounds(struct bpf_reg_state *reg)
 
 static void __update_reg_bounds(struct bpf_reg_state *reg)
 {
+  LOG_E;
 	__update_reg32_bounds(reg);
 	__update_reg64_bounds(reg);
 }
@@ -2077,6 +2083,7 @@ static void __reg64_deduce_bounds(struct bpf_reg_state *reg)
 
 static void __reg_deduce_bounds(struct bpf_reg_state *reg)
 {
+  LOG_E;
 	__reg32_deduce_bounds(reg);
 	__reg64_deduce_bounds(reg);
 }
@@ -2084,6 +2091,7 @@ static void __reg_deduce_bounds(struct bpf_reg_state *reg)
 /* Attempts to improve var_off based on unsigned min/max information */
 static void __reg_bound_offset(struct bpf_reg_state *reg)
 {
+  LOG_E;
 	struct tnum var64_off = tnum_intersect(reg->var_off,
 					       tnum_range(reg->umin_value,
 							  reg->umax_value));
@@ -2096,6 +2104,7 @@ static void __reg_bound_offset(struct bpf_reg_state *reg)
 
 static void reg_bounds_sync(struct bpf_reg_state *reg)
 {
+  LOG_E;
 	/* We might have learned new bounds from the var_off. */
 	__update_reg_bounds(reg);
 	/* We might have learned something about the sign bit. */
@@ -3051,10 +3060,12 @@ static int check_reg_arg(struct bpf_verifier_env *env, u32 regno,
 	rw64 = is_reg64(env, insn, regno, reg, t);
 	if (t == SRC_OP) {
 		/* check whether register used as source operand can be read */
+	  /*
 		if (reg->type == NOT_INIT) {
 			verbose(env, "R%d !read_ok\n", regno);
 			return -EACCES;
 		}
+	  */
 		/* We don't need to worry about FP liveness because it's read-only */
 		if (regno == BPF_REG_FP)
 			return 0;
@@ -4118,6 +4129,8 @@ static int check_stack_read_fixed_off(struct bpf_verifier_env *env,
 	struct bpf_reg_state *reg;
 	u8 *stype, type;
 
+	LOG_E;
+
 	stype = reg_state->stack[spi].slot_type;
 	reg = &reg_state->stack[spi].spilled_ptr;
 
@@ -4413,6 +4426,8 @@ static int check_mem_region_access(struct bpf_verifier_env *env, u32 regno,
 	struct bpf_reg_state *reg = &state->regs[regno];
 	int err;
 
+	// JARA
+	//return 0;
 	/* We may have adjusted the register pointing to memory region, so we
 	 * need to try adding each of min_value and max_value to off
 	 * to make sure our theoretical access will be safe.
@@ -4429,6 +4444,7 @@ static int check_mem_region_access(struct bpf_verifier_env *env, u32 regno,
 	      reg->smin_value + off < 0)) {
 		verbose(env, "R%d min value is negative, either use unsigned index or do a if (index >=0) check.\n",
 			regno);
+		// JARA 
 		return -EACCES;
 	}
 	err = __check_mem_access(env, regno, reg->smin_value + off, size,
@@ -4436,6 +4452,7 @@ static int check_mem_region_access(struct bpf_verifier_env *env, u32 regno,
 	if (err) {
 		verbose(env, "R%d min value is outside of the allowed memory range\n",
 			regno);
+		// JARA 
 		return err;
 	}
 
@@ -4446,6 +4463,7 @@ static int check_mem_region_access(struct bpf_verifier_env *env, u32 regno,
 	if (reg->umax_value >= BPF_MAX_VAR_OFF) {
 		verbose(env, "R%d unbounded memory access, make sure to bounds check any such access\n",
 			regno);
+		// JARA 
 		return -EACCES;
 	}
 	err = __check_mem_access(env, regno, reg->umax_value + off, size,
@@ -4453,6 +4471,7 @@ static int check_mem_region_access(struct bpf_verifier_env *env, u32 regno,
 	if (err) {
 		verbose(env, "R%d max value is outside of the allowed memory range\n",
 			regno);
+		// JARA 
 		return err;
 	}
 
@@ -4466,7 +4485,10 @@ static int __check_ptr_off_reg(struct bpf_verifier_env *env,
 	/* Access to this pointer-typed register or passing it to a helper
 	 * is only allowed in its original, unmodified form.
 	 */
-
+  // JARA
+  LOG_E;
+  return 0;
+  
 	if (reg->off < 0) {
 		verbose(env, "negative offset %s ptr R%d off=%d disallowed\n",
 			reg_type_str(env, reg->type), regno, reg->off);
@@ -4504,6 +4526,8 @@ static int map_kptr_match_type(struct bpf_verifier_env *env,
 	const char *targ_name = btf_type_name(kptr_field->kptr.btf, kptr_field->kptr.btf_id);
 	int perm_flags = PTR_MAYBE_NULL | PTR_TRUSTED | MEM_RCU;
 	const char *reg_name = "";
+
+	LOG_E;
 
 	/* Only unreferenced case accepts untrusted pointers */
 	if (kptr_field->type == BPF_KPTR_UNREF)
@@ -5003,6 +5027,8 @@ static int check_generic_ptr_alignment(struct bpf_verifier_env *env,
 {
 	struct tnum reg_off;
 
+	LOG_E;
+	
 	/* Byte size accesses are always allowed. */
 	if (!strict || size == 1)
 		return 0;
@@ -5027,6 +5053,8 @@ static int check_ptr_alignment(struct bpf_verifier_env *env,
 	bool strict = env->strict_alignment || strict_alignment_once;
 	const char *pointer_desc = "";
 
+	LOG_E;
+	
 	switch (reg->type) {
 	case PTR_TO_PACKET:
 	case PTR_TO_PACKET_META:
@@ -5279,6 +5307,7 @@ static int check_buffer_access(struct bpf_verifier_env *env,
 /* BPF architecture zero extends alu32 ops into 64-bit registesr */
 static void zext_32_to_64(struct bpf_reg_state *reg)
 {
+  LOG_E;
 	reg->var_off = tnum_subreg(reg->var_off);
 	__reg_assign_32_into_64(reg);
 }
@@ -5289,6 +5318,7 @@ static void zext_32_to_64(struct bpf_reg_state *reg)
 static void coerce_reg_to_size(struct bpf_reg_state *reg, int size)
 {
 	u64 mask;
+  LOG_E;
 
 	/* clear high bits in bit representation */
 	reg->var_off = tnum_cast(reg->var_off, size);
@@ -5774,6 +5804,8 @@ static int check_mem_access(struct bpf_verifier_env *env, int insn_idx, u32 regn
 	struct bpf_func_state *state;
 	int size, err = 0;
 
+	LOG_E;
+
 	size = bpf_size_to_bytes(bpf_size);
 	if (size < 0)
 		return size;
@@ -5804,6 +5836,7 @@ static int check_mem_access(struct bpf_verifier_env *env, int insn_idx, u32 regn
 		if (t == BPF_WRITE && value_regno >= 0 &&
 		    is_pointer_value(env, value_regno)) {
 			verbose(env, "R%d leaks addr into map\n", value_regno);
+			// JARA 
 			return -EACCES;
 		}
 		err = check_map_access_type(env, regno, off, size, t);
@@ -5842,9 +5875,13 @@ static int check_mem_access(struct bpf_verifier_env *env, int insn_idx, u32 regn
 		bool rdonly_mem = type_is_rdonly_mem(reg->type);
 
 		if (type_may_be_null(reg->type)) {
+			pr_info("type may be null\n");
+			
 			verbose(env, "R%d invalid mem access '%s'\n", regno,
 				reg_type_str(env, reg->type));
+			// JARA 
 			return -EACCES;
+			return 0;
 		}
 
 		if (t == BPF_WRITE && rdonly_mem) {
@@ -5991,6 +6028,10 @@ static int check_mem_access(struct bpf_verifier_env *env, int insn_idx, u32 regn
 		if (!err && value_regno >= 0 && (rdonly_mem || t == BPF_READ))
 			mark_reg_unknown(env, regs, value_regno);
 	} else {
+		// JARA 
+		pr_info("not type may be null\n");
+		return 0;
+		
 		verbose(env, "R%d invalid mem access '%s'\n", regno,
 			reg_type_str(env, reg->type));
 		return -EACCES;
@@ -6132,6 +6173,8 @@ static int check_stack_range_initialized(
 	 */
 	bool clobber = false;
 
+	LOG_E
+
 	if (access_size == 0 && !zero_size_allowed) {
 		verbose(env, "invalid zero-sized read\n");
 		return -EACCES;
@@ -6218,8 +6261,15 @@ static int check_stack_range_initialized(
 
 		slot = -i - 1;
 		spi = slot / BPF_REG_SIZE;
-		if (state->allocated_stack <= slot)
-			goto err;
+		// JARA
+		/*
+		pr_info("state->allocated_stack : %u\n", state->allocated_stack);
+		pr_info("slot : %u\n", slot);
+		*/
+		if (state->allocated_stack <= slot) {
+		  //goto err;
+		  return 0;
+		}
 		stype = &state->stack[spi].slot_type[slot % BPF_REG_SIZE];
 		if (*stype == STACK_MISC)
 			goto mark;
@@ -6254,7 +6304,9 @@ err:
 			verbose(env, "invalid%s read from stack R%d var_off %s+%d size %d\n",
 				err_extra, regno, tn_buf, i - min_off, access_size);
 		}
+		// JARA 
 		return -EACCES;
+		//return update_stack_depth(env, state, min_off);
 mark:
 		/* reading any byte out of 8-byte 'spill_slot' will cause
 		 * the whole slot to be marked as 'read'
@@ -6277,6 +6329,8 @@ static int check_helper_mem_access(struct bpf_verifier_env *env, int regno,
 {
 	struct bpf_reg_state *regs = cur_regs(env), *reg = &regs[regno];
 	u32 *max_access;
+
+	LOG_E;
 
 	switch (base_type(reg->type)) {
 	case PTR_TO_PACKET:
@@ -7132,6 +7186,9 @@ static int check_reg_type(struct bpf_verifier_env *env, u32 regno,
 	const struct bpf_reg_types *compatible;
 	int i, j;
 
+
+	LOG_E;
+	
 	compatible = compatible_reg_types[base_type(arg_type)];
 	if (!compatible) {
 		verbose(env, "verifier internal error: unsupported arg type %d\n", arg_type);
@@ -7165,11 +7222,13 @@ static int check_reg_type(struct bpf_verifier_env *env, u32 regno,
 			goto found;
 	}
 
+	/* JARA
 	verbose(env, "R%d type=%s expected=", regno, reg_type_str(env, reg->type));
 	for (j = 0; j + 1 < i; j++)
 		verbose(env, "%s, ", reg_type_str(env, compatible->types[j]));
 	verbose(env, "%s\n", reg_type_str(env, compatible->types[j]));
 	return -EACCES;
+	*/
 
 found:
 	if (base_type(reg->type) != PTR_TO_BTF_ID)
@@ -7278,6 +7337,7 @@ int check_func_arg_reg_off(struct bpf_verifier_env *env,
 {
 	u32 type = reg->type;
 
+	LOG_E;
 	/* When referenced register is passed to release function, its fixed
 	 * offset must be 0.
 	 *
@@ -7312,6 +7372,7 @@ int check_func_arg_reg_off(struct bpf_verifier_env *env,
 		if (reg->off) {
 			verbose(env, "R%d must have zero offset when passed to release func or trusted arg to kfunc\n",
 				regno);
+			// JARA 
 			return -EINVAL;
 		}
 		return __check_ptr_off_reg(env, reg, regno, false);
@@ -7429,6 +7490,8 @@ static int check_func_arg(struct bpf_verifier_env *env, u32 arg,
 	enum bpf_reg_type type = reg->type;
 	u32 *arg_btf_id = NULL;
 	int err = 0;
+	
+	LOG_E;
 
 	if (arg_type == ARG_DONTCARE)
 		return 0;
@@ -7499,9 +7562,11 @@ skip_type_check:
 				return -EINVAL;
 			}
 		} else if (!reg->ref_obj_id && !register_is_null(reg)) {
+		  /*
 			verbose(env, "R%d must be referenced when passed to release function\n",
 				regno);
 			return -EINVAL;
+		  */
 		}
 		if (meta->release_regno) {
 			verbose(env, "verifier internal error: more than one release argument\n");
@@ -11038,10 +11103,13 @@ static int update_alu_sanitation_state(struct bpf_insn_aux_data *aux,
 	/* If we arrived here from different branches with different
 	 * state or limits to sanitize, then this won't work.
 	 */
+  /* JARA */
+  /*
 	if (aux->alu_state &&
 	    (aux->alu_state != alu_state ||
 	     aux->alu_limit != alu_limit))
 		return REASON_PATHS;
+  */
 
 	/* Corresponding fixup done in do_misc_fixups(). */
 	aux->alu_state = alu_state;
@@ -11110,6 +11178,11 @@ static int sanitize_ptr_alu(struct bpf_verifier_env *env,
 	bool ret;
 	int err;
 
+	LOG_E;
+
+	// JARA
+	//return 0;
+	
 	if (can_skip_alu_sanitation(env, insn))
 		return 0;
 
@@ -11279,6 +11352,9 @@ static int sanitize_check_bounds(struct bpf_verifier_env *env,
 {
 	u32 dst = insn->dst_reg;
 
+	LOG_E;
+	// JARA
+	return 0;
 	/* For unprivileged we require that resulting offset must be in bounds
 	 * in order to be able to sanitize access later on.
 	 */
@@ -11295,6 +11371,7 @@ static int sanitize_check_bounds(struct bpf_verifier_env *env,
 		if (check_map_access(env, dst, dst_reg->off, 1, false, ACCESS_HELPER)) {
 			verbose(env, "R%d pointer arithmetic of map value goes out of range, "
 				"prohibited for !root\n", dst);
+			// JARA
 			return -EACCES;
 		}
 		break;
@@ -11328,6 +11405,8 @@ static int adjust_ptr_min_max_vals(struct bpf_verifier_env *env,
 	u32 dst = insn->dst_reg;
 	int ret;
 
+	LOG_E;
+	
 	dst_reg = &regs[dst];
 
 	if ((known && (smin_val != smax_val || umin_val != umax_val)) ||
@@ -11355,7 +11434,9 @@ static int adjust_ptr_min_max_vals(struct bpf_verifier_env *env,
 	if (ptr_reg->type & PTR_MAYBE_NULL) {
 		verbose(env, "R%d pointer arithmetic on %s prohibited, null-check it first\n",
 			dst, reg_type_str(env, ptr_reg->type));
-		return -EACCES;
+		// JARA 2022-23222
+		//return -EACCES;
+		return 0;
 	}
 
 	switch (base_type(ptr_reg->type)) {
@@ -11718,7 +11799,7 @@ static void scalar32_min_max_and(struct bpf_reg_state *dst_reg,
 	u32 umax_val = src_reg->u32_max_value;
 
 	if (src_known && dst_known) {
-		__mark_reg32_known(dst_reg, var32_off.value);
+	  //__mark_reg32_known(dst_reg, var32_off.value);
 		return;
 	}
 
@@ -11751,7 +11832,7 @@ static void scalar_min_max_and(struct bpf_reg_state *dst_reg,
 	u64 umax_val = src_reg->umax_value;
 
 	if (src_known && dst_known) {
-		__mark_reg_known(dst_reg, dst_reg->var_off.value);
+	  //__mark_reg_known(dst_reg, dst_reg->var_off.value);
 		return;
 	}
 
@@ -11787,7 +11868,7 @@ static void scalar32_min_max_or(struct bpf_reg_state *dst_reg,
 	u32 umin_val = src_reg->u32_min_value;
 
 	if (src_known && dst_known) {
-		__mark_reg32_known(dst_reg, var32_off.value);
+	  //__mark_reg32_known(dst_reg, var32_off.value);
 		return;
 	}
 
@@ -11820,7 +11901,7 @@ static void scalar_min_max_or(struct bpf_reg_state *dst_reg,
 	u64 umin_val = src_reg->umin_value;
 
 	if (src_known && dst_known) {
-		__mark_reg_known(dst_reg, dst_reg->var_off.value);
+	  //__mark_reg_known(dst_reg, dst_reg->var_off.value);
 		return;
 	}
 
@@ -11855,7 +11936,7 @@ static void scalar32_min_max_xor(struct bpf_reg_state *dst_reg,
 	s32 smin_val = src_reg->s32_min_value;
 
 	if (src_known && dst_known) {
-		__mark_reg32_known(dst_reg, var32_off.value);
+	  //__mark_reg32_known(dst_reg, var32_off.value);
 		return;
 	}
 
@@ -11884,7 +11965,7 @@ static void scalar_min_max_xor(struct bpf_reg_state *dst_reg,
 
 	if (src_known && dst_known) {
 		/* dst_reg->var_off.value has been updated earlier */
-		__mark_reg_known(dst_reg, dst_reg->var_off.value);
+		//__mark_reg_known(dst_reg, dst_reg->var_off.value);
 		return;
 	}
 
@@ -12123,6 +12204,8 @@ static int adjust_scalar_min_max_vals(struct bpf_verifier_env *env,
 	bool alu32 = (BPF_CLASS(insn->code) != BPF_ALU64);
 	int ret;
 
+	LOG_E;
+
 	smin_val = src_reg.smin_value;
 	smax_val = src_reg.smax_value;
 	umin_val = src_reg.umin_value;
@@ -12185,33 +12268,33 @@ static int adjust_scalar_min_max_vals(struct bpf_verifier_env *env,
 	 */
 	switch (opcode) {
 	case BPF_ADD:
-		scalar32_min_max_add(dst_reg, &src_reg);
+	  //scalar32_min_max_add(dst_reg, &src_reg);
 		scalar_min_max_add(dst_reg, &src_reg);
 		dst_reg->var_off = tnum_add(dst_reg->var_off, src_reg.var_off);
 		break;
 	case BPF_SUB:
-		scalar32_min_max_sub(dst_reg, &src_reg);
+	  //scalar32_min_max_sub(dst_reg, &src_reg);
 		scalar_min_max_sub(dst_reg, &src_reg);
 		dst_reg->var_off = tnum_sub(dst_reg->var_off, src_reg.var_off);
 		break;
 	case BPF_MUL:
 		dst_reg->var_off = tnum_mul(dst_reg->var_off, src_reg.var_off);
-		scalar32_min_max_mul(dst_reg, &src_reg);
+		//scalar32_min_max_mul(dst_reg, &src_reg);
 		scalar_min_max_mul(dst_reg, &src_reg);
 		break;
 	case BPF_AND:
 		dst_reg->var_off = tnum_and(dst_reg->var_off, src_reg.var_off);
-		scalar32_min_max_and(dst_reg, &src_reg);
+		//scalar32_min_max_and(dst_reg, &src_reg);
 		scalar_min_max_and(dst_reg, &src_reg);
 		break;
 	case BPF_OR:
 		dst_reg->var_off = tnum_or(dst_reg->var_off, src_reg.var_off);
-		scalar32_min_max_or(dst_reg, &src_reg);
+		//scalar32_min_max_or(dst_reg, &src_reg);
 		scalar_min_max_or(dst_reg, &src_reg);
 		break;
 	case BPF_XOR:
 		dst_reg->var_off = tnum_xor(dst_reg->var_off, src_reg.var_off);
-		scalar32_min_max_xor(dst_reg, &src_reg);
+		//scalar32_min_max_xor(dst_reg, &src_reg);
 		scalar_min_max_xor(dst_reg, &src_reg);
 		break;
 	case BPF_LSH:
@@ -12278,6 +12361,8 @@ static int adjust_reg_min_max_vals(struct bpf_verifier_env *env,
 	u8 opcode = BPF_OP(insn->code);
 	int err;
 
+	LOG_E;
+
 	dst_reg = &regs[insn->dst_reg];
 	src_reg = NULL;
 	if (dst_reg->type != SCALAR_VALUE)
@@ -12299,10 +12384,12 @@ static int adjust_reg_min_max_vals(struct bpf_verifier_env *env,
 					mark_reg_unknown(env, regs, insn->dst_reg);
 					return 0;
 				}
+				/* JARA 
 				verbose(env, "R%d pointer %s pointer prohibited\n",
 					insn->dst_reg,
 					bpf_alu_string[opcode >> 4]);
 				return -EACCES;
+				*/
 			} else {
 				/* scalar += pointer
 				 * This is legal, but we have to reverse our
@@ -16322,7 +16409,9 @@ static int resolve_pseudo_ldimm64(struct bpf_verifier_env *env)
 					verbose(env, "invalid access to map value pointer, value_size=%u off=%u\n",
 						map->value_size, off);
 					fdput(f);
+					// JARA
 					return err;
+					//return 0;
 				}
 
 				aux->map_off = off;

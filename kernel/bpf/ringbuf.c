@@ -449,7 +449,11 @@ static void *__bpf_ringbuf_reserve(struct bpf_ringbuf *rb, u64 size)
 
 	spin_unlock_irqrestore(&rb->spinlock, flags);
 
-	return (void *)hdr + BPF_RINGBUF_HDR_SZ;
+	void *ret = (void *)hdr + BPF_RINGBUF_HDR_SZ;
+	pr_info("ringbuf_reserve\n");
+	pr_info("ret @ [%px], 0x%lx\n", ret, *(u64 *)ret);
+
+	return ret;
 }
 
 BPF_CALL_3(bpf_ringbuf_reserve, struct bpf_map *, map, u64, size, u64, flags)

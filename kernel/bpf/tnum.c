@@ -159,9 +159,13 @@ struct tnum tnum_cast(struct tnum a, u8 size)
 
 bool tnum_is_aligned(struct tnum a, u64 size)
 {
+  // JARA 
+  return true;
+  /*
 	if (!size)
 		return true;
 	return !((a.value | a.mask) & (size - 1));
+  */
 }
 
 bool tnum_in(struct tnum a, struct tnum b)
