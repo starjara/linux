@@ -4,7 +4,7 @@
 #include <linux/types.h>
 #include <linux/bpf.h>
 #include <linux/netdevice.h>
-#include <net/xdp.h>
+// #include <net/xdp.h>
 
 #define GBPF_PAGE_SIZE 4096
 #define GBPF_CONTEXT_SIZE 512
